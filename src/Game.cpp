@@ -2290,7 +2290,8 @@ Game::BikeStats Game::ComputeStats(const BikeParams& p)
             t += ep.shiftTime;
             continue;
         }
-        const float drive = std::min(e.Torque(std::min(rpm, ep.revLimit)) * ep.torqueScale * ratio * ep.efficiency / r, limit);
+        // En 5ª al corte ya no empuja: una moto que no llega a 100 (la de trial) no tiene 0 a 100 (el menú muestra "-").
+        const float drive = rpm >= ep.revLimit ? 0.0f : std::min(e.Torque(rpm) * ep.torqueScale * ratio * ep.efficiency / r, limit);
         const float a = (drive - 0.6f * p.dragArea * v * v - p.rollingResistance * p.mass * kG) / p.mass;
         if (a <= 0.0f) break;
         v += a * 0.01f;

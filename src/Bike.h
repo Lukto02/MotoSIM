@@ -158,6 +158,11 @@ struct BikeParams {
     // salga sola; el piloto la empuja afuera con el cuerpo y el manubrio. Nm por rad que le falta a la cola.
     float slidePivot = 0.0f;
     float brakeAlignTorque = 1500.0f;// Nm por rad/s
+    // Con cuánto freno de adelante empieza a actuar brake_align y con cuánto actúa entero.
+    float brakeAlignFrom = 0.2f, brakeAlignFull = 0.6f;
+    // Frenando derecho con brake_align, cuánto se suelta la delantera para que siga su camino (1 = del todo, 0 = nada:
+    // sólo se alinea la moto).
+    float brakeAlignFree = 1.0f;
     // Anti-levantamiento de la cola del ABS: con menos de rearLiftLoad N en la trasera afloja la delantera
     // (derecha, hasta rearLiftMitigation; inclinada, más).
     float rearLiftLoad = 300.0f;
