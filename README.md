@@ -16,7 +16,7 @@ Prototipo de motocross simcade en C++17 con **raylib** (render, input, cámara, 
 | 7 | Surcos con efecto físico, superficies distintas | Hecha, **apagada por defecto** (F8) |
 | 8 | Multijugador LAN: código de invitación, hasta 4, choques entre motos | Hecha (v0.2; protocolo actual: el de la v0.2.1) |
 | 9 | Mapas: selector en el menú y la favela "Morro do Grau" con la Trilheira 450 | Hecha (v0.2.1) |
-| 10 | Mods (mapas y motos en archivos), selector de motos, motos de carreras y trial, circuito de velocidad | Hecha (v0.2.4-v0.2.7; protocolo 7) |
+| 10 | Mods (mapas y motos en archivos), selector de motos, motos de carreras y trial, circuito de velocidad | Hecha (v0.2.4-v0.2.8; protocolo 7) |
 
 ## Compilar
 
@@ -52,7 +52,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.2.7 de `dist/MotoSim-v0.2.7.zip`, posterior a la v0.3.1): con MSVC, compilar con el runtime
+**Versión para compartir** (la v0.2.8 de `dist/MotoSim-v0.2.8.zip`, posterior a la v0.3.1): con MSVC, compilar con el runtime
 estático para que el .exe no pida instalar el "Visual C++ Redistributable" en la otra PC
 (`dumpbin /dependents` sólo debe listar DLLs de Windows):
 

@@ -66,7 +66,7 @@ Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los
 dos ejecutables y compara la telemetría (md5). La referencia es el último paquete
-(hoy `dist/MotoSim-v0.2.7/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
+(hoy `dist/MotoSim-v0.2.8/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
 anterior a las v0.2.x). El juego nuevo agrega ` scr=` al final de cada línea; el script
 lo saca.
 
@@ -239,6 +239,10 @@ dedos), la de carreras frenando y doblando, sin trompo frenando la motocross, la
 más viva en la motocross y la 2T, choques en red (quién se cae), reaparecer con R, sacudón y motion blur
 apagables. Al probar el paquete apareció un `preferencias.ini` del usuario (había abierto el juego desde la
 carpeta del paquete): no se borra; el zip se arma desde una copia sin él.
+**v0.2.8** (protocolo 7, juega con la v0.2.5-v0.2.7; 5.4 MB): menú Ajustes y Controles, HUD más limpio, Los
+Médanos con saltos encadenados, el Parque rediseñado, el piloto que no se mete en la moto, la Trilheira sin
+trompo, la 2T con motor de dos tiempos, la Carrera pesada en el aire, sin parpadeos en el autódromo y la
+favela, profundidad de 24 bits.
 
 - **Trampas de las pruebas del paquete**:
   - `brakeslideN` toma N en **m/s**, no en km/h (`brakeslide10` entra a 36 km/h). El derrape lento se
