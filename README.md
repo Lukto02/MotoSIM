@@ -78,7 +78,7 @@ versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`k
 | Cuerpo a los costados | Stick der. X | ← / → |
 | Bajar / subir marcha | LB / RB | Q / E |
 | Reaparecer (caído no reaparece solo; en la pista, en la pista; en un mapa libre, donde quedaste, mirando para donde ibas) | Y | R |
-| Volver a la largada | Back | Retroceso |
+| Volver a empezar (a la largada, y los objetos sueltos a su lugar) | Back | Retroceso |
 | Menú (ajustes y controles) | Start | Esc |
 | Pausa (no anda en red) | — | P |
 | Caja automática / manual (arranca en automática; se recuerda) | X | F3 |

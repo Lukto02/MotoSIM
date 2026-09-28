@@ -325,6 +325,7 @@ Lo aprendido:
   se pueden poner al final de una línea para atravesarlos.
 
 Pendientes:
-- Los objetos sueltos quedan donde cayeron hasta que se vuelve a cargar el mapa: `Props::Reset` existe
-  pero nadie lo llama (una tecla, o al reaparecer: `Game.cpp`).
+- ~~Los objetos sueltos quedan donde cayeron hasta que se vuelve a cargar el mapa.~~ Hecho: "Volver a empezar"
+  (Retroceso / Back) lleva a la largada y llama a `Props::Reset`. Al reaparecer con R no, así se puede
+  seguir jugando con lo que ya se volteó.
 - El bot no anda las líneas del parque (sólo la vuelta); están medidas con las copias de prueba.

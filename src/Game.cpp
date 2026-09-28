@@ -1029,6 +1029,9 @@ void Game::HandleKeys()
     if (IsKeyPressed(KEY_BACKSPACE) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_LEFT))) {
         Respawn(track.startLine - 6.0f);
         lapStart = -1.0f;
+        // Empezar de nuevo: los objetos sueltos (tambores, cajas, bolos, pelotas) vuelven a su lugar.
+        // Antes quedaban donde cayeron hasta recargar el mapa. En red cada PC mueve los suyos.
+        props.Reset(*physics);
     }
 
     // Ajuste en vivo del centro de masa (debug)
@@ -3491,7 +3494,7 @@ void Game::DrawMenu()
             {"Cuerpo adelante y atrás", "\xE2\x86\x91  \xE2\x86\x93", "stick izq."},
             {"Cuerpo a los costados", "\xE2\x86\x90  \xE2\x86\x92", "stick der."},
             {"Reaparecer", "R", "Y"},
-            {"Volver a la largada", "Retroceso", "Back"},
+            {"Volver a empezar", "Retroceso", "Back"},   // a la largada, y los objetos sueltos a su lugar
         };
         static const Row game[] = {
             {"Menú, ajustes y controles", "Esc", "Start"},
