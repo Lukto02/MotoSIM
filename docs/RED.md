@@ -10,7 +10,8 @@ paquetes, motos remotas). El funcionamiento visto desde el jugador está en el R
   usuario). Historia: 3 (v0.3.1), 4 (v0.2.1-v0.2.2, mapa), 5 (v0.2.3, cuerpo de costado), 6 (v0.2.4,
   mapa por nombre `mod/archivo`), 7 (v0.2.5, la moto de cada uno; la v0.2.6 sigue en 7 y juega con la
   v0.2.5: probado con anfitrión de una y cliente de la otra, en los dos sentidos, con motos distintas; la
-  v0.2.7 también sigue en 7 y juega con las dos: la regla nueva de los choques la usa cada uno en su PC).
+  v0.2.7 y la v0.2.8 también siguen en 7 y juegan con las anteriores: la regla nueva de los choques la usa
+  cada uno en su PC).
 - HELLO (cliente → anfitrión, a la IP del código y por broadcast) → WELCOME con el número de jugador.
   El HELLO lleva la moto del jugador; si cambia de moto conectado, se vuelve a mandar.
 - Estado de cada moto 60 veces por segundo: posición, rotación, velocidades, suspensión, ruedas,

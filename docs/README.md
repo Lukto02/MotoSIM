@@ -12,7 +12,7 @@ trampas, números que funcionaron y cómo probarlo.
 | [PILOTO.md](PILOTO.md) | El piloto: modelo glTF, IK sobre la moto, ragdoll, articulaciones de Jolt |
 | [MAPAS.md](MAPAS.md) | Mapas y terreno: tamaños, generadores, circuitos, el bot en cada mapa |
 | [PRUEBAS.md](PRUEBAS.md) | Cómo compilar y probar: regresiones, pruebas sin ventana, capturas, red |
-| [MENU.md](MENU.md) | Menú e interfaz: cámara del menú, selector de motos, criterios visuales |
+| [MENU.md](MENU.md) | Menú e interfaz: cámara del menú, selector de motos, Ajustes y `preferencias.ini`, Controles, HUD y ayuda de teclas, mapas libres (reaparecer, saltos), criterios visuales |
 | [SONIDO.md](SONIDO.md) | Sonido procedural: motor 4T y 2T, derrape, raspado; cómo medirlo sin escuchar |
 | [RENDER.md](RENDER.md) | Gráficos: superficies que se pisan (z-fighting), calcomanías, sombras |
 | [RED.md](RED.md) | Multijugador en red local: protocolo, qué viaja, remotas, cómo probar con dos instancias |

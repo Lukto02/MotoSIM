@@ -25,7 +25,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 - `src/Camera.*`, `src/Particles.*`, las mallas de `src/Favela.cpp` y `src/Circuit.cpp` (compartidas con el agente de mapas) y `src/BikeMeshes.cpp` (con el de motos).
 - Lo que sabés (detalle en `docs/RENDER.md`):
   - **Sombras**: mapa de 2048² sobre 64 m (3 cm por texel), foco enganchado a la grilla de texels, corrimiento por la normal de un texel, filtro tienda 3x3.
-  - **Planos de la cámara**: 0.08 a 900 m. Una capa encima de otra necesita 1-6 cm de separación.
+  - **Planos de la cámara**: 0.08 a 900 m, profundidad de 24 bits. Una capa encima de otra: 1 cm sirve hasta ~60 m, 3 cm hasta ~110 m (tabla en `docs/RENDER.md`).
   - **Post-proceso** (F7): motion blur radial, aberración, viñeta, grano y FXAA; se dibuja en textura (sin MSAA).
   - **Rendimiento del circuito**: 793 k vértices y 17 ms (había 1.36 M y 33 ms). Lo que funcionó:
     - tramos de barrera largos;
@@ -49,6 +49,8 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - `--shots-every DT` para una serie.
 - Comparar antes y después con el exe del último paquete (`dist/<último paquete>/MotoSim.exe`): **corré el del paquete desde otra carpeta o borrá después el `preferencias.ini` que crea en la suya**.
 - Recortar y juntar: `python tools/grilla.py salida.png columnas escala crop x0 y0 x1 y1 archivos...`. Mirá las imágenes a tamaño completo (recortadas) antes de concluir.
+- **Superficies que se pisan**: `MOTOSIM_COPLANARES=detalle` con ventana lista todos los pares coplanares del circuito o la favela (`src/Coplanar.h`, ver `docs/RENDER.md`). Medir con eso antes de suponer la causa de un parpadeo.
+- `--screenshot` no cierra el juego: sumá `--time`.
 - Fps: `--telemetry` con ventana.
 - `--menu bikes` para el selector.
 

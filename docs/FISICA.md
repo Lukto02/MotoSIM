@@ -276,12 +276,75 @@ su propio documento: [PILOTO.md](PILOTO.md).
   - **Trial** (`trial.ini`): sólo la frenada (se cruzaba hasta 58° desde 60 km/h; ahora ~15-17°). Su
     suspensión ya era viva (vuelve en 0.19 s: amortiguación de base 650/700 con 3.2) y con 1.8 rebotaba de
     más y despegaba las ruedas 0.07 s. El circuito de obstáculos, igual (37.4 s) y sin caídas.
-  - **Trilheira**: no se tocó. Se cruzaba 110-151° frenando desde 90, y la frenada nueva lo arreglaba, pero en
+  - **Trilheira**: no se tocó entonces. Se cruzaba 110-151° frenando desde 90, y la frenada nueva lo arreglaba, pero en
     la favela (15 min de bot) las caídas pasaban de 2 a 4 (bajada de -25% que entra en curva, s≈255: el
     alineado frena el giro de entrada). Con `brake_transition_release` esas desaparecían, pero aparecían en
     s≈1217 (subida de 24% con curva que termina en una loma). La suspensión (2.0 o 2.5) también sumaba
-    caídas en esa loma: se estira, la moto queda liviana en plena curva. Pendiente: mirar esas dos curvas
-    con cuidado antes de tocarla.
+    caídas en esa loma: se estira, la moto queda liviana en plena curva. Resuelto después de la v0.2.7 (abajo, "La
+    Trilheira: frenando fuerte hacía un trompo"); 15 minutos de bot no alcanzaban para compararlo.
+
+### La Trilheira: frenando fuerte hacía un trompo
+- **Pasaba**: con la S a fondo desde 60-90 km/h la cola se cruzaba 47-151° (`--flat`) y, en las plazas, 140-146°
+  tocando la D o soltando la curva a 90 km/h. El arreglo de las otras de tierra (`brake_align` 4 / 2000) lo curaba,
+  pero parecía sumar caídas en la favela (arriba).
+- **Por qué**:
+  - el trompo, lo mismo que en las otras: con la S la cola va en el aire el 70-92% de la frenada (stoppie a -20°) y
+    la moto es inestable de guiñada;
+  - la favela: **el bot pega contra la pared de afuera de la curva de s≈253 en casi todas las vueltas, también con
+    la moto tal cual** (7 golpes en 9 vueltas, perdiendo ~20 km/h de golpe; con la motocross y la 2T también). Llega
+    a ~43 km/h después de la loma de s≈241 con sólo la delantera en el piso y no puede doblar. Que el golpe sea
+    caída depende de si pasa de 7 m/s (`crash_impact_speed`), y la simulación es caótica: cualquier cambio da otra
+    muestra. **Con 15 minutos (9 vueltas) no se puede comparar**: la moto sin cambios, con la masa corrida ±0.01 kg,
+    da de 3 a 9 caídas en 45 minutos (media 5.8 en 9 muestras);
+  - aun así el alineado de la motocross sí era peor (13 caídas en 45 min; 9 y 12 sin la delantera libre): en la
+    bajada el bot frena al 45-80% (s≈236-252) y empieza a doblar con muy poco manubrio. El alineado actúa desde el
+    20% de freno y frena ese giro de entrada, y la delantera "libre" (que sigue su camino) le anula el poco
+    manubrio: entra más abierto y más inclinado.
+- **Qué se hizo**: claves nuevas `brake_align_from` / `brake_align_full` (con cuánto freno de adelante empieza el
+  alineado y con cuánto actúa entero; 0.2 / 0.6, lo de antes) y `brake_align_free` (cuánto se suelta la delantera
+  frenando derecho; 1, lo de antes). La Trilheira: `brake_align` 4, `brake_align_torque` 2000, 0.55, 0.95 y 0. La S
+  va al 100% y alinea entero; el bot, al 45-80%, casi nada.
+- **Probado y descartado**:
+  - `rear_lift_load` / `rear_lift_mitigation` (700 / 0.6, 900 / 0.8, 500 / 0.5): sacan el stoppie y frena más en el
+    plano (0.81-0.89 g), pero en la bajada la trasera va liviana por la pendiente y el ABS afloja la delantera: de 3
+    a 8 caídas en 15 min, todas en s≈253-258;
+  - un "ABS trasero" que aflojara el de atrás frenando con las dos (la S traba la trasera con ~250 N): destrabada,
+    la moto ya no se endereza por el derrape (`slide_upright`) y llega a la pared inclinada 39-41° en vez de 28°:
+    17-18 caídas en 45 min. Se sacó del código;
+  - `brake_align_torque` 1000: doblando y frenando la cola sale 30-41°;
+  - la suspensión más viva (`*_rebound_ratio` 1.7 y 2.0): vuelve en 0.25 y 0.32 s al aterrizar (hoy 0.6), pero
+    rebota en la loma de s≈241 y en la curva de abajo se cae el doble o el triple (9-12 y 12-19 caídas en 45 min).
+    Queda en 3.0.
+- **Se comprobó**:
+  - las frenadas de teclado (`frenadaN`, `frenacurvaN` derecho, tocando la D, soltando la curva, doblando sin soltar
+    y frenando y doblando; 60 y 90 km/h; `--flat`, `prueba/plaza_tierra` y `prueba/plaza_asfalto`): la cola 0-29°
+    (antes hasta 151°), 0.69-0.90 g, sin caídas;
+  - la favela: 6 muestras de 45 min (la moto y la moto con la masa o las inercias corridas un pelo) dan 3-8 caídas,
+    media 5.8, igual que sin cambios; en 15 min, 1 caída (antes 2);
+  - el grau (`graucurva`, `graulentoc`), el arranque, los derrapes, el wheelie, la escadaria (`bajada20`) y los
+    aterrizajes, idénticos a la v0.2.7 (no usan el freno de adelante); la motocross y la trial, idénticas.
+- **Cómo comparar caídas en la favela**: varias corridas de 45 min (`--time 2700`) de cada versión, cada una con una
+  perturbación que no cambia nada de fondo (`mass` ±0.01 en una copia de la moto en `pruebas/`), y comparar las
+  medias; mirar también los golpes (caídas bruscas de velocidad) y en qué s, no sólo las caídas.
+
+### Revisión contra las motos de verdad: lo de física
+La tabla de cada moto está en [MOTOS.md](MOTOS.md) ("Las motos contra las de verdad"). Lo que tiene que ver con la
+física en sí:
+- **Con la S a fondo las de tierra frenan en stoppie** (no se cambió): la trompa a -20°/-21° y la cola en el aire el
+  77-93% de la frenada, a 0.64-0.75 g. Por qué: el freno de adelante de `tuning.ini` (950 Nm en 0.35 m) da ~1.5 g y
+  el stoppie llega antes que el agarre (centro de masa a 0.83 m del piso y ~0.8 m detrás del contacto de adelante:
+  ~0.9-1 g). Lo sostiene el anti-endo, que afloja el freno entre -12° y -28° de cabeceo, y `rear_lift_mitigation`
+  (0.25) no alcanza para bajar la cola. Frena menos que si la cola apoyara, y la cola en el aire es la inestabilidad
+  que después arregla `brake_align`. En una copia de la motocross, `rear_lift_load` 700 y `rear_lift_mitigation` 0.6
+  frenan a 0.81-0.85 g sin stoppie (propuesta en [MOTOS.md](MOTOS.md), pendientes). La de carreras no lo tiene
+  (720 Nm, centro de masa a 0.62 m: 0.96-1.08 g derecha).
+- **En el aire todas giraban igual**: `air_pitch_rate` 2.5 rad/s y `air_pitch_torque` 450 son de `tuning.ini`, y con
+  450 Nm cualquier inercia (44 a 74 kg m²) llega a 2.5 rad/s en 0.25-0.4 s de un vuelo de 1-3 s, así que la inercia
+  casi no se nota: la de carreras hacía el mismo mortal que la de motocross (333° y 325°). Para que una moto sea torpe en el aire hay que bajar esas dos
+  (la de carreras: 1.2 y 250), no subirle la inercia (que cambia los wheelies y las frenadas en el piso).
+- **El freno motor es lineal con las rpm** (`engine_brake` Nm en el cigüeñal al corte): con una relación larga (la
+  de carreras, 1ª hasta 153 km/h) abajo casi no frena. Medido restando el aire y la rodadura de `frenacurvaNx0n`:
+  motocross 0.07-0.10 g, Trilheira 0.08-0.10, trial 0.05-0.07, 2T 0.03-0.05, carreras 0.04 a 80 km/h y ~0 a 40.
 
 ### La motocross: la suspensión se sentía muerta al aterrizar
 - **Pasaba** (el usuario: "la suspensión debería sentirse un poco más springy al aterrizar"). Cayendo de
@@ -301,7 +364,9 @@ su propio documento: [PILOTO.md](PILOTO.md).
     `frontflip` desde 5 m, el Gigante de Los Médanos) giran y caen igual;
   - las otras motos, idénticas.
 - **Consecuencia**: contra la v0.2.6 la motocross da distinta en todas las pruebas; ver [PRUEBAS.md](PRUEBAS.md).
-- **Pendiente**: la 2T, la Trilheira y la Trial tienen el mismo 3.0 heredado.
+- **Después**: la 2T pasó a 1.7 (v0.2.7); la Trial tiene lo suyo (3.2 con la amortiguación baja: ya volvía en
+  0.19 s); la Trilheira se queda en 3.0: más viva rebota en la loma de la bajada de la favela (ver "La Trilheira:
+  frenando fuerte hacía un trompo").
 
 ### Golpe fuerte: el piloto sale despedido
 - **Pasaba**: sólo había caída por inclinación. Contra un muro, el piloto salía recién cuando la moto se

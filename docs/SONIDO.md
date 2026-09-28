@@ -54,3 +54,7 @@ Todo el sonido es procedural (`EngineSound.cpp`, hilo de audio de raylib): no ha
 
 Los motores quedan por debajo del tope y se corren un momento con cada petardeo. Los petardeos
 saturan aparte, para que no pierdan el chasquido. Todo pasa por un `tanh` final.
+
+Después del `tanh`, el volumen: `kVolume` (0.8, el de siempre) por el de Ajustes (`EngineSound::SetVolume`, de
+0 a 1 en décimos; 100% = como sonó siempre) o 0 si está apagado (M, `SetMuted`). El WAV de prueba
+(`--sound-test`) sale antes de que se lean las preferencias: siempre con el de siempre.

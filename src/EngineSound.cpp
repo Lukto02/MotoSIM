@@ -23,7 +23,8 @@ struct VoiceParams {
     std::atomic<bool> twoStroke{false};
 };
 VoiceParams gVoice[EngineSound::kVoices];
-std::atomic<float> gVolume{0.8f};
+constexpr float kVolume = 0.8f;            // el volumen de siempre (Ajustes → Volumen al 100%)
+std::atomic<float> gVolume{kVolume};
 std::atomic<bool> gMuted{false};
 std::atomic<int> gPopRequests{0};          // petardeos pedidos y todavía no empezados
 std::atomic<float> gSkid{0.0f}, gSkidPaved{0.0f}, gScrape{0.0f};
@@ -434,3 +435,5 @@ void EngineSound::SetScrape(float amount) { gScrape.store(amount); }
 
 void EngineSound::ToggleMute() { gMuted.store(!gMuted.load()); }
 bool EngineSound::Muted() const { return gMuted.load(); }
+void EngineSound::SetMuted(bool muted) { gMuted.store(muted); }
+void EngineSound::SetVolume(float level) { gVolume.store(kVolume * std::clamp(level, 0.0f, 1.0f)); }

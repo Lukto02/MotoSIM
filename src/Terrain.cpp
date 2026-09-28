@@ -174,38 +174,62 @@ void Terrain::PrepareShapes()
                     s.minZ = std::min(s.minZ, wz); s.maxZ = std::max(s.maxZ, wz);
                 }
         }
+        if (ms.round && ms.hasArc) {
+            s.arcWidth = std::fmod(ms.arc[1] - ms.arc[0], 360.0f);
+            if (s.arcWidth <= 0.0f) s.arcWidth += 360.0f;
+        }
         // Nivelar: a la altura dada o a la del suelo en "at" (con las formas anteriores).
         s.base = ms.hasBase ? ms.base : ApplyShapes(ms.x, ms.z, Natural(ms.x, ms.z), shapes.size());
         shapes.push_back(s);
     }
 }
 
+// Cuánto cubre la forma el punto (x, z): 1 adentro, bajando a 0 a "edge" m por fuera (0: no llega), y la
+// coordenada u de su perfil ahí.
+float Terrain::ShapeCover(const Shape& s, float x, float z, float& u) const
+{
+    if (x < s.minX || x > s.maxX || z < s.minZ || z > s.maxZ) return 0.0f;
+    const MapShape& d = s.def;
+    const float dx = x - d.x, dz = z - d.z;
+    const float along = dx * s.dirX + dz * s.dirZ, across = dx * s.dirZ - dz * s.dirX;
+    float out;                                               // cuánto queda afuera
+    if (d.round) {
+        const float a = across / d.stretch[0], b = along / d.stretch[1];
+        u = std::sqrt(a * a + b * b);
+        out = std::max(0.0f, u - s.last);
+        if (d.hasArc && s.arcWidth < 360.0f) {
+            // Sólo el sector: el rumbo del punto visto desde el centro (0 = norte, 90 = este), de arc[0]
+            // a arc[1] en el sentido del reloj. Pasando un borde, se desvanece con la distancia al rayo
+            // de ese borde (como las puntas de una "line").
+            const float deg = mu::Deg(std::atan2(dx, dz)) - d.arc[0];
+            const float rel = deg - 360.0f * std::floor(deg / 360.0f);
+            if (rel > s.arcWidth) {
+                const float off = std::min(rel - s.arcWidth, 360.0f - rel), r = std::sqrt(dx * dx + dz * dz);
+                const float side = off >= 90.0f ? r : r * std::sin(mu::Rad(off));
+                out = std::sqrt(out * out + side * side);
+            }
+        }
+    } else {
+        // bend: las puntas se corren a lo largo (medialuna, como un barján: cuernos hacia donde crece u).
+        const float q = std::min(1.0f, std::fabs(across) / std::max(d.width * 0.5f + d.edge, 0.1f));
+        u = along - d.bend * q * q;
+        const float du = std::max({0.0f, s.first - u, u - s.last}), dv = std::max(0.0f, std::fabs(across) - d.width * 0.5f);
+        out = std::sqrt(du * du + dv * dv);
+    }
+    return d.edge > 0.0f ? 1.0f - mu::Smoothstep(0.0f, d.edge, out) : (out > 0.0f ? 0.0f : 1.0f);
+}
+
 float Terrain::ApplyShapes(float x, float z, float h, size_t count) const
 {
     for (size_t i = 0; i < count; ++i) {
         const Shape& s = shapes[i];
-        if (x < s.minX || x > s.maxX || z < s.minZ || z > s.maxZ) continue;
-        const MapShape& d = s.def;
-        const float dx = x - d.x, dz = z - d.z;
-        const float along = dx * s.dirX + dz * s.dirZ, across = dx * s.dirZ - dz * s.dirX;
-        float u, out;                                            // coordenada del perfil y cuánto queda afuera
-        if (d.round) {
-            const float a = across / d.stretch[0], b = along / d.stretch[1];
-            u = std::sqrt(a * a + b * b);
-            out = std::max(0.0f, u - s.last);
-        } else {
-            // bend: las puntas se corren a lo largo (medialuna, como un barján: cuernos hacia donde crece u).
-            const float q = std::min(1.0f, std::fabs(across) / std::max(d.width * 0.5f + d.edge, 0.1f));
-            u = along - d.bend * q * q;
-            const float du = std::max({0.0f, s.first - u, u - s.last}), dv = std::max(0.0f, std::fabs(across) - d.width * 0.5f);
-            out = std::sqrt(du * du + dv * dv);
-        }
-        const float w = d.edge > 0.0f ? 1.0f - mu::Smoothstep(0.0f, d.edge, out) : (out > 0.0f ? 0.0f : 1.0f);
+        float u = 0.0f;
+        const float w = ShapeCover(s, x, z, u);
         if (w <= 0.0f) continue;
         const float f = mu::Clamp((u - s.u0) / kShapeStep, 0.0f, (float)(s.table.size() - 1) - 0.001f);
         const int k = (int)f;
         const float p = mu::Lerp(s.table[k], s.table[k + 1], f - (float)k);
-        h = d.level ? mu::Lerp(h, s.base + p, w) : h + p * w;
+        h = s.def.level ? mu::Lerp(h, s.base + p, w) : h + p * w;
     }
     return h;
 }
@@ -295,6 +319,20 @@ void Terrain::Build(const Track& track, const MapDef& map, bool flat)
     if (!flat) {
         if (streets) StampStreets(track);
         else if (!guide) StampTrack(track);                  // la guía no toca el terreno
+    }
+    // Formas con "dirt": se pintan con la tierra de la pista (la máscara de pista da la textura, el agarre y el
+    // polvo), hasta donde llegan.
+    bool dirtShapes = false;
+    for (const Shape& s : shapes) dirtShapes |= s.def.dirt;
+    if (dirtShapes && !flat) {
+        for (int z = 0; z < N; ++z)
+            for (int x = 0; x < N; ++x) {
+                float& m = trackMask[z * N + x];
+                for (const Shape& s : shapes) {
+                    float u = 0.0f;
+                    if (s.def.dirt) m = std::max(m, ShapeCover(s, origin + x * Cell, origin + z * Cell, u));
+                }
+            }
     }
     original = heights;
 }

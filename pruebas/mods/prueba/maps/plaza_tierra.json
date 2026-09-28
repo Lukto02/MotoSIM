@@ -1,0 +1,20 @@
+// Prueba (no se entrega): como plaza_asfalto pero de tierra de pista (agarre 1, sin peraltes ni saltos):
+// 400 m de ancho y 1.6 km de largo para medir frenadas, curvas y derrapes de las motos de tierra
+// (frenadaN, frenacurvaN, circleN, brakeslideN) sin que se termine el piso ni se salga al pasto (un círculo de hasta
+// 100 m de radio entra al costado de la largada).
+{
+  "name": "Plaza de tierra (pruebas)",
+  "kind": "prueba · tierra",
+  "bike": "base/motocross",
+  "markers": false,
+  "terrain": {"type": "flat", "size": 2048, "resolution": 2.0, "edge": 10},
+  "start": [0, -350],
+  "track": {
+    "style": "track", "width": 400, "banking": false,
+    "points": [
+      [0, -800], [0, -400], [0, 0], [0, 400], [0, 800],
+      [150, 900], [300, 800], [300, 400], [300, 0], [300, -400], [300, -800], [150, -900]
+    ]
+  },
+  "look": {"preset": "day"}
+}

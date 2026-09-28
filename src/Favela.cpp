@@ -9,6 +9,7 @@
 
 #include "Favela.h"
 
+#include "Coplanar.h"
 #include "MathUtil.h"
 #include "MeshBuilder.h"
 #include "PhysicsWorld.h"
@@ -629,6 +630,9 @@ void Favela::CreateMeshes(const Font& font)
         auto wallColor = [&](int t) { return t == 0 ? brick : (t == 1 ? Shade(paint, rng.R(0.92f, 1.04f)) : gray); };
         auto wallMode = [](int t) { return t == 0 ? kBrick : kPlaster; };
         const bool unfinishedTop = type != 0 && h.floors >= 2 && rng.Chance(0.4f);
+        float overhang1 = 0.0f;                               // lo que vuela el primer piso (la bandera va en su frente)
+        struct Unit { Vector3 c; float y0; };                 // aires acondicionados: se arman al final (ver carteles)
+        std::vector<Unit> units;
 
         // Pisos: desde la entrada para arriba; debajo, lo que baje la ladera (pisos de abajo o cimientos).
         struct Block { float y0, y1, du, dv, dw, dd; int t; bool windows; };
@@ -643,6 +647,7 @@ void Favela::CreateMeshes(const Font& font)
         for (int k = 0; k < h.floors; ++k) {
             const float y0 = h.entry + k * kFloor;
             if (k >= 1 && h.front && overhang == 0.0f && rng.Chance(0.3f)) overhang = rng.R(0.4f, 0.8f);   // puxadinho sobre la vereda
+            if (k == 1) overhang1 = overhang;
             const bool top = k == h.floors - 1;
             const int t = top && unfinishedTop ? 0 : type;
             blocks.push_back({y0, y0 + kFloor, 0.0f, -overhang * 0.5f, h.w, h.d + overhang, t, true});
@@ -663,9 +668,10 @@ void Favela::CreateMeshes(const Font& font)
                 const Color col = r < 0.6f ? kGlass : (r < 0.85f ? kGate[rng.I(6)] : Color{70, 70, 74, 255});
                 const Vector3 half = sideFace ? Vector3{0.04f, wh * 0.5f, ww * 0.5f} : Vector3{ww * 0.5f, wh * 0.5f, 0.04f};
                 Box(b, P(u, wy, v), half, f, col, r < 0.6f ? 0.8f : 0.2f);
-                if (r >= 0.6f || rng.Chance(0.3f))              // marco claro
-                    Box(b, P(u, wy - wh * 0.5f - 0.04f, v + (sideFace ? 0.0f : sgn * 0.03f)),
-                        sideFace ? Vector3{0.06f, 0.04f, ww * 0.55f} : Vector3{ww * 0.55f, 0.04f, 0.06f}, f, Color{210, 206, 196, 255}, 0.1f);
+                // Marco claro (el alféizar): sale 1 cm del vidrio. Salía 5 cm y atravesaba los grafitis de la pared.
+                if (r >= 0.6f || rng.Chance(0.3f))
+                    Box(b, P(u + (sideFace ? sgn * 0.01f : 0.0f), wy - wh * 0.5f - 0.04f, v + (sideFace ? 0.0f : sgn * 0.01f)),
+                        sideFace ? Vector3{0.04f, 0.04f, ww * 0.55f} : Vector3{ww * 0.55f, 0.04f, 0.04f}, f, Color{210, 206, 196, 255}, 0.1f);
             };
             const int nFront = std::max(1, (int)(bl.dw / 2.3f));
             const bool ground = std::fabs(bl.y0 - h.entry) < 0.01f;
@@ -674,7 +680,8 @@ void Favela::CreateMeshes(const Font& font)
             for (int i = 0; i < nFront; ++i) {
                 const float u = -bl.dw * 0.5f + (i + 0.5f) * bl.dw / nFront + rng.R(-0.2f, 0.2f);
                 if (i == door) {                              // puerta / portón de chapa
-                    Box(b, P(u, bl.y0 + 1.05f, front), {0.5f, 1.05f, 0.05f}, f, kGate[rng.I(6)], 0.3f);
+                    // Desde arriba de la laje de abajo (se metía 4 cm detrás de ella, a 1 cm).
+                    Box(b, P(u, bl.y0 + 1.07f, front), {0.5f, 1.03f, 0.05f}, f, kGate[rng.I(6)], 0.3f);
                     continue;
                 }
                 if (rng.Chance(0.85f)) window(u, front, false, -1.0f);
@@ -683,7 +690,7 @@ void Favela::CreateMeshes(const Font& font)
             for (float sgn : {-1.0f, 1.0f})
                 if (rng.Chance(0.35f)) window(bl.du + sgn * (bl.dw * 0.5f + 0.02f), bl.dv + rng.R(-bl.dd * 0.25f, bl.dd * 0.25f), true, sgn);
             if (rng.Chance(0.12f))                           // aire acondicionado
-                Box(b, P(rng.R(-bl.dw * 0.3f, bl.dw * 0.3f), bl.y0 + 2.2f, front - 0.14f), {0.36f, 0.22f, 0.14f}, f, Color{230, 230, 226, 255}, 0.3f);
+                units.push_back({P(rng.R(-bl.dw * 0.3f, bl.dw * 0.3f), bl.y0 + 2.2f, front - 0.14f), bl.y0});
         }
 
         // Techo: laje con murito, hierros esperando el próximo piso, caixa d'água, antena, tender.
@@ -725,7 +732,8 @@ void Favela::CreateMeshes(const Font& font)
             Bar(b, a, c, 0.006f, Color{220, 220, 220, 255});
             const int n = 3 + rng.I(4);
             for (int k = 0; k < n; ++k) {
-                const Vector3 p = Vector3Lerp(a, c, (k + 0.5f) / n);
+                // 1.5 cm al costado del alambre (colgada justo del eje quedaba en el plano de sus caras).
+                const Vector3 p = Vector3Add(Vector3Lerp(a, c, (k + 0.5f) / n), Vector3Scale(f.z, 0.015f + 0.01f * (float)(k % 2)));   // las vecinas se tocan
                 const float sw = rng.R(0.25f, 0.4f), sh = rng.R(0.35f, 0.7f);
                 const Vector3 rt = Vector3Scale(f.x, sw * 0.5f);
                 Quad2(two[ChunkOf(p.x, p.z)], Vector3Subtract(p, rt), Vector3Add(p, rt), Vector3Add(Vector3Add(p, rt), {0.0f, -sh, 0.0f}),
@@ -733,25 +741,46 @@ void Favela::CreateMeshes(const Font& font)
             }
         }
 
-        // Carteles de negocios, grafitis y banderas.
+        // Carteles de negocios, grafitis y banderas: 10 cm delante de la pared, 3-4 cm delante de puertas (7 cm),
+        // ventanas (6), alféizares (7) y lajes (8), y adentro del ancho de la pared (antes quedaban a 7 cm, en el
+        // plano de las puertas y detrás de la laje, y un grafiti podía salirse 0.1 del ancho de la casa al aire).
+        const float gap = 0.10f;
+        auto within = [](float c, float half, float room) { return std::clamp(c, -std::max(room - half, 0.0f), std::max(room - half, 0.0f)); };
+        bool shopSign = false;
         if (h.front) {
-            const float front = -h.d * 0.5f - 0.07f;
             if (rng.Chance(0.16f)) {
-                const Vector3 c = P(0.0f, h.entry + 2.45f, front);
+                shopSign = true;
+                const Vector3 c = P(0.0f, h.entry + 2.43f, -h.d * 0.5f - gap);
                 sign(c, Vector3Negate(f.x), std::min(1.4f, h.w * 0.42f), 0.36f, signCounter++ % kShopSigns);
             } else if (rng.Chance(0.12f)) {
-                const Vector3 c = P(rng.R(-0.2f, 0.2f) * h.w, h.entry + 1.1f, front);
-                sign(c, Vector3Negate(f.x), std::min(1.5f, h.w * 0.4f), 0.4f, kGraffitiFirst + rng.I(kGraffitiCount));
+                const float half = std::min(1.5f, h.w * 0.4f);
+                const Vector3 c = P(within(rng.R(-0.2f, 0.2f) * h.w, half, h.w * 0.5f - 0.05f), h.entry + 1.1f, -h.d * 0.5f - gap);
+                sign(c, Vector3Negate(f.x), half, 0.4f, kGraffitiFirst + rng.I(kGraffitiCount));
             }
-            if (h.floors >= 2 && rng.Chance(0.06f)) {
-                const Vector3 c = P(rng.R(-0.25f, 0.25f) * h.w, h.entry + kFloor + 1.2f, front - 0.02f);
+            if (h.floors >= 2 && rng.Chance(0.06f)) {        // en el frente del primer piso (que puede volar sobre la vereda)
+                const Vector3 c = P(within(rng.R(-0.25f, 0.25f) * h.w, 0.72f, h.w * 0.5f - 0.05f), h.entry + kFloor + 1.2f, -h.d * 0.5f - overhang1 - gap);
                 sign(c, Vector3Negate(f.x), 0.72f, 0.5f, kFlagSign);
             }
         }
-        if (rng.Chance(0.1f)) {                               // grafiti en un costado
+        // Los aires acondicionados, salvo el de la planta baja si tapa el cartel del negocio.
+        for (const Unit& un : units)
+            if (!(shopSign && std::fabs(un.y0 - h.entry) < 0.01f))
+                Box(b, un.c, {0.36f, 0.22f, 0.14f}, f, Color{230, 230, 226, 255}, 0.3f);
+        if (rng.Chance(0.1f)) {                               // en un costado, si no está pegado a otra casa
             const float sgn = rng.Chance(0.5f) ? 1.0f : -1.0f;
-            const Vector3 c = P(sgn * (h.w * 0.5f + 0.05f), h.entry + 1.0f, rng.R(-0.2f, 0.2f) * h.d);
-            sign(c, Vector3Scale(f.z, sgn), std::min(1.6f, h.d * 0.4f), 0.45f, kGraffitiFirst + rng.I(kGraffitiCount));
+            const float half = std::min(1.6f, h.d * 0.4f);
+            const float v = within(rng.R(-0.2f, 0.2f) * h.d, half, h.d * 0.5f - 0.1f);
+            const int cell = kGraffitiFirst + rng.I(kGraffitiCount);
+            bool clear = true;
+            for (float out : {0.6f, 1.2f})
+                for (float along : {-1.0f, 0.0f, 1.0f}) {
+                    const Vector3 q = P(sgn * (h.w * 0.5f + out), 0.0f, v + along * half);
+                    const int gx = (int)((q.x - origin) / 0.5f), gz = (int)((q.z - origin) / 0.5f);
+                    if (gx >= 0 && gz >= 0 && gx < 512 && gz < 512 && occupied[gz * 512 + gx]) clear = false;
+                }
+            // Mirando para afuera: antes la derecha del cartel era sgn * Z, que lo dejaba mirando a la pared
+            // (espejado cuando se dibujaba de las dos caras; invisible de una).
+            if (clear) sign(P(sgn * (h.w * 0.5f + gap), h.entry + 1.0f, v), Vector3Scale(f.z, -sgn), half, 0.45f, cell);
         }
     }
 
@@ -761,7 +790,8 @@ void Favela::CreateMeshes(const Font& font)
         const Frame f = YawFrame(st.yaw);
         Box(b, st.c, st.half, f, Color{162, 158, 150, 255}, 0.06f, kPlaster);
         // Borde del escalón pintado de amarillo (arriba, del lado de abajo de la bajada).
-        const Vector3 edge = Vector3Add(Vector3Add(st.c, {0.0f, st.half.y - 0.01f, 0.0f}), Vector3Scale(f.z, st.half.z - 0.06f));
+        // 1.5 cm arriba y delante del canto: tenía la cara del frente en el plano del escalón (se pisaban).
+        const Vector3 edge = Vector3Add(Vector3Add(st.c, {0.0f, st.half.y, 0.0f}), Vector3Scale(f.z, st.half.z - 0.045f));
         Box(b, edge, {st.half.x - 0.3f, 0.015f, 0.06f}, f, Color{226, 186, 40, 255}, 0.1f);
         // Muritos a los costados (escalonados como los escalones).
         for (float sgn : {-1.0f, 1.0f}) {
@@ -854,9 +884,19 @@ void Favela::CreateMeshes(const Font& font)
         sign(Vector3Add(mid, {0.0f, -0.55f, 0.0f}), Vector3Negate(right), Vector3Distance(a, c) * 0.46f, 0.5f, kBannerSign);
     }
 
+    if (CoplanarCheck::Enabled()) {                           // diagnóstico: caras que se pisan (docs/RENDER.md)
+        CoplanarCheck cc;
+        const int ls = cc.AddLayer("solido", false, false), ld = cc.AddLayer("calco", false, true), lt = cc.AddLayer("2caras", true, false);
+        for (int i = 0; i < kChunks * kChunks; ++i) {
+            cc.Add(solid[i], ls);
+            cc.Add(decal[i], ld);
+            cc.Add(two[i], lt);
+        }
+        cc.Report("favela");
+    }
     for (int i = 0; i < kChunks * kChunks; ++i) {
         Chunk& c = chunks[i];
-        c.center = {origin + (i % kChunks + 0.5f) * size / kChunks, 0.0f, origin + (i / kChunks + 0.5f) * size / kChunks};
+        c.center ={origin + (i % kChunks + 0.5f) * size / kChunks, 0.0f, origin + (i / kChunks + 0.5f) * size / kChunks};
         if (solid[i].VertexCount() > 0) {
             c.solid = solid[i].Build();
             c.hasSolid = true;

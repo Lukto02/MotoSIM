@@ -24,8 +24,10 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - `UpdateMenuCamera`;
   - la vitrina en `DrawScene`;
   - `OpenBikeMenu` y `ChooseBike`;
-  - `DrawHUD` y `ShowMessage`;
-  - las preferencias (`SavePrefs`, `preferencias.ini`).
+  - `DrawHUD`, `DrawHelp` (ayuda de teclas) y `ShowMessage`;
+  - Ajustes (`SettingsItems`) y Controles; las pantallas vuelven al principal con `BackToMain("clave")`;
+  - las preferencias (`LoadPrefs`, `SavePrefs`, `preferencias.ini`);
+  - reaparecer en los mapas libres (`RespawnHere`; el bot y las pruebas, `RespawnNearest`).
 - En `src/Camera.*`, la cámara del juego.
 - Lo que sabés (detalle en `docs/MENU.md`):
   - **Criterios**:
@@ -51,7 +53,13 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 
 ## Cómo probás
 - `--size 1280 720 --screenshot 3 archivo.png`: el menú principal aparece al arrancar.
-- `--menu bikes|maps|join|name|lobby` (con `--host` para la sala); `--bike <id>` para ver otra moto marcada.
+- `--menu bikes|maps|join|name|lobby|ajustes|controles|principal|no` (con `--host` para la sala o el menú de la
+  partida en red; `no`: corriendo, con la ayuda de teclas); `--datos` muestra los datos técnicos; `--bike <id>`
+  para ver otra moto marcada.
+- Teclas de verdad: `tools\teclas.ps1 -Dir build-msvc-interfaz -Keys "ESC,DOWN,ENTER"` con el juego abierto desde
+  tu carpeta (sólo a esa ventana; nunca SendKeys: va a la ventana del usuario). Ver `docs/PRUEBAS.md`.
+- `preferencias.ini` de tu carpeta cambia las capturas (y lo que toques en Ajustes queda ahí): dejalo con los
+  defaults al terminar.
 - Transiciones: capturas a distintos tiempos (`--shots-every`); `tools/grilla.py` para juntarlas.
 - Mirá las capturas a tamaño completo antes de concluir.
 

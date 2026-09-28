@@ -9,6 +9,7 @@
 #include <cstring>
 #include <functional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace {
@@ -1062,6 +1063,104 @@ Vector3 Linear(Color c, float scale = 1.0f)
 
 } // namespace
 
+// ------------------------------------------------------------------------------------ profundidad de 24 bits
+// raylib pide la profundidad sin tamaño (GL_DEPTH_COMPONENT: "que elija el driver"), y un driver puede dar
+// 16 bits: con el plano cercano en 0.08 m, a 100 m el escalón sería de 2 m y todo lo de lejos parpadearía.
+// Se pide GL_DEPTH_COMPONENT24 con las funciones de OpenGL 3.x core que rlgl no expone, sacadas de GLFW
+// (la plataforma de escritorio de raylib, en Windows y en Mac). Sin ellas, queda lo de raylib.
+extern "C" {
+typedef void (*GLFWglproc)(void);
+GLFWglproc glfwGetProcAddress(const char* procname);
+}
+
+namespace {
+
+#if defined(_WIN32) && !defined(_WIN64)
+#define MOTOSIM_GLAPI __stdcall
+#else
+#define MOTOSIM_GLAPI
+#endif
+
+struct DepthGL {
+    enum : unsigned {
+        kTexture2D = 0x0DE1, kUnsignedInt = 0x1405, kDepthComponent = 0x1902, kDepthComponent24 = 0x81A6,
+        kFramebuffer = 0x8D40, kRenderbuffer = 0x8D41, kDepthAttachment = 0x8D00, kAttachmentDepthSize = 0x8216,
+        kTextureDepthSize = 0x884A,
+    };
+    void(MOTOSIM_GLAPI* genRenderbuffers)(int, unsigned*) = nullptr;
+    void(MOTOSIM_GLAPI* bindRenderbuffer)(unsigned, unsigned) = nullptr;
+    void(MOTOSIM_GLAPI* renderbufferStorage)(unsigned, unsigned, int, int) = nullptr;
+    void(MOTOSIM_GLAPI* texImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void*) = nullptr;
+    void(MOTOSIM_GLAPI* getAttachmentParam)(unsigned, unsigned, unsigned, int*) = nullptr;
+    void(MOTOSIM_GLAPI* getTexLevelParam)(unsigned, int, unsigned, int*) = nullptr;
+    bool ok = false;
+
+    static const DepthGL& Get()
+    {
+        static DepthGL gl = [] {
+            DepthGL g;
+            auto load = [](auto& fn, const char* name) { fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(glfwGetProcAddress(name)); };
+            load(g.genRenderbuffers, "glGenRenderbuffers");
+            load(g.bindRenderbuffer, "glBindRenderbuffer");
+            load(g.renderbufferStorage, "glRenderbufferStorage");
+            load(g.texImage2D, "glTexImage2D");
+            load(g.getAttachmentParam, "glGetFramebufferAttachmentParameteriv");
+            load(g.getTexLevelParam, "glGetTexLevelParameteriv");
+            g.ok = g.genRenderbuffers && g.bindRenderbuffer && g.renderbufferStorage && g.texImage2D && g.getAttachmentParam && g.getTexLevelParam;
+            if (!g.ok) TraceLog(LOG_WARNING, "RENDER: sin las funciones de OpenGL para pedir 24 bits de profundidad; elige el driver");
+            return g;
+        }();
+        return gl;
+    }
+};
+
+// Como LoadRenderTexture (color RGBA8 + renderbuffer de profundidad), pero con la profundidad de 24 bits.
+// UnloadRenderTexture la libera igual (rlUnloadFramebuffer borra el renderbuffer que tenga enganchado).
+RenderTexture2D LoadSceneTarget(int w, int h)
+{
+    const DepthGL& gl = DepthGL::Get();
+    RenderTexture2D t{};
+    t.id = rlLoadFramebuffer();
+    if (t.id == 0) return t;
+    rlEnableFramebuffer(t.id);
+    t.texture = {rlLoadTexture(nullptr, w, h, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1), w, h, 1, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+    unsigned depth = 0;
+    if (gl.ok) {
+        gl.genRenderbuffers(1, &depth);
+        gl.bindRenderbuffer(DepthGL::kRenderbuffer, depth);
+        gl.renderbufferStorage(DepthGL::kRenderbuffer, DepthGL::kDepthComponent24, w, h);
+        gl.bindRenderbuffer(DepthGL::kRenderbuffer, 0);
+    } else {
+        depth = rlLoadTextureDepth(w, h, true);
+    }
+    t.depth = {depth, w, h, 1, 19};
+    rlFramebufferAttach(t.id, t.texture.id, RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
+    rlFramebufferAttach(t.id, depth, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_RENDERBUFFER, 0);
+    if (!rlFramebufferComplete(t.id)) TraceLog(LOG_WARNING, "RENDER: la textura de la escena quedó incompleta");
+    int bits = 0;
+    rlEnableFramebuffer(t.id);                    // rlFramebufferAttach y rlFramebufferComplete la sueltan
+    if (gl.ok) gl.getAttachmentParam(DepthGL::kFramebuffer, DepthGL::kDepthAttachment, DepthGL::kAttachmentDepthSize, &bits);
+    TraceLog(LOG_INFO, "RENDER: escena de %d x %d, profundidad de %d bits", w, h, bits);
+    rlDisableFramebuffer();
+    return t;
+}
+
+// La textura de profundidad del mapa de sombras (la de rlLoadTextureDepth, sin tamaño) rehecha con 24 bits.
+void MakeDepth24(unsigned tex, int w, int h)
+{
+    const DepthGL& gl = DepthGL::Get();
+    if (!gl.ok) return;
+    rlEnableTexture(tex);
+    int before = 0, after = 0;
+    gl.getTexLevelParam(DepthGL::kTexture2D, 0, DepthGL::kTextureDepthSize, &before);
+    gl.texImage2D(DepthGL::kTexture2D, 0, (int)DepthGL::kDepthComponent24, w, h, 0, DepthGL::kDepthComponent, DepthGL::kUnsignedInt, nullptr);
+    gl.getTexLevelParam(DepthGL::kTexture2D, 0, DepthGL::kTextureDepthSize, &after);
+    rlDisableTexture();
+    TraceLog(LOG_INFO, "RENDER: mapa de sombras de %d bits (el driver había dado %d)", after, before);
+}
+
+} // namespace
+
 Mesh GenBoxMesh()
 {
     MeshBuilder b;
@@ -1199,6 +1298,7 @@ void Renderer::Init()
     shadowMap.texture.width = shadowMap.texture.height = kShadowResolution;
     rlEnableFramebuffer(shadowMap.id);
     shadowMap.depth.id = rlLoadTextureDepth(kShadowResolution, kShadowResolution, false);
+    MakeDepth24(shadowMap.depth.id, kShadowResolution, kShadowResolution);
     shadowMap.depth.width = shadowMap.depth.height = kShadowResolution;
     shadowMap.depth.mipmaps = 1;
     shadowMap.depth.format = PIXELFORMAT_UNCOMPRESSED_R32;
@@ -1395,11 +1495,12 @@ void Renderer::SetGloss(float gloss) { SetShaderValue(lit, glossLoc, &gloss, SHA
 
 void Renderer::BeginScene()
 {
-    // Textura de la escena al tamaño real del framebuffer (se rehace si cambia la ventana).
+    // Textura de la escena al tamaño real del framebuffer (se rehace si cambia la ventana), con 24 bits
+    // de profundidad pedidos (ver LoadSceneTarget).
     const int w = GetRenderWidth(), h = GetRenderHeight();
     if (sceneRT.id == 0 || sceneRT.texture.width != w || sceneRT.texture.height != h) {
         if (sceneRT.id > 0) UnloadRenderTexture(sceneRT);
-        sceneRT = LoadRenderTexture(w, h);
+        sceneRT = LoadSceneTarget(w, h);
         SetTextureFilter(sceneRT.texture, TEXTURE_FILTER_BILINEAR);   // FXAA y blur muestrean entre píxeles
         SetTextureWrap(sceneRT.texture, TEXTURE_WRAP_CLAMP);
     }

@@ -22,6 +22,8 @@
 - **Fin de línea**: Python en Windows, abriendo en modo texto, escribe CRLF aunque el archivo fuera
   LF (pasó con una docena de archivos). Para editar sin cambiarlo: leer y escribir en binario, o
   `open(..., newline='')`. Chequeo: contar `\r\n` contra `\n` con Python.
+  - `sed -i` de Git Bash también: un reemplazo de una línea dejó `Game.cpp` (CRLF) entero en LF. Para
+    reemplazos chicos, la herramienta de edición (conserva el fin de línea).
 
 ### Windows y Mac en `main`
 
@@ -64,7 +66,7 @@ Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los
 dos ejecutables y compara la telemetría (md5). La referencia es el último paquete
-(hoy `dist/MotoSim-v0.2.7/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
+(hoy `dist/MotoSim-v0.2.8/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
 anterior a las v0.2.x). El juego nuevo agrega ` scr=` al final de cada línea; el script
 lo saca.
 
@@ -102,26 +104,65 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | fichas de todas las motos | `--test bikestats` |
 | perfil de la pista | `--test profile` |
 | caídas en serie | `--test crashloop [--respawn-after S]` (`-1`: sólo con R, como el jugador) |
+| reaparecer donde quedó (mapas libres) | `--map sandbox/medanos --test crashloop --respawn-here --telemetry`: cada `REAPARECE` dice dónde, a cuántos m de donde quedó el piloto, con qué pendiente y a cuánto de la guía |
 | la pista al revés desde S | `--spawn S --test subidaN` (N km/h, recto: p. ej. subir la escadaria con `--spawn 90`) |
 | cuerpo en el aire | `--flat --drop 3 --test airrot` (atrás a fondo) o `airlean` (adelante y atrás cada 0.6 s) |
 | frenada a fondo desde N km/h | `--map base/circuito --bike base/carrera --test frenadaN` y `python tools/frenada.py` |
 | frenar y doblar a la vez desde N km/h | desde `pruebas/`: `--map prueba/plaza_asfalto --bike base/carrera --test frenacurvaN[xS][dD][aA][n]` (S: cuánto manubrio, 1 = la D, < 0 la A; dD: la dirección empieza D s después de frenar, D < 0 antes, viniendo inclinada; aA: la suelta a los A s; n: sin freno) y `python ../tools/frenacurva.py`. Como con teclado: `frenacurva150x0.6d-1.5a1.5` viene doblando y suelta para frenar, `frenacurva150x1d0.3a0.15` toca la D frenando |
 | el freno de cada rueda en cada paso | `--wheel-log T0 T1`: además de lo de la rueda, una línea `freno` (vueltas, patinaje, si está retenida, freno, uso y agarre máximo) |
 | bajar la escadaria a N km/h | `--map favela --spawn 68 --test bajadaN` (sigue la línea) y `python tools/escalera.py 74 88` |
-| un salto a N km/h | `python tools/saltos.py <exe> sandbox/medanos 240 446 40,50,60 ambos --time 30`: aparece en S, entra al salto que despega en s = 446 sin tocar nada (`bajadaN`) y con el bot a N; aire, altura, vy al tocar, cabeceo y si se cae (ver [MAPAS.md](MAPAS.md), "Medir un salto") |
+| un salto a N km/h | `python tools/saltos.py <exe> sandbox/medanos 300 370 40,50,60 ambos --time 16`: aparece en S, entra al salto que despega en s = 370 (La Cadena 3) sin tocar nada (`bajadaN`) y con el bot a N; aire, altura, vy al tocar, cabeceo y si se cae (ver [MAPAS.md](MAPAS.md), "Medir un salto"). Todos los de la vuelta de Los Médanos: `python tools/medanos.py --medir <exe> 40,50,60,70` |
+| un tramo entero a N km/h | `python tools/tramo.py <exe> sandbox/medanos 600 650 850 40,50,60,70 ambos --time 30`: todos los vuelos entre s = 650 y 850 (El Serrucho) y dónde se cae, con los dos pilotos. Para líneas de saltos seguidos, donde un salto depende de cómo se llegó del anterior |
 | cada rueda en cada paso | `--wheel-log T0 T1`: contra qué pega el rayo, normal, apoyo, compresión y fuerzas |
 | columnas de la telemetría | `... --telemetry --telemetry-dt 0.05 \| python tools/telemetria.py t v pitch fN rN gnd s --s 70 95` |
 | sonido | `--sound-test archivo.wav [2t\|raspado]` y `python tools/sonido.py` (ver [SONIDO.md](SONIDO.md)) |
 | choque entre motos en red | `python tools/netchoque.py <exe anfitrión> <exe invitado> [--lag MS] [--jitter MS] [--bike m] [--ventana] lado-15 atras-60-30 frente-12 roce-40 ang45-25-25`: el invitado embiste al anfitrión (`--test netchoque-TIPO-KMH[-KMH]`, `--flat`) y cada uno dice si se cayó y con qué cierre; también qué decidía la regla de la v0.2.6 (ver [RED.md](RED.md), "Choques entre motos") |
 | red como por internet | `--net-lag MS --net-jitter MS`: lo que llega se procesa MS ms más tarde, más hasta MS al azar (en tandas) |
+| arrancada (0-50, 0-100) | `--test arranquea` (parado, W en rampa a 1 s, piloto adelante, caja automática). No con `frenadaN`/`accel`: arrancan con la moto en el aire (ver abajo) |
+| freno motor | `--test frenacurvaNx0n`: llega a N km/h y suelta todo (sin freno ni dirección); restar el aire (0.6 · `drag_area` · v² / m) y la rodadura |
+| curvas y agarre lateral | desde `pruebas/`: `--map prueba/plaza_tierra` o `prueba/plaza_asfalto_ancha --test circleN` (N m/s, dirección a fondo desde los 4 s). La guiñada del mundo es `wy` / cos(`roll`): `wy` es la del eje de la moto |
 | el resto | la lista de `--test` está en el README ("Pruebas automáticas") |
+
+- **Trampas de las pruebas con guion** (de la revisión de las motos, [MOTOS.md](MOTOS.md)):
+  - `frenadaN`, `accel` y los que dan gas desde `t = 0` arrancan con la moto cayendo al aparecer: la rueda se pasa de
+    vueltas en el aire y al tocar el piso la caja automática sube a 2ª a 4-5 km/h (la 2T y la Trilheira parecían
+    arrancar en 2ª). Para una arrancada, `arranquea`.
+  - `--drop H` deja la moto en 1ª a 43-50 km/h: con una 1ª corta (la trial llega a 31) el freno motor pasado de
+    vueltas frena la rueda en el aire y la trompa baja (el `whip` de la trial termina dado vuelta). Es la prueba.
+  - Los círculos a más de ~15 m/s no entran en las plazas de 120 m (el círculo va al costado de la largada): con
+    lisas, en el pasto la de carreras "no doblaba". Las plazas de 400 m sirven hasta ~100 m de radio.
+  - `prueba/recta` no sirve para la velocidad final sin dirección: la largada está en la curva del óvalo y la moto se
+    va de la calle de 16 m. En `plaza_asfalto_ancha` (1.5 km derechos) la de carreras llega a 328 km/h.
+- **Caídas del bot en la favela**: la simulación es caótica y el bot pega en la pared de s≈253 casi en cada vuelta
+  (que sea caída depende de si el golpe pasa de 7 m/s). La misma moto con la masa corrida ±0.01 kg da de 3 a 9
+  caídas en 45 min. Para comparar dos versiones: varias corridas de 45 min (`--time 2700`) de cada una, cada una con
+  una perturbación así (en una copia de la moto en `pruebas/mods/prueba/bikes/`), y comparar las medias; ver
+  [FISICA.md](FISICA.md), "La Trilheira: frenando fuerte hacía un trompo".
 
 ## Capturas
 
-- `--size W H --screenshot T archivo.png`: una captura a los T s de simulación.
+- `--size W H --screenshot T archivo.png`: una captura a los T s de simulación. **No cierra el juego**:
+  sumar `--time` (un poco más que T), si no queda abierto hasta que lo mate el `timeout` (se perdieron
+  3 minutos por captura así).
 - `--shots-every DT`: desde T, una cada DT (`archivo_000.png`, `archivo_001.png`...).
-- `--nohud`, `--norider`, `--genrider` (piloto generado), `--menu bikes|maps|join|name|lobby` (el menú principal
-  es el que aparece al arrancar, sin `--menu`).
+- Para capturar un punto `(x, z)` del mapa: `--headless --test profile` da `s → x, z, h` cada 2 m, y con
+  `--spawn s` y `--view` se apunta. Un parpadeo (z-fighting) con la cámara quieta es un patrón fijo de
+  rayas; con `--shots-every` y una pose que se mueve (`--test pose`) se ve cambiar entre cuadros.
+- `--nohud`, `--norider`, `--genrider` (piloto generado), `--menu bikes|maps|join|name|lobby|ajustes|controles|principal`
+  (el menú principal es el que aparece al arrancar, sin `--menu`; `principal` sirve con `--host`, para el de la
+  partida en red) y `--menu no` (corriendo, como "Jugar solo": el HUD con la ayuda de teclas del principio).
+- El panel de datos técnicos (velocidad, rpm, suspensión, agarre...) ya no está siempre: `--datos` lo muestra (o
+  T, o Ajustes). Las capturas con el bot o una prueba no llevan la ayuda de teclas (es para el jugador).
+- `preferencias.ini` se lee al lado del exe también en las capturas: si el de tu carpeta tiene el sacudón, el
+  motion blur o los datos técnicos cambiados, las capturas cambian.
+- **Teclas de verdad** (menú, Ajustes, H, T, M, R...): `tools\teclas.ps1 -Dir <carpeta> -Keys "ESC,DOWN,ENTER"`
+  con el juego abierto desde esa carpeta (en segundo plano, con `--screenshot T` y `--time`). Manda
+  `WM_KEYDOWN`/`WM_KEYUP` con `PostMessage` sólo a esa ventana, cada tecla apretada 90 ms (si baja y sube en
+  el mismo cuadro, raylib no ve el `IsKeyPressed`). Lo que cambia en Ajustes queda en su `preferencias.ini`.
+  - **Trampa**: `SendKeys` y `keybd_event` van a la ventana que está al frente, no al juego: Windows no deja que
+    un proceso de fondo pase otra ventana al frente (`SetForegroundWindow` da `False`). En la primera prueba dos
+    tandas de flechas y Enter fueron a la ventana del usuario.
+  - GLFW saca la tecla del scancode del `lParam` (bits 16-23, y el 24 para las flechas), no del código virtual.
 - Cámara:
   - `--side --view 0 0 0.3`: costado **izquierdo**, fija (`--side` ignora el yaw);
   - `--view 90 15 0.5`: costado **derecho** desde un poco arriba (ahí va el escape);
@@ -130,6 +171,9 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   El yaw de la órbita no es igual con distintos pitch: confirmar mirando dónde queda la trompa.
 - `tools/grilla.py salida.png columnas escala [crop x0 y0 x1 y1] archivos...` arma una grilla numerada
   (para mirar una serie de golpe) y recorta si hace falta.
+- **Cuánto se mete el piloto en la moto** (con el modelo, con ventana): `python tools/holgura/armar.py` compila
+  una copia con la medición y `tools/holgura/barrido.sh` barre ~900 poses por moto; `tabla.py` compara antes
+  y después y `vista.py` dibuja una pose con lo que se mete marcado. Ver [PILOTO.md](PILOTO.md), "Medir la holgura".
 
 - **El bot con ventana es mucho menos estable que sin ventana** (puede irse 100 m afuera): las vueltas se
   validan sin ventana.
@@ -140,7 +184,15 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 - circuito de obstáculos de trial y escalones;
 - los mapas de siempre con otra moto;
 - pistas de la de carreras (`pista_carrera`, `recta`);
-- copias del circuito con otro bot o motos de prueba (`pista`, `agarre`). El juego junta los `mods/` de la carpeta actual y los de la del
+- plazas llanas para medir una moto: `plaza_asfalto` (120 m de ancho), `plaza_asfalto_ancha` (400 m, 1.5 km derechos
+  desde la largada) y `plaza_tierra` (400 m, 1.1 km derechos, con el agarre de la tierra de pista);
+- copias del circuito con otro bot o motos de prueba (`pista`, `agarre`);
+- Los Médanos y el Parque de física con la vuelta guía por lo que la vuelta no pisa (`medanos_crater`,
+  `medanos_ola`, `medanos_grande`, `medanos_montes`; `park_tierra`, `park_madera`, `park_pump`,
+  `park_plaza`, `park_bowl`), para medir cada zona con `tools/saltos.py` o `tools/tramo.py`; los escriben
+  `tools/medanos.py` y `tools/parque.py` (y `park`, el parque con la trial).
+
+El juego junta los `mods/` de la carpeta actual y los de la del
 ejecutable, así que se usan corriendo desde `pruebas/`:
 
 ```
@@ -187,6 +239,10 @@ dedos), la de carreras frenando y doblando, sin trompo frenando la motocross, la
 más viva en la motocross y la 2T, choques en red (quién se cae), reaparecer con R, sacudón y motion blur
 apagables. Al probar el paquete apareció un `preferencias.ini` del usuario (había abierto el juego desde la
 carpeta del paquete): no se borra; el zip se arma desde una copia sin él.
+**v0.2.8** (protocolo 7, juega con la v0.2.5-v0.2.7; 5.4 MB): menú Ajustes y Controles, HUD más limpio, Los
+Médanos con saltos encadenados, el Parque rediseñado, el piloto que no se mete en la moto, la Trilheira sin
+trompo, la 2T con motor de dos tiempos, la Carrera pesada en el aire, sin parpadeos en el autódromo y la
+favela, profundidad de 24 bits.
 
 - **Trampas de las pruebas del paquete**:
   - `brakeslideN` toma N en **m/s**, no en km/h (`brakeslide10` entra a 36 km/h). El derrape lento se

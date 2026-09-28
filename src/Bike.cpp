@@ -158,6 +158,9 @@ void BikeParams::Register(Tuning& t)
     t.Add("brake_align", &brakeAlign);
     t.Add("slide_pivot", &slidePivot);
     t.Add("brake_align_torque", &brakeAlignTorque);
+    t.Add("brake_align_from", &brakeAlignFrom);
+    t.Add("brake_align_full", &brakeAlignFull);
+    t.Add("brake_align_free", &brakeAlignFree);
     t.Add("rear_lift_load", &rearLiftLoad);
     t.Add("rear_lift_mitigation", &rearLiftMitigation);
     t.Add("brake_yaw_comp", &brakeYawComp);
@@ -434,13 +437,23 @@ RiderPose Bike::RiderPoseLocal() const
     const float sideX = -riderSide;                                 // + derecha = -X
     p.hips += Vec3(0.13f * sideX, -0.03f * std::fabs(sideX), 0.0f);
     p.shoulders += Vec3(0.20f * sideX, -0.03f * std::fabs(sideX), 0.0f);
-    // Moto casi vertical sobre la trasera (wheelie pasado, la cola raspando): de pie en los pedales con
-    // el torso derecho respecto del mundo, sobre el manubrio (sentado y tirado atrás quedaría acostado).
-    // Sólo apoyada: en el aire, tirándose atrás, la moto pasa de 55° y el piloto saltaba a esta pose (el
-    // torso se iba 60 cm para adelante y atravesaba el manubrio).
+    // La cola no pasa de la punta del asiento: tirado adelante y con la pata afuera a la vez se sumaban los
+    // dos corrimientos y la cadera quedaba sobre el tanque.
+    p.hips.SetZ(std::min(p.hips.GetZ(), style.hips.GetZ() + std::max(style.leanHipsZ, 0.19f)));
+    // De costado, el whip y el cuerpo corrido (y colgado) también se suman: el torso se iba ~55 cm al
+    // costado, arriba de un puño, y con la otra mano no llegaba al suyo. Se frena suave (tanh): lo chico
+    // queda igual. Ver docs/PILOTO.md, "El piloto se metía en la moto".
+    p.hips.SetX(0.25f * std::tanh(p.hips.GetX() / 0.25f));
+    p.shoulders.SetX(0.30f * std::tanh(p.shoulders.GetX() / 0.30f));
+    // Moto casi vertical sobre la trasera (wheelie pasado, la cola raspando): de pie en los pedales, con
+    // las piernas casi estiradas y el torso hacia el manubrio (con la moto a 80°, en el mundo queda ~30°
+    // tirado atrás, colgado del manubrio; sentado y tirado atrás quedaría acostado). Antes el torso iba
+    // derecho respecto del mundo, a lo largo del tanque, y la cadera y el pecho quedaban adentro del tanque
+    // (ver docs/PILOTO.md, "El piloto se metía en la moto").
+    // Sólo apoyada: en el aire, tirándose atrás, la moto pasa de 55° y el piloto saltaba a esta pose.
     const float stand = std::max(style.stand, mu::Smoothstep(mu::Rad(55.0f), mu::Rad(80.0f), pitch) * supported);
-    p.hips = p.hips + (Vec3(0.0f, 0.05f, 0.12f) - p.hips) * stand;
-    p.shoulders = p.shoulders + (Vec3(0.0f, 0.18f, 0.62f) - p.shoulders) * stand;
+    p.hips = p.hips + (Vec3(0.0f, 0.34f, -0.08f) - p.hips) * stand;
+    p.shoulders = p.shoulders + (Vec3(0.0f, 0.66f, 0.30f) - p.shoulders) * stand;
     p.head = p.shoulders + Vec3(0.05f * hangSide * hang, 0.18f - 0.02f * hang, 0.09f);   // el casco casi apoyado en el collarín
     for (int i = 0; i < 2; ++i) {
         const float side = i == 0 ? 1.0f : -1.0f;       // +X = izquierda
@@ -448,7 +461,7 @@ RiderPose Bike::RiderPoseLocal() const
         const float a = side == inSide ? out : 0.0f;
         p.hip[i] = p.hips + Vec3(0.10f * side, 0, 0);
         p.knee[i] = Vec3(style.knee.GetX() * side + 0.2f * tiltX + 0.07f * sideX, style.knee.GetY(), style.knee.GetZ() + 0.08f * lean + 0.10f * (out - a));
-        p.knee[i] = p.knee[i] + (Vec3(0.18f * side, -0.20f, 0.07f) - p.knee[i]) * stand;
+        p.knee[i] = p.knee[i] + (Vec3(0.19f * side, -0.03f, 0.05f) - p.knee[i]) * stand;
         if (side == hangSide) p.knee[i] = p.knee[i] + (Vec3(0.38f * side, -0.05f, 0.08f) - p.knee[i]) * hang;   // rodilla al piso
         p.ankle[i] = peg + Vec3(0, 0.06f, 0);
         p.foot[i] = peg + Vec3(0, 0.02f, 0.04f);

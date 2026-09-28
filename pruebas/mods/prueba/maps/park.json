@@ -1,17 +1,57 @@
-// Example mod: a flat physics park. A lap track around the edge, and inside it jump lines, a table,
-// a launch ramp, a quarter pipe, a pump track, and loose barrels, crates, bowling pins and giant
-// balls to crash into. Copy this folder to start your own mod; every field is in MODDING.md.
-//
-// Save this file while the game is running on this map and it rebuilds right away.
+// Copy of mods/sandbox/maps/park.json (Parque de física (trial)). Written by tools/parque.py.
+// Example mod: a flat physics park, laid out like a small bike park. The lap track runs around the
+// edge; inside, every line is ridden north, from the start straight to the far one (both left turns):
+//   west:   Línea de tierra, three dirt tables (small, medium and one for backflips), then a crate pyramid;
+//   middle: Línea de madera, three wooden jump boxes (ramp, deck, ramp down), then the bowling pins;
+//   east:   a pump track (an oval of rollers with two berms), then a wall of oil drums;
+//   north:  the plaza, with a bowl (the giant balls live in it) and La Pared, a dirt quarter pipe.
+// Dirt jumps are shapes sculpted into the ground ("terrain.shapes"); wooden ones are objects ("objects").
+// Copy this folder to start your own mod; every field is in MODDING.md. Save this file while the game is
+// running on this map and it rebuilds right away. (Written by tools/parque.py.)
 {
   "name": "Parque de física (trial)",
-  "kind": "sandbox · rampas y objetos sueltos",
-  "description": "Líneas de saltos, mesa, quarter pipe, pump track y cosas para voltear. Ejemplo de mod.",
-  "hint": "Los tambores, cajas, bolos y pelotas se mueven: pasales por encima o empujalos",
+  "kind": "sandbox · parque de saltos y objetos sueltos",
+  "description": "Parque de saltos: línea de tierra, línea de madera, pump track, bowl y quarter, y cosas para voltear al final de cada línea.",
+  "hint": "Las líneas se andan hacia el norte, desde la recta de largada · Al final de cada una hay algo para voltear",
   "color": "#4fc3f7",
   "bike": "base/trial",
 
-  "terrain": { "type": "flat", "edge": 10 },
+  "terrain": {
+    "type": "flat", "edge": 10,
+    // shape: line | round. "profile": [[u, height], ...] in meters; "line" runs it along "yaw" (0 = north),
+    // "round" spins it around "at" (u = radius; "arc" keeps only a slice, from one heading to another).
+    // "mode": "level" flattens the ground to "base" + profile; "dirt": true paints it with the track's dirt
+    // (see MODDING.md, terrain.shapes).
+    "shapes": [
+      // Línea de tierra (west): three dirt tables ridden north, small, medium and the big one for backflips (3.6 m, 34° kick, landing dug 1.5 m into the ground).
+      {"shape": "line", "at": [-50.0, -72.0], "yaw": 0, "width": 8, "edge": 6, "mode": "level", "base": 0, "smooth": 1.0, "dirt": true,
+       "profile": [[-12.0, 0.00], [0.4, 0.01], [0.8, 0.04], [1.2, 0.09], [1.6, 0.16], [2.0, 0.25], [2.4, 0.36], [2.7, 0.48], [4.7, 1.20], [5.3, 1.20], [9.3, 1.20], [9.6, 1.19], [9.9, 1.17], [10.2, 1.13], [10.6, 1.07], [10.9, 1.00], [11.2, 0.91], [12.4, 0.49], [12.9, 0.34], [13.5, 0.22], [14.0, 0.12], [14.5, 0.05], [15.0, 0.01], [15.5, 0.00], [23.5, 0.00], [24.0, 0.01], [24.5, 0.05], [25.0, 0.11], [25.5, 0.20], [26.0, 0.32], [26.5, 0.45], [27.0, 0.62], [27.5, 0.80], [27.9, 1.01], [29.9, 2.00], [30.5, 2.00], [36.5, 2.00], [36.9, 1.99], [37.3, 1.96], [37.7, 1.92], [38.1, 1.85], [38.4, 1.77], [38.8, 1.67], [39.2, 1.55], [39.5, 1.42], [40.9, 0.87], [41.4, 0.67], [42.0, 0.49], [42.5, 0.34], [43.1, 0.22], [43.7, 0.12], [44.2, 0.06], [44.8, 0.01], [45.4, 0.00], [53.4, 0.00], [54.2, 0.02], [55.0, 0.08], [55.7, 0.18], [56.5, 0.31], [57.3, 0.49], [58.1, 0.70], [58.8, 0.95], [59.5, 1.24], [60.3, 1.56], [61.0, 1.92], [61.7, 2.31], [62.3, 2.74], [63.6, 3.60], [64.2, 3.60], [74.2, 3.60], [74.6, 3.59], [75.0, 3.56], [75.5, 3.50], [75.9, 3.43], [76.3, 3.33], [76.7, 3.21], [77.1, 3.07], [77.5, 2.91], [77.8, 2.73], [78.2, 2.53], [81.5, 0.64], [82.2, 0.24], [83.0, -0.12], [83.7, -0.44], [84.5, -0.72], [85.3, -0.95], [86.1, -1.15], [87.0, -1.30], [87.8, -1.41], [88.6, -1.48], [89.5, -1.50], [93.5, -1.50], [95.5, -1.44], [97.6, -1.27], [99.7, -1.03], [101.7, -0.75], [103.8, -0.47], [105.9, -0.23], [107.9, -0.06], [110.0, -0.00], [116.0, 0.00]]},
+
+      // Pump track (west side, ridden north): eight 0.6 m rollers, 6.25 m apart: pump them without throttle.
+      {"shape": "line", "at": [40.0, -58.0], "yaw": 0, "width": 5, "edge": 3, "mode": "level", "base": 0, "smooth": 0.5, "dirt": true,
+       "profile": [[-4.0, 0.00], [0.0, 0.00], [0.5, 0.04], [1.0, 0.14], [1.5, 0.28], [2.0, 0.43], [2.5, 0.54], [3.0, 0.60], [3.5, 0.58], [4.0, 0.49], [4.5, 0.36], [5.0, 0.21], [5.5, 0.08], [6.0, 0.01], [6.5, 0.01], [7.0, 0.08], [7.5, 0.21], [8.0, 0.36], [8.5, 0.49], [9.0, 0.58], [9.5, 0.60], [10.0, 0.54], [10.5, 0.43], [11.0, 0.28], [11.5, 0.14], [12.0, 0.04], [12.5, 0.00], [13.0, 0.04], [13.5, 0.14], [14.0, 0.28], [14.5, 0.43], [15.0, 0.54], [15.5, 0.60], [16.0, 0.58], [16.5, 0.49], [17.0, 0.36], [17.5, 0.21], [18.0, 0.08], [18.5, 0.01], [19.0, 0.01], [19.5, 0.08], [20.0, 0.21], [20.5, 0.36], [21.0, 0.49], [21.5, 0.58], [22.0, 0.60], [22.5, 0.54], [23.0, 0.43], [23.5, 0.28], [24.0, 0.14], [24.5, 0.04], [25.0, 0.00], [25.5, 0.04], [26.0, 0.14], [26.5, 0.28], [27.0, 0.43], [27.5, 0.54], [28.0, 0.60], [28.5, 0.58], [29.0, 0.49], [29.5, 0.36], [30.0, 0.21], [30.5, 0.08], [31.0, 0.01], [31.5, 0.01], [32.0, 0.08], [32.5, 0.21], [33.0, 0.36], [33.5, 0.49], [34.0, 0.58], [34.5, 0.60], [35.0, 0.54], [35.5, 0.43], [36.0, 0.28], [36.5, 0.14], [37.0, 0.04], [37.5, 0.00], [38.0, 0.04], [38.5, 0.14], [39.0, 0.28], [39.5, 0.43], [40.0, 0.54], [40.5, 0.60], [41.0, 0.58], [41.5, 0.49], [42.0, 0.36], [42.5, 0.21], [43.0, 0.08], [43.5, 0.01], [44.0, 0.01], [44.5, 0.08], [45.0, 0.21], [45.5, 0.36], [46.0, 0.49], [46.5, 0.58], [47.0, 0.60], [47.5, 0.54], [48.0, 0.43], [48.5, 0.28], [49.0, 0.14], [49.5, 0.04], [50.0, 0.00], [54.0, 0.00]]},
+
+      // Pump track (east side, ridden south): eight 0.6 m rollers, 6.25 m apart: pump them without throttle.
+      {"shape": "line", "at": [66.0, -8.0], "yaw": 180, "width": 5, "edge": 3, "mode": "level", "base": 0, "smooth": 0.5, "dirt": true,
+       "profile": [[-4.0, 0.00], [0.0, 0.00], [0.5, 0.04], [1.0, 0.14], [1.5, 0.28], [2.0, 0.43], [2.5, 0.54], [3.0, 0.60], [3.5, 0.58], [4.0, 0.49], [4.5, 0.36], [5.0, 0.21], [5.5, 0.08], [6.0, 0.01], [6.5, 0.01], [7.0, 0.08], [7.5, 0.21], [8.0, 0.36], [8.5, 0.49], [9.0, 0.58], [9.5, 0.60], [10.0, 0.54], [10.5, 0.43], [11.0, 0.28], [11.5, 0.14], [12.0, 0.04], [12.5, 0.00], [13.0, 0.04], [13.5, 0.14], [14.0, 0.28], [14.5, 0.43], [15.0, 0.54], [15.5, 0.60], [16.0, 0.58], [16.5, 0.49], [17.0, 0.36], [17.5, 0.21], [18.0, 0.08], [18.5, 0.01], [19.0, 0.01], [19.5, 0.08], [20.0, 0.21], [20.5, 0.36], [21.0, 0.49], [21.5, 0.58], [22.0, 0.60], [22.5, 0.54], [23.0, 0.43], [23.5, 0.28], [24.0, 0.14], [24.5, 0.04], [25.0, 0.00], [25.5, 0.04], [26.0, 0.14], [26.5, 0.28], [27.0, 0.43], [27.5, 0.54], [28.0, 0.60], [28.5, 0.58], [29.0, 0.49], [29.5, 0.36], [30.0, 0.21], [30.5, 0.08], [31.0, 0.01], [31.5, 0.01], [32.0, 0.08], [32.5, 0.21], [33.0, 0.36], [33.5, 0.49], [34.0, 0.58], [34.5, 0.60], [35.0, 0.54], [35.5, 0.43], [36.0, 0.28], [36.5, 0.14], [37.0, 0.04], [37.5, 0.00], [38.0, 0.04], [38.5, 0.14], [39.0, 0.28], [39.5, 0.43], [40.0, 0.54], [40.5, 0.60], [41.0, 0.58], [41.5, 0.49], [42.0, 0.36], [42.5, 0.21], [43.0, 0.08], [43.5, 0.01], [44.0, 0.01], [44.5, 0.08], [45.0, 0.21], [45.5, 0.36], [46.0, 0.49], [46.5, 0.58], [47.0, 0.60], [47.5, 0.54], [48.0, 0.43], [48.5, 0.28], [49.0, 0.14], [49.5, 0.04], [50.0, 0.00], [54.0, 0.00]]},
+
+      // Pump track, north berm (a round shape with an "arc": only the half from west to east).
+      {"shape": "round", "at": [53.0, -8.0], "arc": [270, 90], "edge": 4, "mode": "level", "base": 0, "smooth": 0.5, "dirt": true,
+       "profile": [[0.0, 0.00], [11.5, 0.00], [11.7, 0.01], [12.0, 0.02], [12.2, 0.06], [12.5, 0.10], [12.7, 0.15], [13.0, 0.22], [13.2, 0.30], [13.4, 0.39], [13.7, 0.50], [13.9, 0.61], [14.1, 0.73], [14.3, 0.87], [14.5, 1.01], [14.7, 1.17], [15.5, 1.80], [16.5, 1.80], [16.7, 1.79], [17.0, 1.77], [17.2, 1.74], [17.5, 1.69], [17.8, 1.63], [18.0, 1.56], [18.3, 1.47], [18.5, 1.37], [18.7, 1.26], [19.0, 1.13], [19.1, 1.07], [19.4, 0.87], [19.8, 0.69], [20.2, 0.53], [20.6, 0.39], [21.0, 0.27], [21.4, 0.17], [21.8, 0.10], [22.2, 0.04], [22.6, 0.01], [23.1, 0.00], [25.1, 0.00]]},
+
+      // Pump track, south berm.
+      {"shape": "round", "at": [53.0, -58.0], "arc": [90, 270], "edge": 4, "mode": "level", "base": 0, "smooth": 0.5, "dirt": true,
+       "profile": [[0.0, 0.00], [11.5, 0.00], [11.7, 0.01], [12.0, 0.02], [12.2, 0.06], [12.5, 0.10], [12.7, 0.15], [13.0, 0.22], [13.2, 0.30], [13.4, 0.39], [13.7, 0.50], [13.9, 0.61], [14.1, 0.73], [14.3, 0.87], [14.5, 1.01], [14.7, 1.17], [15.5, 1.80], [16.5, 1.80], [16.7, 1.79], [17.0, 1.77], [17.2, 1.74], [17.5, 1.69], [17.8, 1.63], [18.0, 1.56], [18.3, 1.47], [18.5, 1.37], [18.7, 1.26], [19.0, 1.13], [19.1, 1.07], [19.4, 0.87], [19.8, 0.69], [20.2, 0.53], [20.6, 0.39], [21.0, 0.27], [21.4, 0.17], [21.8, 0.10], [22.2, 0.04], [22.6, 0.01], [23.1, 0.00], [25.1, 0.00]]},
+
+      // The bowl (north-west): 2.4 m deep, 50° walls, a 0.8 m rim all around. The giant balls live in it.
+      {"shape": "round", "at": [-20.0, 58.0], "edge": 5, "mode": "level", "base": 0, "smooth": 0.8, "dirt": true,
+       "profile": [[0.0, -2.40], [5.0, -2.40], [5.3, -2.39], [5.6, -2.37], [5.9, -2.33], [6.2, -2.27], [6.5, -2.20], [6.8, -2.12], [7.1, -2.02], [7.4, -1.90], [7.7, -1.77], [7.9, -1.63], [8.2, -1.47], [8.5, -1.30], [8.7, -1.11], [9.0, -0.92], [9.2, -0.71], [9.4, -0.49], [9.6, -0.26], [10.5, 0.80], [11.5, 0.80], [11.6, 0.80], [11.8, 0.79], [11.9, 0.77], [12.1, 0.74], [12.2, 0.71], [12.4, 0.67], [12.5, 0.62], [13.5, 0.24], [13.7, 0.18], [13.9, 0.12], [14.1, 0.08], [14.3, 0.04], [14.5, 0.02], [14.7, 0.00], [14.9, 0.00], [16.9, 0.00]]},
+
+      // La Pared (north-east): a 3.2 m dirt quarter pipe (62° at the top) facing south, with a 24° back side to land on if you go over.
+      {"shape": "line", "at": [42.0, 52.0], "yaw": 0, "width": 22, "edge": 6, "mode": "level", "base": 0, "smooth": 0.8, "dirt": true,
+       "profile": [[-20.0, 0.00], [0.0, 0.00], [0.3, 0.01], [0.5, 0.03], [0.8, 0.06], [1.0, 0.11], [1.3, 0.17], [1.5, 0.24], [1.8, 0.32], [2.0, 0.42], [2.2, 0.53], [2.5, 0.65], [2.7, 0.78], [2.9, 0.93], [3.1, 1.08], [3.3, 1.25], [3.5, 1.42], [3.7, 1.61], [3.8, 1.80], [4.0, 2.00], [4.1, 2.21], [4.3, 2.43], [4.4, 2.65], [4.7, 3.20], [5.7, 3.20], [5.9, 3.20], [6.1, 3.18], [6.3, 3.16], [6.4, 3.13], [6.6, 3.09], [6.8, 3.05], [7.0, 2.99], [7.2, 2.93], [7.3, 2.85], [12.2, 0.69], [12.5, 0.55], [12.9, 0.42], [13.2, 0.31], [13.6, 0.22], [14.0, 0.14], [14.3, 0.08], [14.7, 0.03], [15.1, 0.01], [15.4, 0.00], [19.4, 0.00]]}
+    ]
+  },
 
   // A rounded rectangle around the park (x, z in meters; x = east, z = north).
   "track": {
@@ -31,82 +71,67 @@
     ["whoops"]                // west
   ],
 
-  "look": { "preset": "day", "sun_dir": [-0.35, 0.8, -0.5] },
+  "look": { "preset": "day", "sun_dir": [-0.35, 0.8, -0.5], "fog": 0.0028 },
 
-  // shape: box | ramp | cylinder | sphere. "at": [x, y, z] where y is the gap between the ground and
-  // the lowest point of the object (negative = buried). size: [width, height, length] in meters
-  // (cylinder: [diameter, height], sphere: [diameter]). yaw / pitch / roll in degrees. A ramp rises
+  // shape: box | ramp | cylinder | sphere. "at": [x, y, z] where y is the gap between the ground and the
+  // lowest point of the object (negative = buried). size: [width, height, length] in meters
+  // (cylinder: [diameter, height], sphere: diameter). yaw / pitch / roll in degrees. A ramp rises
   // towards its "yaw" direction (0 = north, 90 = east). dynamic: true makes it a loose object with
   // "mass" in kg. Fixed objects can be ridden on; loose ones get pushed by the bike's body.
   "objects": [
-    // --- Jump line (west), three sizes, riding north ---------------------------------------
-    { "shape": "ramp", "at": [-40, 0, -50], "size": [5, 1.4, 5],  "color": "#d9c9a3" },
-    { "shape": "ramp", "at": [-40, 0, -34], "size": [5, 1.4, 7],  "yaw": 180, "color": "#d9c9a3" },
-    { "shape": "ramp", "at": [-40, 0, -14], "size": [5, 1.8, 6],  "color": "#d9c9a3" },
-    { "shape": "ramp", "at": [-40, 0, 4],   "size": [5, 1.8, 8],  "yaw": 180, "color": "#d9c9a3" },
-    { "shape": "ramp", "at": [-40, 0, 25],  "size": [6, 2.6, 8],  "color": "#c7b27f" },
-    { "shape": "ramp", "at": [-40, 0, 50],  "size": [6, 2.6, 12], "yaw": 180, "color": "#c7b27f" },
+    // --- Línea de madera (middle), ridden north: three wooden jump boxes (ramp, flat deck, ramp down).
+    // Jump from ramp to ramp or just roll over them, either way. The pieces overlap by 5 cm (no gaps).
+    { "shape": "ramp", "at": [0, 0, -64], "size": [4, 0.8, 4], "color": "#c9a36b" },
+    { "shape": "box", "at": [0, 0, -60.55], "size": [3.96, 0.8, 3.1], "color": "#a8834f" },
+    { "shape": "ramp", "at": [0, 0, -56.35], "size": [4, 0.8, 5.5], "yaw": 180, "color": "#c9a36b" },
+    { "shape": "ramp", "at": [0, 0, -37], "size": [4, 1.2, 5], "color": "#c9a36b" },
+    { "shape": "box", "at": [0, 0, -32.3], "size": [3.96, 1.2, 4.6], "color": "#a8834f" },
+    { "shape": "ramp", "at": [0, 0, -26.6], "size": [4, 1.2, 7], "yaw": 180, "color": "#c9a36b" },
+    { "shape": "ramp", "at": [0, 0, -6.5], "size": [4, 1.8, 5], "color": "#c9a36b" },
+    { "shape": "box", "at": [0, 0, -1.3], "size": [3.96, 1.8, 5.6], "color": "#a8834f" },
+    { "shape": "ramp", "at": [0, 0, 5.9], "size": [4, 1.8, 9], "yaw": 180, "color": "#c9a36b" },
 
-    // --- Table (middle): up, 22 m flat top, down ----------------------------------------------
-    { "shape": "ramp", "at": [0, 0, -40], "size": [6, 1.5, 6], "color": "#9aa3ad" },
-    { "shape": "box",  "at": [0, 0, -26], "size": [6, 1.5, 22], "color": "#8a939d" },
-    { "shape": "ramp", "at": [0, 0, -12], "size": [6, 1.5, 6], "yaw": 180, "color": "#9aa3ad" },
+    // --- La bolera: ten bowling pins at the end of the wooden line.
+    { "shape": "cylinder", "at": [0, 0, 36.5], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [-0.6, 0, 37.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [0.6, 0, 37.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [-1.2, 0, 38.7], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [0, 0, 38.7], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#d62c2c" },
+    { "shape": "cylinder", "at": [1.2, 0, 38.7], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [-1.8, 0, 39.8], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [-0.6, 0, 39.8], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [0.6, 0, 39.8], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [1.8, 0, 39.8], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
 
-    // --- Launch ramp and a long landing (for flips) -----------------------------------------
-    { "shape": "ramp", "at": [0, 0, 45], "size": [7, 3.5, 9],  "color": "#e0a040" },
-    { "shape": "ramp", "at": [0, 0, 75], "size": [8, 3.5, 14], "yaw": 180, "color": "#e0a040" },
+    // --- Pirámide de cajas (4 + 3 + 2 + 1) at the end of the dirt line: ride through it.
+    { "shape": "box", "at": [-51.65, 0, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [-50.55, 0, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [-49.45, 0, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [-48.35, 0, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [-51.1, 1, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [-50, 1, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [-48.9, 1, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [-50.55, 2, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [-49.45, 2, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [-50, 3, 52], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
 
-    // --- Quarter pipe (north-east): 45 degrees, 4 m tall -------------------------------------
-    { "shape": "ramp", "at": [45, 0, 52], "size": [12, 4, 4], "color": "#b04a4a" },
+    // --- Muro de tambores: two rows of oil drums where you leave the pump track.
+    { "shape": "cylinder", "at": [50.75, 0, 22], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
+    { "shape": "cylinder", "at": [51.65, 0, 22], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+    { "shape": "cylinder", "at": [52.55, 0, 22], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
+    { "shape": "cylinder", "at": [53.45, 0, 22], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
+    { "shape": "cylinder", "at": [54.35, 0, 22], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
+    { "shape": "cylinder", "at": [55.25, 0, 22], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+    { "shape": "cylinder", "at": [50.75, 0, 22.9], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+    { "shape": "cylinder", "at": [51.65, 0, 22.9], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
+    { "shape": "cylinder", "at": [52.55, 0, 22.9], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
+    { "shape": "cylinder", "at": [53.45, 0, 22.9], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
+    { "shape": "cylinder", "at": [54.35, 0, 22.9], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+    { "shape": "cylinder", "at": [55.25, 0, 22.9], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
 
-    // --- Pump track (east): half-buried pipes lying across the path --------------------------
-    { "shape": "cylinder", "at": [65, -1.9, -62], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
-    { "shape": "cylinder", "at": [65, -1.9, -55], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
-    { "shape": "cylinder", "at": [65, -1.9, -48], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
-    { "shape": "cylinder", "at": [65, -1.9, -41], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
-    { "shape": "cylinder", "at": [65, -1.9, -34], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
-
-    // --- Loose oil drums (south-east) --------------------------------------------------------
-    { "shape": "cylinder", "at": [30, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
-    { "shape": "cylinder", "at": [31, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
-    { "shape": "cylinder", "at": [32, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
-    { "shape": "cylinder", "at": [33, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
-    { "shape": "cylinder", "at": [30, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
-    { "shape": "cylinder", "at": [31, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
-    { "shape": "cylinder", "at": [32, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
-    { "shape": "cylinder", "at": [33, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
-    { "shape": "cylinder", "at": [30, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
-    { "shape": "cylinder", "at": [31, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
-    { "shape": "cylinder", "at": [32, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
-    { "shape": "cylinder", "at": [33, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
-
-    // --- Crate pyramid (east): 4 + 3 + 2 + 1 --------------------------------------------------
-    { "shape": "box", "at": [38.35, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
-    { "shape": "box", "at": [39.45, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
-    { "shape": "box", "at": [40.55, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
-    { "shape": "box", "at": [41.65, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
-    { "shape": "box", "at": [38.9, 1, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
-    { "shape": "box", "at": [40.0, 1, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
-    { "shape": "box", "at": [41.1, 1, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
-    { "shape": "box", "at": [39.45, 2, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
-    { "shape": "box", "at": [40.55, 2, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
-    { "shape": "box", "at": [40.0, 3, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#c9302c" },
-
-    // --- Bowling pins (north-east) -----------------------------------------------------------
-    { "shape": "cylinder", "at": [22, 0, 56],     "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [21.4, 0, 57.2], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [22.6, 0, 57.2], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [20.8, 0, 58.4], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [22, 0, 58.4],   "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#d62c2c" },
-    { "shape": "cylinder", "at": [23.2, 0, 58.4], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [20.2, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [21.4, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [22.6, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-    { "shape": "cylinder", "at": [23.8, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
-
-    // --- Giant balls ---------------------------------------------------------------------------
-    { "shape": "sphere", "at": [15, 0, 25], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#e84393" },
-    { "shape": "sphere", "at": [19, 0, 30], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#00b894" },
-    { "shape": "sphere", "at": [12, 0, 32], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#fdcb6e" }
+    // --- Pelotas gigantes, in the bowl: they always roll back to the bottom.
+    { "shape": "sphere", "at": [-20, 0, 58], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#e84393" },
+    { "shape": "sphere", "at": [-17.4, 0, 59.2], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#00b894" },
+    { "shape": "sphere", "at": [-21.4, 0, 60.4], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#fdcb6e" }
   ]
 }

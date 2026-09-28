@@ -15,3 +15,6 @@ screenshot*.png
 # Modelo de piloto de reserva: el juego usa Low_Poly_Motorcyclist_2 (éste sólo si falta aquél)
 Low_Poly_Motorcycle_Racer_rigged.gltf
 Low_Poly_Motorcycle_Racer_rigged_deps/
+
+# Copias de trabajo de los agentes (git worktree): no van al repo
+.claude/worktrees/
