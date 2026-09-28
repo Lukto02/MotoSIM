@@ -133,6 +133,12 @@ Lo aprendido:
   29 cm contra el terreno abajo. Llegan hasta los muritos: con una canaleta al costado la rueda caía al
   terreno y pegaba en la punta de los escalones. Hacía volar la moto hasta que la cubierta aprendió a apoyar en los
   cantos (ver [FISICA.md](FISICA.md)). Desde entonces el bot da 3 vueltas sin caerse (1:37-1:38).
+- **Pendiente: la curva de abajo de la bajada (s≈246-264)**. El bot llega a ~43 km/h después de la loma de s≈241
+  (vuela y cae de trompa, sin poder doblar) y pega contra la pared de afuera a ~28 km/h en casi todas las vueltas,
+  con la Trilheira, la motocross y la 2T (la trial llega más despacio y no). Es casi toda la cuenta de caídas de la
+  favela (con la Trilheira, 3-9 en 45 min, la mitad o más ahí). El plan del bot en las calles (frenar a 2.5 m/s²) no
+  cuenta la pendiente ni el vuelo de la loma. Visto en la revisión de las motos después de la v0.2.7 ([FISICA.md](FISICA.md),
+  "La Trilheira: frenando fuerte hacía un trompo").
 
 ### Los Médanos (dunas, andar libre)
 `mods/sandbox/maps/medanos.json`, generado por `tools/medanos.py` (los perfiles de los saltos están ahí,

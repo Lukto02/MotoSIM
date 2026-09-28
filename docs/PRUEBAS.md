@@ -114,7 +114,26 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | sonido | `--sound-test archivo.wav [2t\|raspado]` y `python tools/sonido.py` (ver [SONIDO.md](SONIDO.md)) |
 | choque entre motos en red | `python tools/netchoque.py <exe anfitrión> <exe invitado> [--lag MS] [--jitter MS] [--bike m] [--ventana] lado-15 atras-60-30 frente-12 roce-40 ang45-25-25`: el invitado embiste al anfitrión (`--test netchoque-TIPO-KMH[-KMH]`, `--flat`) y cada uno dice si se cayó y con qué cierre; también qué decidía la regla de la v0.2.6 (ver [RED.md](RED.md), "Choques entre motos") |
 | red como por internet | `--net-lag MS --net-jitter MS`: lo que llega se procesa MS ms más tarde, más hasta MS al azar (en tandas) |
+| arrancada (0-50, 0-100) | `--test arranquea` (parado, W en rampa a 1 s, piloto adelante, caja automática). No con `frenadaN`/`accel`: arrancan con la moto en el aire (ver abajo) |
+| freno motor | `--test frenacurvaNx0n`: llega a N km/h y suelta todo (sin freno ni dirección); restar el aire (0.6 · `drag_area` · v² / m) y la rodadura |
+| curvas y agarre lateral | desde `pruebas/`: `--map prueba/plaza_tierra` o `prueba/plaza_asfalto_ancha --test circleN` (N m/s, dirección a fondo desde los 4 s). La guiñada del mundo es `wy` / cos(`roll`): `wy` es la del eje de la moto |
 | el resto | la lista de `--test` está en el README ("Pruebas automáticas") |
+
+- **Trampas de las pruebas con guion** (de la revisión de las motos, [MOTOS.md](MOTOS.md)):
+  - `frenadaN`, `accel` y los que dan gas desde `t = 0` arrancan con la moto cayendo al aparecer: la rueda se pasa de
+    vueltas en el aire y al tocar el piso la caja automática sube a 2ª a 4-5 km/h (la 2T y la Trilheira parecían
+    arrancar en 2ª). Para una arrancada, `arranquea`.
+  - `--drop H` deja la moto en 1ª a 43-50 km/h: con una 1ª corta (la trial llega a 31) el freno motor pasado de
+    vueltas frena la rueda en el aire y la trompa baja (el `whip` de la trial termina dado vuelta). Es la prueba.
+  - Los círculos a más de ~15 m/s no entran en las plazas de 120 m (el círculo va al costado de la largada): con
+    lisas, en el pasto la de carreras "no doblaba". Las plazas de 400 m sirven hasta ~100 m de radio.
+  - `prueba/recta` no sirve para la velocidad final sin dirección: la largada está en la curva del óvalo y la moto se
+    va de la calle de 16 m. En `plaza_asfalto_ancha` (1.5 km derechos) la de carreras llega a 328 km/h.
+- **Caídas del bot en la favela**: la simulación es caótica y el bot pega en la pared de s≈253 casi en cada vuelta
+  (que sea caída depende de si el golpe pasa de 7 m/s). La misma moto con la masa corrida ±0.01 kg da de 3 a 9
+  caídas en 45 min. Para comparar dos versiones: varias corridas de 45 min (`--time 2700`) de cada una, cada una con
+  una perturbación así (en una copia de la moto en `pruebas/mods/prueba/bikes/`), y comparar las medias; ver
+  [FISICA.md](FISICA.md), "La Trilheira: frenando fuerte hacía un trompo".
 
 ## Capturas
 
@@ -140,6 +159,8 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 - circuito de obstáculos de trial y escalones;
 - los mapas de siempre con otra moto;
 - pistas de la de carreras (`pista_carrera`, `recta`);
+- plazas llanas para medir una moto: `plaza_asfalto` (120 m de ancho), `plaza_asfalto_ancha` (400 m, 1.5 km derechos
+  desde la largada) y `plaza_tierra` (400 m, 1.1 km derechos, con el agarre de la tierra de pista);
 - copias del circuito con otro bot o motos de prueba (`pista`, `agarre`). El juego junta los `mods/` de la carpeta actual y los de la del
 ejecutable, así que se usan corriendo desde `pruebas/`:
 

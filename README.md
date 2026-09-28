@@ -208,6 +208,7 @@ Los mapas y las motos son archivos de texto en `mods/` (ver **Mods** abajo): los
   - *Giros cerrados*: 45° de manubrio y 1.55 m de radio mínimo (~1.5 m medido a paso de hombre), el
     control de tracción deja patinar más (derrapes con el gas en las curvas) y con el trasero solo la
     cola sale hasta 85° (cavalo de pau).
+  - *Frenando fuerte con la S* va derecha como las otras de tierra (antes hacía un trompo desde 60-90 km/h).
 
 - **Parque de física** (mod `sandbox`), con la **Dos tiempos 250** (moto de ejemplo, `dostiempos.ini`):
   llano, con una pista alrededor y adentro líneas de saltos de tres tamaños, una mesa, rampa de
@@ -273,14 +274,17 @@ En red cada uno corre con la suya: el id de la moto viaja en el saludo y en la l
 - **Carrera 1000** (`base/carrera`): superbike de 4 cilindros, 245 hp a 15300 rpm y 330 km/h. Carenado
   con doble burbuja y alerones, chasis de doble viga, escape 4-2-1 con silenciador de carbono, horquilla
   invertida dorada, semimanubrios, llantas forjadas y cubiertas lisas. El piloto va agachado detrás del
-  parabrisas a velocidad y, acostado, se cuelga hacia adentro con la rodilla al piso. Cuatro esquemas
+  parabrisas a velocidad y, acostado, se cuelga hacia adentro con la rodilla al piso. En el aire es torpe:
+  gira a menos de la mitad que la de motocross (no da mortales). Cuatro esquemas
   (roja 27, azul 33, negra con verde 72, naranja 8).
 - **Trilheira 450** (`base/trilheira`): ver Morro do Grau arriba.
 - **Trial 300** (`base/trial`): de trial de competición, 70 kg y ~28 hp llenos abajo, 48° de manubrio
   (gira en ~1.3 m), suspensión blanda y cubiertas de trial que se pegan a todo; el piloto va siempre de
   pie. Chasis de aluminio a la vista, cubrecárter atornillado, tanque mínimo, máscara con el número y
   cuatro esquemas (roja 3, amarilla 8, azul 15, lima 27). Sube escalones de medio metro con carrera.
-- **Dos tiempos 250** (`sandbox/dostiempos`): la de ejemplo, liviana y gritona. Estilo `mx2t`: la de
+- **Dos tiempos 250** (`sandbox/dostiempos`): la de ejemplo, liviana y gritona, con el motor que se despierta
+  arriba (menos fuerza abajo y más arriba que la 450; la caja automática la estira hasta ~10 800 rpm) y casi sin
+  freno motor. Estilo `mx2t`: la de
   motocross con motor dos tiempos (caño de expansión que pasa panzón por delante del motor, silenciador
   corto de carbono, tapa de cilindro chata con la bujía arriba) y colores de los 90 (amarilla con asiento
   azul, número 92). Suena a dos tiempos: explota en cada vuelta, se pone áspera y chillona "en la pipa"

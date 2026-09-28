@@ -345,7 +345,10 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 |---|---|---|
 | `front_tire_loose_grip`, `rear_tire_loose_grip` | 1 | grip multiplier on dirt and grass (a racing slick: 0.35) |
 | `front_tire_paved_grip`, `rear_tire_paved_grip` | 1 | grip multiplier on asphalt, concrete and objects |
-| `brake_align` | 0 | braking hard, the bike lines up with where it goes, also while turning (in a straight line the front wheel also follows its own path) (1/s; the race bike uses 4) |
+| `brake_align` | 0 | braking hard, the bike lines up with where it goes, also while turning (in a straight line the front wheel also follows its own path) (1/s; the race bike uses 8, the dirt bikes 4) |
+| `brake_align_torque` | 1500 | how hard `brake_align` lines the bike up (Nm per rad/s; the others use 2000) |
+| `brake_align_from`, `brake_align_full` | 0.2, 0.6 | front brake where `brake_align` starts and where it acts fully (the Trilheira: 0.55 and 0.95, only when braking really hard, like the S key does) |
+| `brake_align_free` | 1 | braking straight with `brake_align`, how much the front wheel is let go to follow its own path (0 = not at all: only the bike lines up) |
 | `brake_yaw_comp` | 0 | braking while leaned, how much of the outward yaw from the brake force at the contact patch is cancelled (1 = all; the race bike uses 1). Without it the bike stays leaned but runs wide |
 | `brake_transition_release` | 0 | while the bike is changing lean a lot (what the rider asks vs what it has), the ABS eases the front brake by up to this much: stand it up first, then brake (the race bike uses 0.6) |
 | `rear_lift_load`, `rear_lift_mitigation` | 300, 0.25 | the ABS eases the front brake when the rear carries less than this many N (straight up, by this much) |
