@@ -10,7 +10,7 @@ Sos el experto en sonido de MotoSim. Todo es síntesis (no hay archivos de audio
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **El sonido no toca la física**. Si agregás claves al tuning (p. ej. `engine_two_stroke`), con default que deje todo igual. La motocross tiene que seguir "idéntico": `bash tools/regresion.sh <tu exe> dist/MotoSim-v0.2.5/MotoSim.exe "--bot --time 40" "--flat --test brakeslide --time 8"`.
+- **El sonido no toca la física**. Si agregás claves al tuning (p. ej. `engine_two_stroke`), con default que deje todo igual. La motocross tiene que seguir "idéntico": `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "--bot --time 40" "--flat --test brakeslide --time 8"`.
 - **Un cambio en un sonido no toca los otros**: comprobalo con el md5 del WAV del modo que no tocaste, comparado con uno generado antes del cambio.
 - **Antes de empezar** leé `docs/SONIDO.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/SONIDO.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (nivel en dB, brillo, frecuencia de explosiones, antes y después).

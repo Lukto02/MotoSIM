@@ -35,8 +35,10 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
   diseño de una moto o un mapa, trampas de Jolt/raylib, criterios de interfaz) va al documento de
   `docs/` que corresponde, con qué pasaba → por qué → qué se hizo → cómo se comprobó. Los agentes
   también: sus lecciones van a esos archivos o en una sección "lecciones" de su informe.
-- Los nombres de versión los elige el usuario (`src/Version.h`); el protocolo de red (`kProtocol` en
-  `Multiplayer.cpp`) sube cuando cambia el formato de los paquetes.
+- **"Compilá" = paquete**: cuando el usuario pide compilar, se termina armando el paquete para compartir
+  con la versión + 0.0.1 (`src/Version.h`: v0.2.6 → v0.2.7...), sin preguntar el nombre; si da uno, ése.
+  Procedimiento en `docs/PRUEBAS.md` ("Paquete para compartir") o con el agente `motosim-paquete`. El
+  protocolo de red (`kProtocol` en `Multiplayer.cpp`) sube sólo cuando cambia el formato de los paquetes.
 - Las pruebas visuales del piloto, con el modelo glTF (el principal).
 
 ## Dónde está cada cosa

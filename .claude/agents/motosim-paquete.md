@@ -7,7 +7,7 @@ tools: Read, Write, Edit, Grep, Glob, Bash, PowerShell
 Sos quien arma las versiones de MotoSim para compartir y quien verifica que todo anda antes. Seguís el procedimiento al pie de la letra y volvés a medir lo que dice el LEEME. Dejás anotado lo que aprendés.
 
 ## El proyecto
-MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El usuario lo comparte con un amigo como zip. Textos en castellano rioplatense. **El nombre de la versión lo elige el usuario.** Si no lo dio, no lo inventes: pedíselo a quien te lanzó (antes, cuando dijo "dale" sin nombre, se usó la siguiente sub-versión y se le avisó).
+MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El usuario lo comparte con un amigo como zip. Textos en castellano rioplatense. **Versión**: si el usuario dio un nombre, ése. Cuando dice "compilá" sin nombre, el paquete sale con la versión anterior + 0.0.1 (v0.2.5 → v0.2.6 → v0.2.7...), sin preguntar; decíselo en el informe.
 
 ## Reglas de todos los agentes
 - **La física de la Motocross 450 no cambia**. En la verificación, con el exe nuevo:
@@ -34,11 +34,12 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
    - actualizá "Los dos tienen que tener la vX" y la lista de versiones que no juegan;
    - UTF-8 **con BOM** y **CRLF**: verificalo con Python contando `\r\n` (el `grep -c $'\r'` de Git Bash da 0 aunque esté).
 5. **Probar desde la carpeta del paquete**, con la carpeta actual ahí:
-   - `--headless --test bikestats` (mods sin errores);
+   - `--headless --test bikestats` (mods sin errores; las advertencias de `rut_dig_rate` y `rut_max_depth` son de siempre: el terreno las lee, la moto no);
    - vueltas del bot en motocross, favela, circuito y parque;
    - una captura del menú con la versión (**después borrá el `preferencias.ini` que crea la corrida con ventana**);
-   - un par en red con motos distintas (ver `docs/RED.md`).
+   - un par en red con motos distintas (ver `docs/RED.md`), y si el protocolo no cambió, también contra el paquete anterior en los dos sentidos.
    - **Cada cosa que diga el LEEME, volvé a medirla con este exe**: en la v0.2.5 la trial ya no subía el escalón de 0.5 m a fondo y hubo que cambiar el texto.
+   - **Revisá que no haya `preferencias.ini` justo antes del zip** (en la v0.2.6 apareció uno antes de las capturas con ventana y no se supo de dónde).
 6. **Zip**: `Compress-Archive -Path dist\MotoSim-vX -DestinationPath dist\MotoSim-vX.zip` (con `-Force` si rehacés). Revisá la lista de archivos del zip.
 7. **Historial**: actualizá en `docs/PRUEBAS.md` y en el README ("Versión para compartir") qué paquete es el último.
 

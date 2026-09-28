@@ -114,8 +114,15 @@ su propio documento: [PILOTO.md](PILOTO.md).
   `tools/escalera.py 74 88`), con la Trilheira, la motocross y la trial de 8 a 35 km/h:
   - fuerzas de 2 000 a 13 000 N;
   - saltos de velocidad ≤ 2 km/h;
-  - ninguna trabada ni caída;
+  - ninguna trabada;
   - a 35 km/h vuela de escalón en escalón y cae de trompa, como una moto de verdad.
+- **Revisado al armar la v0.2.6** (Trilheira, `bajadaN` con `--time 14`, mirando también después de la
+  escalera): 10, 20, 25, 28 y 35 km/h sin caída; **a 30 y 32 km/h se cae al pie** (s ≈ 89-91). Pasa el
+  primer escalón volando, la trompa baja a -57°, baja los escalones picando sólo con la delantera y se
+  va tumbando de costado en el aire hasta -90°. No es un golpe (no aparece `GOLPE`). La prueba no tira
+  el cuerpo atrás, que es lo que haría un piloto. Pendiente: ver si con el cuerpo atrás se salva, y si la
+  caída de costado es real o viene de algún empuje lateral de las sondas en los cantos. El bot, a su
+  velocidad, la baja sin caerse (0 caídas en 2 vueltas).
 
 ### La de carreras: frenando fuerte se cruzaba y hacía wobble
 - **Pasaba** (`--map base/circuito --bike base/carrera --test frenadaN`): frenaba ~1 g, pero quedaba
@@ -161,6 +168,10 @@ su propio documento: [PILOTO.md](PILOTO.md).
   (la regresión `brakeslide` dejó de dar idéntica hasta cambiarlo).
 - **Se comprobó**: cola afuera 22-40° de 9 a 16 km/h (`--flat --test brakeslideN`), sin caídas; el
   derrape de siempre (32 km/h) idéntico.
+- **Medido de nuevo al armar la v0.2.6** (`brakeslide2.5`, `3.5` y `4.4`: N en m/s; `beta` máxima con
+  `rb` > 0.5). A 14-17 km/h: Motocross 34-38°, 2T 33-38°, Trilheira 43-54°, Trial 21-56°, sin caídas.
+  A ~11 km/h: sólo la 2T (39°); las demás 4-8°. O sea, anda de ~13 a 16 km/h, no a paso de hombre.
+  La de carreras (`slide_pivot` 0) da 10-13° sola.
 
 ### Lisas en la tierra (la de carreras)
 - **Pasaba**: el suelo tenía un solo factor de agarre para todas las cubiertas: la de carreras agarraba

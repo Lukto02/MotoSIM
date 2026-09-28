@@ -63,7 +63,8 @@ Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los
 dos ejecutables y compara la telemetría (md5). La referencia es el último paquete
-(`dist/MotoSim-v0.2.5/MotoSim.exe`). El juego nuevo agrega ` scr=` al final de cada línea; el script
+(hoy `dist/MotoSim-v0.2.6/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
+anterior a las v0.2.x). El juego nuevo agrega ` scr=` al final de cada línea; el script
 lo saca.
 
 ```
@@ -133,8 +134,8 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
 
 ## Paquete para compartir
 
-1. El nombre de la versión lo elige el usuario (si dice "dale" sin nombre, la siguiente sub-versión, y se
-   le avisa). `src/Version.h`; el protocolo de red sube sólo si cambió el formato de los paquetes.
+1. Versión: cuando el usuario pide "compilá", el paquete sale con la anterior + 0.0.1 sin preguntar (si
+   da un nombre, ése). `src/Version.h`; el protocolo de red sube sólo si cambió el formato de los paquetes.
 2. Compilación aparte con `tools\compilar.bat build-release release` (`-DMOTOSIM_STATIC_RUNTIME=ON`;
    recompilar todo); `dumpbin /dependents` tiene que listar sólo DLLs de Windows.
 3. Carpeta `dist/MotoSim-vX/`:
@@ -145,17 +146,37 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    - `LEEME.txt`: el anterior con las novedades arriba, en UTF-8 con BOM y CRLF. Verificarlo con
      Python: el `grep -c $'\r'` de Git Bash da 0 aunque haya CRLF.
 
-   **Sin `preferencias.ini`**: una prueba con ventana desde esa carpeta lo crea (pasó dos veces). Las
-   capturas de comparación, con el exe del paquete corriendo desde otra carpeta, o borrarlo después.
+   **Sin `preferencias.ini`**: el juego lo guarda al lado del exe (`GetApplicationDirectory`), sólo con
+   ventana; una prueba con ventana desde esa carpeta lo crea (pasó dos veces). Las capturas de
+   comparación, con el exe del paquete corriendo desde otra carpeta, o borrarlo después. En la v0.2.6
+   apareció uno antes de las capturas y no se supo de dónde (probado: ninguna corrida sin ventana lo
+   crea, ni en red): **revisar justo antes del zip**.
 4. Probar desde la carpeta del paquete:
    - `--test bikestats` (sin errores de mods);
    - vueltas del bot (motocross 1:08.37 / 1:08.51) y los demás mapas;
    - una captura del menú (la versión);
-   - un par en red con motos distintas (`--bike`).
+   - un par en red con motos distintas (`--bike`); si el protocolo no cambió, también contra el
+     paquete anterior, en los dos sentidos.
 
    Lo que dice el LEEME se vuelve a medir con la versión final: en la v0.2.5 la trial ya no subía el
-   escalón de 0.5 m a fondo (sólo levantando la rueda) y hubo que cambiar el texto.
+   escalón de 0.5 m a fondo (sólo levantando la rueda) y hubo que cambiar el texto. En la v0.2.6, el
+   derrape lento no sale "a paso de hombre" (a ~11 km/h la cola sale 4-8°, salvo la 2T) sino a ~15 km/h,
+   y la escadaria a 30-32 km/h termina en caída (ver [FISICA.md](FISICA.md)).
 5. `Compress-Archive` de la carpeta a `dist/MotoSim-vX.zip`.
+
+Paquetes: v0.2.5 (protocolo 7), **v0.2.6** (protocolo 7, juega con la v0.2.5; carrera en tierra y
+frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara del selector).
+
+- **Trampas de las pruebas del paquete**:
+  - `brakeslideN` toma N en **m/s**, no en km/h (`brakeslide10` entra a 36 km/h). El derrape lento se
+    mide con `brakeslide2.5` a `brakeslide4.4` (9-16 km/h), mirando `beta` mientras `rb` > 0.5.
+  - En `frenada280` el "SE CAYÓ" de `tools/frenada.py` es el muro: la recta de la prueba se termina a
+    ~105 km/h, la moto sale al pasto con las lisas y pega a ~60 km/h. La frenada en sí: beta 0°, ~10 m/s².
+  - El par en red desde un script: la salida del anfitrión a un **archivo**. Con un pipe que nadie lee
+    mientras corre el cliente, se llena, el anfitrión se traba en el `printf` y el cliente ve la "edad"
+    de los datos crecer (parece un bug de red y no lo es).
+  - El id del parque es `sandbox/park`; con un id que no existe, `--map` cae en la pista de motocross
+    sin avisar fuerte (las vueltas dan 1:08.37 y parece que anduvo).
 
 ## Red en una sola PC
 
