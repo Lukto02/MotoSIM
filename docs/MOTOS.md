@@ -148,7 +148,7 @@ suspensión, neumáticos, frenos, dirección y balance, aire, motor y caja. Las 
 - **Peso**: `mass` menos el piloto.
 - **Velocidad máxima**: la menor entre la de la 5ª al corte y la que deja el aire con esa potencia.
 - **0 a 100**: una cuenta en recta con cambios al 97% del corte, con el empuje limitado a
-  `min(0.8, 0.9·rear_tire_long_grip)·m·g` (agarre y wheelie).
+  `min(0.8, 0.9·rear_tire_long_grip)·m·g` (agarre y wheelie). En 5ª al corte no empuja: si no llega a 100, "-".
 - **Agarre en curva**: `max_lateral_accel / g`.
 - **Suspensión**: la suma de los recorridos.
 - **Giro**: `min_turn_radius`.
