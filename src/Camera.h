@@ -15,6 +15,7 @@ public:
     float stiffness = 7.0f;      // frecuencia del resorte horizontal (rad/s)
     float verticalStiffness = 3.5f;
     float fovMin = 65.0f, fovMax = 75.0f;
+    bool shakeEnabled = true;    // menú "Sacudón de cámara": sin él, ni golpes ni la vibración a alta velocidad
 
     enum class Mode { Chase, Side };
     Mode mode = Mode::Chase;

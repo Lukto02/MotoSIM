@@ -14,6 +14,7 @@
 #include "Rider.h"
 #include "RiderModel.h"
 
+#include <deque>
 #include <memory>
 #include <functional>
 #include <string>
@@ -78,6 +79,9 @@ public:
     // Telemetría: estados recibidos y tamaño medio de las correcciones de posición (m) al llegar cada uno.
     int statesReceived = 0;
     float correctionAvg = 0.0f;
+    // Pruebas (--net-lag, --net-jitter): lo que llega se procesa recién a los lag s, más hasta jitter s al
+    // azar (como una partida por internet).
+    float lag = 0.0f, jitter = 0.0f;
 
     // Una vez por paso de física: recibe, manda el estado propio (60 Hz), crea/borra jugadores,
     // envejece las fotos y mueve los cuerpos cinemáticos a donde estarán al terminar el paso.
@@ -107,6 +111,9 @@ public:
         std::string bikeId;                      // con qué moto se armó
         JPH::Vec3 DisplayPos() const;
         JPH::Quat DisplayRot() const;
+        // La velocidad que mandó en un punto de la moto (sin las correcciones de la predicción, que el
+        // cuerpo cinemático sí lleva); cero si la foto es tan vieja que ya no se extrapola (quedó quieta).
+        JPH::Vec3 PointVelocity(JPH::Vec3 point) const;
     };
     const Remote* Remotes() const { return remotes; }         // [kMaxPlayers], por número de jugador
     // Frame a frame (para dibujar): aplica el estado a la moto visual y posa al piloto.
@@ -160,6 +167,13 @@ private:
     std::string localMap, hostMap, localBike;
     std::string knownBike[kMaxPlayers];          // la moto de cada jugador según la última noticia
     std::vector<std::pair<int, float>> pendingPops;
+    struct Delayed {                             // --net-lag: paquete esperando su hora
+        double at;
+        net::Address from;
+        std::vector<uint8_t> data;
+    };
+    std::deque<Delayed> inbox;
+    uint32_t jitterSeed = 12345u;
     std::vector<std::string> modelPaths;
     bool graphics = false;
 };

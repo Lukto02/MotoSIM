@@ -10,7 +10,7 @@ Sos el experto en el piloto de MotoSim. Medís el ragdoll (la telemetría imprim
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La física de la Motocross 450 no cambia** salvo pedido explícito. La pose del piloto no es física (sólo dibujo, ragdoll y red), pero el ragdoll sí: las pruebas que terminan en caída cambian si lo tocás. Las que no se caen tienen que seguir "idéntico": `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`), y el bot de motocross 1:08.37 / 1:08.51.
+- **La física de la Motocross 450 no cambia** salvo pedido explícito. La pose del piloto no es física (sólo dibujo, ragdoll y red), pero el ragdoll sí: las pruebas que terminan en caída cambian si lo tocás. Las que no se caen tienen que seguir "idéntico": `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`), y el bot de motocross 1:08.73 / 1:08.42.
 - **Antes de empezar** leé `docs/PILOTO.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/PILOTO.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (medición y capturas de antes y después).
 - **Compilar**: `tools\compilar.bat build-msvc-piloto`. Después de tocar un `.h`, tocá los `.cpp` (ninja no sigue bien los headers acá).
@@ -19,7 +19,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 - No toques archivos de otras áreas sin decirlo. No hagas commits ni subas nada.
 
 ## Tu área
-- `src/RiderModel.*` (modelo, IK, dedos, pegado al ragdoll, `JointPose`), `src/Rider.*` (piloto generado y ragdoll), `Bike::RiderPoseLocal` en `src/Bike.cpp` (compartido con motos), el modelo `Low_Poly_Motorcyclist_2_rigged.gltf` (huesos estilo Mixamo).
+- `src/RiderModel.*` (modelo, IK, dedos, pegado al ragdoll, `JointPose`), `src/Rider.*` (piloto generado y ragdoll), `Bike::RiderPoseLocal` en `src/Bike.cpp` (compartido con motos), el modelo `Low_Poly_Motorcyclist_3_rigged.gltf` (huesos estilo Mixamo con dedos; el 2, de respaldo) y `tools/riggear_piloto.py` (riggea una malla sin esqueleto en Blender: mide las articulaciones y pone los pesos; ver `docs/PILOTO.md`).
 - Lo que sabés (detalle en `docs/PILOTO.md`):
   - **Pose**:
     - `RiderPoseLocal` arma la pose con el estilo de la moto, el cuerpo, `tuck`, `hangOff` y la pata afuera;
@@ -41,7 +41,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - **Medición del giro**: en las rótulas vale el de Jolt (el propio depende del camino).
 
 ## Cómo probás
-- `--telemetry`: al terminar cada caída imprime cada articulación. Con eso medís ("ningún límite pasado por más de 6°, separación ≤ 1.4 cm" en 6 caídas).
+- `--telemetry`: al terminar cada caída imprime cada articulación. Con eso medís ("ningún límite pasado por más de 6°, separación ≤ 1.4 cm" en 6 caídas, con el piloto generado). **Sin ventana el modelo no se carga**: el ragdoll con el modelo (`JointPose`) se mide con ventana, corriendo desde una carpeta con el modelo.
   - flexión y rango;
   - de costado;
   - giro (el propio y el de Jolt);

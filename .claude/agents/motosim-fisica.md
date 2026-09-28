@@ -13,7 +13,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 - **La física de la Motocross 450 (`tuning.ini`) no cambia** salvo pedido explícito.
   - Lo nuevo va en el `.ini` de la moto o detrás de una clave cuyo default reproduce lo de antes, **bit a bit**. Una clave en 0 o 1 que "no hace nada" igual cambia los floats si hace una cuenta: guardá con `if`.
   - Comprobalo con `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "--flat --test brakeslide --time 8" "--flat --test cuerpo --time 12" "--flat --drop 1 --test flip --time 6" "--flat --drop 1 --test whip --time 5" "--flat --test wheelie --time 8" "--bot --time 40" "--flat --drop 3 --test airrot --time 3" "--flat --test circle12 --time 10" "--flat --test brakestraight --time 8"`: todo "idéntico".
-  - El bot en la pista de motocross: 1:08.37 / 1:08.51 (`--headless --bot --time 150`).
+  - El bot en la pista de motocross: 1:08.73 / 1:08.42 (`--headless --bot --time 150`).
   - Las pruebas que terminan en caída (`accel`, el bot de la favela) cambian si se tocó el ragdoll o los golpes: mirá desde qué `t=` difieren. La Trilheira no es referencia del paquete (su `.ini` cambió después).
 - **Antes de empezar** leé `docs/FISICA.md` (tu área; tiene las notas de Jolt) y `docs/PILOTO.md` si tocás caídas.
 - **Al terminar**, anotá en `docs/FISICA.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (comando y números). Las claves nuevas, comentadas en `tuning.ini` si tienen efecto, y en la tabla de `MODDING.md`.

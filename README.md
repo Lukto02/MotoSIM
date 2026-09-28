@@ -16,7 +16,7 @@ Prototipo de motocross simcade en C++17 con **raylib** (render, input, cámara, 
 | 7 | Surcos con efecto físico, superficies distintas | Hecha, **apagada por defecto** (F8) |
 | 8 | Multijugador LAN: código de invitación, hasta 4, choques entre motos | Hecha (v0.2; protocolo actual: el de la v0.2.1) |
 | 9 | Mapas: selector en el menú y la favela "Morro do Grau" con la Trilheira 450 | Hecha (v0.2.1) |
-| 10 | Mods (mapas y motos en archivos), selector de motos, motos de carreras y trial, circuito de velocidad | Hecha (v0.2.4-v0.2.6; protocolo 7) |
+| 10 | Mods (mapas y motos en archivos), selector de motos, motos de carreras y trial, circuito de velocidad | Hecha (v0.2.4-v0.2.7; protocolo 7) |
 
 ## Compilar
 
@@ -52,7 +52,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.2.6 de `dist/MotoSim-v0.2.6.zip`, posterior a la v0.3.1): con MSVC, compilar con el runtime
+**Versión para compartir** (la v0.2.7 de `dist/MotoSim-v0.2.7.zip`, posterior a la v0.3.1): con MSVC, compilar con el runtime
 estático para que el .exe no pida instalar el "Visual C++ Redistributable" en la otra PC
 (`dumpbin /dependents` sólo debe listar DLLs de Windows):
 
@@ -62,7 +62,7 @@ cmake --build build-release
 ```
 
 y armar la carpeta con `MotoSim.exe` (el `motocross.exe` renombrado), `tuning.ini`, la carpeta `mods/`
-(sin `pruebas/`), `MODDING.md`, `Low_Poly_Motorcyclist_2_rigged.gltf` + `Low_Poly_Motorcyclist_2_rigged_deps/`
+(sin `pruebas/`), `MODDING.md`, `Low_Poly_Motorcyclist_3_rigged.gltf` + `Low_Poly_Motorcyclist_3_rigged_deps/`
 y `LEEME.txt` (instrucciones para el que lo recibe, con las novedades arriba; UTF-8 con BOM y CRLF). La
 versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`kProtocol`).
 
@@ -77,7 +77,7 @@ versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`k
 | Piloto adelante / atrás | Stick izq. Y | ↑ / ↓ |
 | Cuerpo a los costados | Stick der. X | ← / → |
 | Bajar / subir marcha | LB / RB | Q / E |
-| Reaparecer en la pista | Y | R |
+| Reaparecer en la pista (caído, no reaparece solo) | Y | R |
 | Volver a la largada | Back | Retroceso |
 | Caja automática / manual (arranca en automática) | X | F3 |
 | Cámara lateral (debug) | R3 | C |
@@ -127,9 +127,12 @@ Los dos tienen que tener la misma versión (el protocolo va en cada paquete; si 
   media es de ~6-9 cm a 12 m/s.
 - **Choques**: cada moto remota tiene un cuerpo cinemático de Jolt (capa `REMOTE`, la misma forma
   de colisión que la propia) que va, paso a paso, a su pose predicha con `MoveKinematic`, así empuja
-  con la velocidad justa. Cada jugador resuelve en su PC cómo lo empujan a él. Si el golpe es fuerte
-  (se acercaban a más de 6 m/s) y lo trajo sobre todo el otro (de costado o de atrás), te caés; de
-  frente fuerte se caen los dos. El ragdoll propio también choca con las motos de los demás.
+  con la velocidad justa. Cada jugador resuelve en su PC cómo lo empujan a él y si se cae (con la
+  velocidad que mandó el otro, no la del cuerpo, que lleva las correcciones de la predicción). Si te
+  pegan de costado, de atrás o de arriba a más de 4 m/s (~15 km/h de diferencia), te caés; si fuiste
+  vos el que pegó con la trompa, recién a más de ~10.5 m/s (~38 km/h de diferencia: la otra moto cede);
+  de frente, a más de 7 m/s (`crash_impact_speed`, como un muro), se caen los dos. Un roce (hasta ~3 m/s) no tira a nadie. El ragdoll propio también choca con las motos
+  de los demás. Detalle y mediciones en `docs/RED.md`.
 - **Huellas, tierra y polvo** de los demás: cada uno manda también, por rueda, dónde apoya, la
   carga, cuánto patina y si está en el suelo (~50 bytes más por estado). Cada PC dibuja con eso sus
   surcos en la textura de huellas (cada rueda de cada jugador tiene su propio trazo) y larga su roost
@@ -149,7 +152,7 @@ En el menú, **Mapa** abre el selector (en red lo elige el que crea la partida y
 solo: el id del mapa viaja en el saludo y en la lista de jugadores). Cada mapa trae su moto, pero en
 **Moto** se puede elegir otra para todos los mapas (ver **Motos** abajo).
 Los mapas y las motos son archivos de texto en `mods/` (ver **Mods** abajo): los del juego están en
-`mods/base/` y el mod de ejemplo `mods/sandbox/` trae dos más.
+`mods/base/` y el mod de ejemplo `mods/sandbox/` trae tres más.
 
 - **Pista de motocross**: la de siempre, con la Motocross 450.
 - **Morro do Grau** (favela, Brasil), con la **Trilheira 450**: la largada es arriba del morro (~40 m).
@@ -212,6 +215,11 @@ Los mapas y las motos son archivos de texto en `mods/` (ver **Mods** abajo): los
   tambores, una pirámide de cajas, bolos y pelotas gigantes.
 - **Valle** (mod `sandbox`): terreno sacado de una imagen (`valle.png`); se baja por el fondo del valle y
   se vuelve por la ladera.
+- **Los Médanos** (mod `sandbox`), con la Motocross 450: dunas de arena al atardecer para andar libre,
+  sin pista (una vuelta guía invisible para el bot y el reaparecer). El **Médano Grande** (22 m, se vuela
+  2-3 s cayendo en su cara de 36°), el **Gigante** (mesa de 6 m con patada de 42°: da para un mortal a
+  55-65 km/h), la **Escalera** (tres mesas de 1.4, 2.6 y 4 m), los **Lomos**, un **Cráter** con paredes de
+  55° y **La Ola**, una pared de 6.5 m que tira para arriba y se cae en su espalda.
 - **Autódromo Sierra de los Vientos** (circuito de velocidad), con la **Carrera 1000**: 3757 m y 14 m de
   ancho. Recta de casi un kilómetro, horquilla a fondo de frenos, chicana, eses y un curvón final. Todo
   armado desde la forma de la pista:
@@ -346,13 +354,17 @@ Todo es generado por código, salvo el modelo opcional del piloto (glTF con su t
   oscuro y hundido con bordes claros de tierra empujada; las pasadas se acumulan.
 - **Pasto 3D**: miles de matas instanciadas delante de la cámara, con viento, sombras y aplastadas
   donde pasó una rueda.
-- **Piloto con modelo** (`Low_Poly_Motorcyclist_2_rigged.gltf` en la raíz, o si no está
-  `Low_Poly_Motorcycle_Racer_rigged.gltf`; F9 alterna con el generado): glTF con esqueleto estilo
-  Mixamo, posado por código. Sobre la moto la cadera va en su lugar, el torso se inclina y piernas y
+- **Piloto con modelo** (`Low_Poly_Motorcyclist_3_rigged.gltf` en la raíz, o si no está
+  `Low_Poly_Motorcyclist_2_rigged.gltf` o `Low_Poly_Motorcycle_Racer_rigged.gltf`; F9 alterna con el
+  generado): glTF con esqueleto estilo Mixamo, posado por código. El 3 es un personaje de Tripo sin
+  esqueleto riggeado con `tools/riggear_piloto.py` (Blender sin ventana: mide las articulaciones de la
+  malla, dedos incluidos, y pone los pesos; ver `docs/PILOTO.md`). Sobre la moto la cadera va en su lugar, el torso se inclina y piernas y
   brazos llegan a estriberas y manubrio con cinemática inversa de dos huesos. Las manos nunca sueltan
   el manubrio: si el brazo no llega, primero se inclina más el torso (hasta ~25°) y después la
   cadera se corre hacia adelante; tirado adelante el pecho baja sobre el manubrio. **Dedos**: el
-  modelo trae cada mano como un solo hueso, así que al cargarlo se miden los vértices de la mano
+  modelo 3 trae los dedos (tres falanges y la punta de cada uno); al cargarlo se mide la mano con sus
+  articulaciones y cada falange gira lo justo para envolver el puño, y el pulgar lo rodea del otro
+  lado. Si la mano viene en un solo hueso (modelo 2), al cargarlo se miden los vértices de la mano
   (largo, ancho, normal de la palma, nudillos, pulgar) y se agregan huesos virtuales: tres falanges
   para los cuatro dedos y dos para el pulgar, con los vértices repartidos y transiciones suaves. La
   flexión se calcula para envolver el puño del manubrio, la mano se orienta con el manubrio (pulgar
@@ -486,6 +498,9 @@ motocross.exe --headless --join 60N00-VM07N --bot --test netduel --telemetry
 `netduel`: al entrar otro jugador todos vuelven a la largada juntos (los bots se juntan en el centro
 de la pista y se van rozando); `netcrash`: además el anfitrión se cae 1 s después (para ver el
 ragdoll remoto desde el invitado, que queda quieto). Sin ventana, en red, la simulación va a tiempo real.
+`netchoque-TIPO-KMH[-KMH]` (con `--flat`, sin `--bot`): el invitado embiste al anfitrión (`lado`, `atras`,
+`frente`, `roce` o `angN`) y cada uno imprime si se cayó; `python tools/netchoque.py <exe> <exe> caso...`
+hace el par. `--net-lag MS` y `--net-jitter MS` demoran lo que llega (como una partida por internet).
 
 Otras opciones: `--spawn <metros de pista>`, `--telemetry-dt <s>`, `--ruts`, `--size <w> <h>`,
 `--bot-lat <m/s²>` (qué tan fuerte encara las curvas el bot, 6 por defecto). El test `circleN`
@@ -530,7 +545,7 @@ src/
   Engine.cpp/.h          curva de torque, caja, embrague automático, limitador
   Suspension.cpp/.h      resorte + amortiguador + tope
   Tire.cpp/.h            curvas de grip y elipse de fricción
-  Terrain.cpp/.h         heightmap, HeightFieldShape, mallas por chunks, surcos
+  Terrain.cpp/.h         heightmap, HeightFieldShape, mallas por chunks, surcos, médanos y formas esculpidas
   TerrainDeformation.*   huellas con relieve (textura) y surcos físicos
   Track.cpp/.h           trazado desde los puntos del mapa, saltos, whoops, rollers, peraltes, lomos, pavimento
   Maps.cpp/.h            mods: lee mods/*/maps y bikes (MapDef, BikeDef) y junta los errores de formato
@@ -540,7 +555,7 @@ src/
   Camera.cpp/.h          cámara con resortes, FOV dinámico, sacudón (con giro y zoom), vista lateral
   Particles.cpp/.h       tierra y polvo
   Rider.cpp/.h           dibujo del piloto generado y ragdoll de las caídas
-  RiderModel.cpp/.h      piloto con modelo glTF: pose por IK, pegado al ragdoll, skinning
+  RiderModel.cpp/.h      piloto con modelo glTF: pose por IK, dedos, pegado al ragdoll, skinning
   EngineSound.cpp/.h     sonido de motor procedural
   Render.cpp/.h          shaders (luz, sombras, cielo, terreno, pasto, post-proceso), texturas generadas, mallas
   BikeStyles.cpp/.h      estilos de moto: piezas, pose del piloto y escape de cada uno (BikeStyleDef.h)

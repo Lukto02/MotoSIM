@@ -14,7 +14,8 @@
   (ver "Paquete para compartir").
 - **Scripts con saltos de línea**: los scripts de Python que editan C++ se escriben con la herramienta
   de archivos, no en un heredoc de bash. En un heredoc, un `\n` dentro de un string de C++ terminó
-  convertido en un salto de línea real (tres veces).
+  convertido en un salto de línea real (tres veces; una cuarta en un `'\\n'` de Python que armaba un
+  reemplazo, y otra con un `'\\'` que cerró mal un string: también los scripts sueltos, con la herramienta).
 - **Rutas largas**: en una copia del proyecto muy adentro del scratchpad, un objeto de Jolt pasa los
   260 caracteres de Windows (error C1083). Se compila en una carpeta de nombre corto o con `subst W: <copia>`.
 
@@ -63,7 +64,7 @@ Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los
 dos ejecutables y compara la telemetría (md5). La referencia es el último paquete
-(hoy `dist/MotoSim-v0.2.6/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
+(hoy `dist/MotoSim-v0.2.7/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
 anterior a las v0.2.x). El juego nuevo agrega ` scr=` al final de cada línea; el script
 lo saca.
 
@@ -73,7 +74,16 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   "--flat --test wheelie --time 8" "--bot --time 40" "--test accel --time 12"
 ```
 
-- Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:08.37 y 1:08.51**.
+- Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:08.73 y 1:08.42** (con la
+  suspensión de `motocross.ini`; hasta la v0.2.6, 1:08.37 y 1:08.51).
+- **Trampa: la carpeta `mods/` de donde se corre gana.** El juego busca las motos y los mapas en `mods` (la
+  carpeta actual), después al lado del exe y después en `../mods`, y vale el primero que tiene cada id. Si
+  corrés el exe de `dist/` desde la raíz del proyecto, usa los `.ini` del proyecto, no los del paquete: para
+  comparar un cambio de `.ini` contra el paquete, cada exe desde su carpeta (como hace `tools/regresion.sh`).
+  Una comparación de vueltas "antes y después" hecha desde la raíz dio igual al centésimo y parecía que el
+  cambio no hacía nada.
+- Contra la v0.2.6 la motocross da distinta en todo (su suspensión cambió a pedido del usuario, ver
+  [FISICA.md](FISICA.md)); contra la v0.2.7, que ya la trae, idéntica.
 - Favela (`--map favela --bot`): 1052 casas, 48 postes, 132 cables.
 - **Pruebas que terminan en caída** (`accel` a los ~5 s, el bot de la favela a los ~20 s de la vuelta
   1): dan idénticas hasta la caída y distintas después si se tocó el ragdoll. Es esperable; mirar desde
@@ -91,14 +101,19 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | moto de otro mapa | `--bike mod/archivo` |
 | fichas de todas las motos | `--test bikestats` |
 | perfil de la pista | `--test profile` |
-| caídas en serie | `--test crashloop [--respawn-after S]` |
+| caídas en serie | `--test crashloop [--respawn-after S]` (`-1`: sólo con R, como el jugador) |
 | la pista al revés desde S | `--spawn S --test subidaN` (N km/h, recto: p. ej. subir la escadaria con `--spawn 90`) |
 | cuerpo en el aire | `--flat --drop 3 --test airrot` (atrás a fondo) o `airlean` (adelante y atrás cada 0.6 s) |
 | frenada a fondo desde N km/h | `--map base/circuito --bike base/carrera --test frenadaN` y `python tools/frenada.py` |
+| frenar y doblar a la vez desde N km/h | desde `pruebas/`: `--map prueba/plaza_asfalto --bike base/carrera --test frenacurvaN[xS][dD][aA][n]` (S: cuánto manubrio, 1 = la D, < 0 la A; dD: la dirección empieza D s después de frenar, D < 0 antes, viniendo inclinada; aA: la suelta a los A s; n: sin freno) y `python ../tools/frenacurva.py`. Como con teclado: `frenacurva150x0.6d-1.5a1.5` viene doblando y suelta para frenar, `frenacurva150x1d0.3a0.15` toca la D frenando |
+| el freno de cada rueda en cada paso | `--wheel-log T0 T1`: además de lo de la rueda, una línea `freno` (vueltas, patinaje, si está retenida, freno, uso y agarre máximo) |
 | bajar la escadaria a N km/h | `--map favela --spawn 68 --test bajadaN` (sigue la línea) y `python tools/escalera.py 74 88` |
+| un salto a N km/h | `python tools/saltos.py <exe> sandbox/medanos 240 446 40,50,60 ambos --time 30`: aparece en S, entra al salto que despega en s = 446 sin tocar nada (`bajadaN`) y con el bot a N; aire, altura, vy al tocar, cabeceo y si se cae (ver [MAPAS.md](MAPAS.md), "Medir un salto") |
 | cada rueda en cada paso | `--wheel-log T0 T1`: contra qué pega el rayo, normal, apoyo, compresión y fuerzas |
 | columnas de la telemetría | `... --telemetry --telemetry-dt 0.05 \| python tools/telemetria.py t v pitch fN rN gnd s --s 70 95` |
 | sonido | `--sound-test archivo.wav [2t\|raspado]` y `python tools/sonido.py` (ver [SONIDO.md](SONIDO.md)) |
+| choque entre motos en red | `python tools/netchoque.py <exe anfitrión> <exe invitado> [--lag MS] [--jitter MS] [--bike m] [--ventana] lado-15 atras-60-30 frente-12 roce-40 ang45-25-25`: el invitado embiste al anfitrión (`--test netchoque-TIPO-KMH[-KMH]`, `--flat`) y cada uno dice si se cayó y con qué cierre; también qué decidía la regla de la v0.2.6 (ver [RED.md](RED.md), "Choques entre motos") |
+| red como por internet | `--net-lag MS --net-jitter MS`: lo que llega se procesa MS ms más tarde, más hasta MS al azar (en tandas) |
 | el resto | la lista de `--test` está en el README ("Pruebas automáticas") |
 
 ## Capturas
@@ -142,7 +157,8 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    - `MotoSim.exe` y `tuning.ini`;
    - `mods/`, sin `pruebas/`;
    - `MODDING.md`;
-   - el modelo glTF con su `_deps/`;
+   - el modelo del piloto: `Low_Poly_Motorcyclist_3_rigged.gltf` con `Low_Poly_Motorcyclist_3_rigged_deps/`
+     (el 2 no va en el paquete; queda en el proyecto de respaldo, a pedido del usuario: no borrarlo);
    - `LEEME.txt`: el anterior con las novedades arriba, en UTF-8 con BOM y CRLF. Verificarlo con
      Python: el `grep -c $'\r'` de Git Bash da 0 aunque haya CRLF.
 
@@ -153,7 +169,7 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    crea, ni en red): **revisar justo antes del zip**.
 4. Probar desde la carpeta del paquete:
    - `--test bikestats` (sin errores de mods);
-   - vueltas del bot (motocross 1:08.37 / 1:08.51) y los demás mapas;
+   - vueltas del bot (motocross 1:08.73 / 1:08.42) y los demás mapas;
    - una captura del menú (la versión);
    - un par en red con motos distintas (`--bike`); si el protocolo no cambió, también contra el
      paquete anterior, en los dos sentidos.
@@ -164,8 +180,13 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    y la escadaria a 30-32 km/h termina en caída (ver [FISICA.md](FISICA.md)).
 5. `Compress-Archive` de la carpeta a `dist/MotoSim-vX.zip`.
 
-Paquetes: v0.2.5 (protocolo 7), **v0.2.6** (protocolo 7, juega con la v0.2.5; carrera en tierra y
-frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara del selector).
+Paquetes: v0.2.5 (protocolo 7), v0.2.6 (protocolo 7, juega con la v0.2.5; carrera en tierra y
+frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara del selector),
+**v0.2.7** (protocolo 7, juega con la v0.2.5 y la v0.2.6; 5.4 MB): Los Médanos, el piloto nuevo (modelo 3 con
+dedos), la de carreras frenando y doblando, sin trompo frenando la motocross, la 2T y la trial, suspensión
+más viva en la motocross y la 2T, choques en red (quién se cae), reaparecer con R, sacudón y motion blur
+apagables. Al probar el paquete apareció un `preferencias.ini` del usuario (había abierto el juego desde la
+carpeta del paquete): no se borra; el zip se arma desde una copia sin él.
 
 - **Trampas de las pruebas del paquete**:
   - `brakeslideN` toma N en **m/s**, no en km/h (`brakeslide10` entra a 36 km/h). El derrape lento se
@@ -175,6 +196,8 @@ frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara 
   - El par en red desde un script (`tools/red.py` ya lo hace bien): la salida del anfitrión a un **archivo**. Con un pipe que nadie lee
     mientras corre el cliente, se llena, el anfitrión se traba en el `printf` y el cliente ve la "edad"
     de los datos crecer (parece un bug de red y no lo es).
+  - **Sin ventana el modelo del piloto no se carga**: el ragdoll de `--headless` es el del piloto
+    generado. Lo del ragdoll con el modelo se mide con ventana (ver [PILOTO.md](PILOTO.md), "Cómo se mide").
   - El id del parque es `sandbox/park`; con un id que no existe, `--map` cae en la pista de motocross
     sin avisar fuerte (las vueltas dan 1:08.37 y parece que anduvo).
 
@@ -183,4 +206,5 @@ frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara 
 Anfitrión y cliente sin ventana, cada uno con su bot; el cliente toma el código de invitación de la
 salida del anfitrión. `python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>` hace todo y
 resume lo que ve cada uno (ver [RED.md](RED.md)). Con motos distintas por jugador, la telemetría
-imprime la moto y el estilo de cada remoto.
+imprime la moto y el estilo de cada remoto. Los choques entre motos, con `python tools/netchoque.py`
+(tabla de arriba); con `--lag` y `--jitter`, como una partida por internet.

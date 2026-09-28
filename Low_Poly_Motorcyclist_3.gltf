@@ -1,0 +1,200 @@
+{
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5125,
+      "count": 14406,
+      "type": "SCALAR",
+      "max": [
+        3269
+      ],
+      "min": [
+        0
+      ]
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 3270,
+      "type": "VEC3",
+      "max": [
+        0.102783203125,
+        0.499755859375,
+        0.328369140625
+      ],
+      "min": [
+        -0.102783203125,
+        -0.499755859375,
+        -0.328369140625
+      ]
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 3270,
+      "type": "VEC2",
+      "max": [
+        1,
+        1
+      ],
+      "min": [
+        0,
+        0
+      ]
+    },
+    {
+      "bufferView": 3,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 3270,
+      "type": "VEC3",
+      "max": [
+        0.9995579719543457,
+        0.9985457062721252,
+        0.9990546107292175
+      ],
+      "min": [
+        -0.9999077916145325,
+        -0.9997521042823792,
+        -0.9997168183326721
+      ]
+    }
+  ],
+  "asset": {
+    "generator": "https://tripo3d.ai",
+    "version": "2.0"
+  },
+  "buffers": [
+    {
+      "byteLength": 2552312,
+      "uri": "Low_Poly_Motorcyclist_3_deps/Low_Poly_Motorcyclist_3.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 57624
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 57624,
+      "byteLength": 39240
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 96864,
+      "byteLength": 26160
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 123024,
+      "byteLength": 39240
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 162264,
+      "byteLength": 651166
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 813432,
+      "byteLength": 521049
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 1334484,
+      "byteLength": 1217826
+    }
+  ],
+  "images": [
+    {
+      "name": "Color_87f9772a-8276-4f69-bfcb-62061079ddd5",
+      "mimeType": "image/jpeg",
+      "uri": "Low_Poly_Motorcyclist_3_deps/Low_Poly_Motorcyclist_3.image-0.jpg"
+    },
+    {
+      "name": "ORM_87f9772a-8276-4f69-bfcb-62061079ddd5",
+      "mimeType": "image/jpeg",
+      "uri": "Low_Poly_Motorcyclist_3_deps/Low_Poly_Motorcyclist_3.image-1.jpg"
+    },
+    {
+      "name": "NormalGL_87f9772a-8276-4f69-bfcb-62061079ddd5",
+      "mimeType": "image/png",
+      "uri": "Low_Poly_Motorcyclist_3_deps/Low_Poly_Motorcyclist_3.image-2.png"
+    }
+  ],
+  "materials": [
+    {
+      "name": "tripo_material_87f9772a-8276-4f69-bfcb-62061079ddd5",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 1,
+        "roughnessFactor": 1,
+        "metallicRoughnessTexture": {
+          "index": 1
+        }
+      },
+      "normalTexture": {
+        "index": 2,
+        "scale": 1
+      },
+      "doubleSided": false
+    }
+  ],
+  "meshes": [
+    {
+      "extras": {
+        "name": "tripo_mesh_87f9772a-8276-4f69-bfcb-62061079ddd5"
+      },
+      "name": "tripo_mesh_87f9772a-8276-4f69-bfcb-62061079ddd5",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 1,
+            "NORMAL": 3,
+            "TEXCOORD_0": 2
+          },
+          "indices": 0,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "tripo_node_87f9772a-8276-4f69-bfcb-62061079ddd5",
+      "mesh": 0
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "source": 0
+    },
+    {
+      "source": 1
+    },
+    {
+      "source": 2
+    }
+  ]
+}

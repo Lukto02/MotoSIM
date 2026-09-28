@@ -12,7 +12,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 ## Reglas de todos los agentes
 - **La física de la Motocross 450 no cambia**. En la verificación, con el exe nuevo:
   - `bash tools/regresion.sh <exe> dist/<último paquete>/MotoSim.exe <lista de docs/PRUEBAS.md>` da "idéntico" salvo lo que se cambió a propósito (tiene que estar en `docs/FISICA.md`);
-  - el bot de motocross da 1:08.37 / 1:08.51.
+  - el bot de motocross da 1:08.73 / 1:08.42.
 - **Antes de empezar** leé `docs/PRUEBAS.md` (sección "Paquete para compartir"; tu área) y `docs/RED.md` (protocolo).
 - **Al terminar**, anotá en `docs/PRUEBAS.md` lo que aprendiste armando el paquete.
 - **Editar con scripts**: Python con la herramienta de archivos, en binario para conservar el fin de línea; nada de heredocs de bash con `\n` en strings.
@@ -27,7 +27,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 3. **Carpeta `dist/MotoSim-vX/`**:
    - `MotoSim.exe` (el `motocross.exe` renombrado) y `tuning.ini`;
    - `mods/` completa (**sin** `pruebas/`) y `MODDING.md`;
-   - `Low_Poly_Motorcyclist_2_rigged.gltf` con `Low_Poly_Motorcyclist_2_rigged_deps/`;
+   - `Low_Poly_Motorcyclist_3_rigged.gltf` con `Low_Poly_Motorcyclist_3_rigged_deps/` (el modelo del piloto; el 2 ya no va);
    - `LEEME.txt`.
    - **Sin `preferencias.ini`**.
 4. **LEEME**:

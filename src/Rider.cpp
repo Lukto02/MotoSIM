@@ -234,15 +234,37 @@ void RiderRagdoll::Spawn(PhysicsWorld& w, const Terrain& terrain, const RiderPos
         const float mid = 0.5f * (lo + hi), half = std::min(0.5f * (hi - lo), mu::Rad(170.0f));
         const Vec3 t1 = (n0 * std::cos(mid) + out * std::sin(mid)).Normalized();
 
+        // El hijo arranca girado respecto de la referencia sólo por el arco más corto de t1 a t2, sin giro
+        // sobre el hueso. Con el eje "plane" del hijo proyectado (Perpendicular(t2, a)), una pose con el
+        // brazo muy abierto y atrás (el modelo tirado adelante, con los codos afuera) aparecía con 80° de
+        // giro según Jolt (límite 40°) y fuera del cono: el solver lo corregía de un tirón, el brazo saltaba
+        // y el codo se doblaba de costado. Y el cono (una elipse en los senos de los medios ángulos, en
+        // Jolt) se agranda lo justo para contener ese arco, como el rango de flexión.
+        const Vec3 plane2 = (Quat::sFromTo(t1, t2) * a).Normalized();
+        float planeHalf = std::max(sideways, std::fabs(sideNow) + margin), normalHalf = half;
+        {
+            const Vec3 axis = t1.Cross(t2);
+            const float sinHalf = std::sin(0.5f * std::acos(mu::Clamp(t1.Dot(t2), -1.0f, 1.0f)));
+            const Vec3 ax = axis.LengthSq() > 1e-12f ? axis.Normalized() : a;
+            const float qy = sinHalf * ax.Dot(a.Cross(t1)), qz = sinHalf * ax.Dot(a);
+            const float ey = std::sin(0.5f * planeHalf), ez = std::sin(0.5f * normalHalf);
+            const float r = std::sqrt((qy / ey) * (qy / ey) + (qz / ez) * (qz / ez));
+            if (r > 0.95f) {
+                const float k = r / 0.95f, cap = std::sin(mu::Rad(85.0f));
+                planeHalf = 2.0f * std::asin(std::min(ey * k, cap));
+                normalHalf = 2.0f * std::asin(std::min(ez * k, cap));
+            }
+        }
+
         JPH::SwingTwistConstraintSettings s;
         s.mSpace = JPH::EConstraintSpace::WorldSpace;
         s.mPosition1 = s.mPosition2 = bikeM * point + up;
         s.mTwistAxis1 = t1;
         s.mTwistAxis2 = t2;
         s.mPlaneAxis1 = a;
-        s.mPlaneAxis2 = Perpendicular(t2, a);
-        s.mNormalHalfConeAngle = half;                                  // flexión (alrededor del eje de flexión)
-        s.mPlaneHalfConeAngle = std::max(sideways, std::fabs(sideNow) + margin);   // de costado
+        s.mPlaneAxis2 = plane2;
+        s.mNormalHalfConeAngle = normalHalf;                            // flexión (alrededor del eje de flexión)
+        s.mPlaneHalfConeAngle = planeHalf;                              // de costado
         s.mTwistMinAngle = -twist;
         s.mTwistMaxAngle = twist;
         s.mMaxFrictionTorque = friction;                                // sin esto brazos y piernas quedan de trapo
@@ -393,6 +415,8 @@ void RiderRagdoll::PostPhysics(JPH::BodyID bike)
             const JPH::SwingTwistConstraint* st = static_cast<const JPH::SwingTwistConstraint*>(j.c);
             Quat swing, tw;
             st->GetRotationInConstraintSpace().GetSwingTwist(swing, tw);
+            if (tw.GetW() < 0.0f) tw = -tw;              // como Jolt al limitar: si no, un giro de 0° se leía 360°
+            if (swing.GetW() < 0.0f) swing = -swing;
             auto angleOf = [](float c, float w) { return 2.0f * std::atan2(c, w); };
             twist = std::fabs(angleOf(tw.GetX(), tw.GetW()));
             j.jTwist = std::max(j.jTwist, twist);
@@ -402,13 +426,17 @@ void RiderRagdoll::PostPhysics(JPH::BodyID bike)
             j.jPlane = st->GetPlaneHalfConeAngle();
             j.jNormal = st->GetNormalHalfConeAngle();
         }
-        j.flexMin = std::min(j.flexMin, flex);
-        j.flexMax = std::max(j.flexMax, flex);
+        // Con el hueso casi de costado (más de 75°) la flexión no está definida (da vueltas de ±180°).
+        const bool flexDefined = side < mu::Rad(75.0f);
+        if (flexDefined) {
+            j.flexMin = std::min(j.flexMin, flex);
+            j.flexMax = std::max(j.flexMax, flex);
+        }
         j.sideMax = std::max(j.sideMax, side);
         j.twistMax = std::max(j.twistMax, twist);
         j.sepMax = std::max(j.sepMax, sep);
         const float margin = mu::Rad(5.0f);
-        j.over += (flex < j.lo - margin || flex > j.hi + margin || side > j.side + margin || twist > j.twist + margin) ? 1 : 0;
+        j.over += ((flexDefined && (flex < j.lo - margin || flex > j.hi + margin)) || side > j.side + margin || twist > j.twist + margin) ? 1 : 0;
         ++j.steps;
     }
 }

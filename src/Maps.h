@@ -46,17 +46,43 @@ struct MapLook {                       // luz, cielo y texturas del suelo
     float sunColor[3] = {2.35f, 2.15f, 1.85f};
     float zenith[3] = {78, 128, 196}, horizon[3] = {186, 206, 224}, ground[3] = {92, 80, 64};   // 0..255
     float fog = 0.0042f, exposure = 1.0f;
-    std::string groundTextures = "dirt";   // dirt (tierra de pista y pasto) | street (pavimento y tierra roja) | circuit (asfalto y pasto)
+    std::string groundTextures = "dirt";   // dirt (tierra de pista y pasto) | street (pavimento y tierra roja) | circuit (asfalto y pasto) | sand (arena)
+};
+
+// Forma esculpida en el terreno natural ("terrain": {"shapes": [...]}): un perfil de costado (alturas
+// por tramos rectos, con los quiebres redondeados) que se estira de costado ("line": saltos, mesas,
+// quarters, una hondonada) o se gira alrededor de un centro ("round": médanos, cráteres). Se suma al
+// suelo o lo nivela: el suelo queda a la altura que tenía en "at" (o "base") más el perfil.
+struct MapShape {
+    bool round = false;                // line | round
+    float x = 0.0f, z = 0.0f;          // "at": donde u = 0 (line) o el centro (round)
+    float yaw = 0.0f;                  // grados: hacia dónde crece u (line) o el eje del estirado (round)
+    std::vector<std::pair<float, float>> profile;   // (u, h) en m, u creciente (round: u = radio)
+    float width = 10.0f;               // line: ancho a plena altura
+    float edge = 6.0f;                 // m en que se desvanece por fuera (costados y puntas)
+    float smooth = 1.0f;               // m: redondeo de los quiebres del perfil
+    float bend = 0.0f;                 // line: m que se corren las puntas a lo largo (medialuna); 0 = recta
+    float stretch[2] = {1.0f, 1.0f};   // round: estira el radio de costado y a lo largo (elipse)
+    bool level = false;                // false: se suma al suelo; true: lo nivela a base + perfil
+    bool hasBase = false;              // level: "base" dada (si no, la altura del suelo en "at")
+    float base = 0.0f;
 };
 
 struct MapTerrain {
-    std::string type = "hills";        // hills | flat | heightmap | favela
-    float height = 10.0f, scale = 0.011f, detail = 0.5f;   // hills: lomas y rugosidad
+    std::string type = "hills";        // hills | flat | heightmap | favela | dunes
+    float height = 10.0f, scale = 0.011f, detail = 0.5f;   // hills: lomas y rugosidad (dunes: alto de los médanos)
     std::string image;                 // heightmap: PNG en gris (blanco = alto), estirado a todo el mapa
     float imageHeight = 30.0f, imageBase = 0.0f;
     float edgeHeight = 14.0f;          // el terreno sube en el borde del mapa
     float size = 255.5f;               // m de lado (el mapa es un cuadrado centrado en 0, 0)
     float resolution = 0.5f;           // m entre muestras del terreno (más grande = mapas más grandes, menos detalle)
+    // dunes: médanos transversales al viento (la cara empinada, a sotavento).
+    float wavelength = 70.0f;          // m de cresta a cresta
+    float wind = 0.0f;                 // grados: hacia dónde sopla (0 = norte, 90 = este)
+    float meander = 0.35f;             // cuánto serpentean las crestas (en largos de onda)
+    float border = 1.2f;               // cuánto más altos son los médanos junto al borde del mapa (0 = iguales)
+    int seed = 0;                      // otro campo de médanos con otra semilla
+    std::vector<MapShape> shapes;      // formas esculpidas (cualquier tipo de terreno)
 };
 
 struct MapTerraces {                   // mesetas a nivel en los cruces de una calle empinada (favela)
@@ -85,6 +111,7 @@ struct MapDef {
     float layoutScale = 1.0f, halfWidth = 4.5f;   // la escala ya está aplicada a todas las posiciones
     bool banking = true;               // peraltes en las curvas
     std::string roadStyle = "track";   // track (base suavizada, banquinas largas) | street (calles niveladas, cruces que se mezclan)
+                                       // | guide (sólo una vuelta guía: no toca el terreno; para andar libre)
     std::vector<MapFeature> features;  // puestos a mano
     std::vector<std::vector<FeatureKind>> autoFeatures;   // o un plan por recta, en orden (como la de motocross)
     bool hasStart = false;

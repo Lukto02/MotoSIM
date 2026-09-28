@@ -144,19 +144,158 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
     GenTextureMipmaps(&texture);
     SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
 
-    // Pesos propios (se les suman los dedos virtuales).
+    // Pesos propios (si la mano es un solo hueso, se les suman los dedos virtuales).
     realBones = n;
     skinBone.assign(m.boneIds, m.boneIds + m.vertexCount * 4);
     skinWeight.assign(m.boneWeights, m.boneWeights + m.vertexCount * 4);
     curlAngle.assign(n, 0.0f);
     curlAxis.assign(n, Vector3{0.0f, 0.0f, 0.0f});
-    for (int i = 0; i < 2; ++i) BuildGrip(i);
+    fingerBones.clear();
+    // Dedos del modelo, si trae todos (tres falanges y la punta de cada uno, pulgar incluido).
+    const char* fingerNames[5] = {"Thumb", "Index", "Middle", "Ring", "Pinky"};
+    for (int i = 0; i < 2; ++i) {
+        modelFingers[i] = true;
+        for (int f = 0; f < 5; ++f)
+            for (int j = 0; j < 4; ++j) {
+                fingerBone[i][f][j] = Bone((std::string(sides[i]) + "Hand" + fingerNames[f] + std::to_string(j + 1)).c_str());
+                if (fingerBone[i][f][j] < 0) modelFingers[i] = false;
+            }
+    }
+    for (int i = 0; i < 2; ++i) {
+        if (modelFingers[i]) BuildGripFingers(i);
+        else BuildGrip(i);
+    }
 
     pos = bindPos;
     delta.assign(bindPos.size(), QuaternionIdentity());
     loaded = true;
-    TraceLog(LOG_INFO, "piloto: modelo con %d huesos (+%d de dedos) y %d vértices", n, (int)bindPos.size() - n, m.vertexCount);
+    TraceLog(LOG_INFO, "piloto: modelo con %d huesos (+%d de dedos virtuales) y %d vértices%s", n, (int)bindPos.size() - n, m.vertexCount,
+             modelFingers[0] && modelFingers[1] ? ", con dedos propios" : "");
     return true;
+}
+
+// Dedos del modelo: la mano se mide con sus articulaciones (s a lo largo, de la muñeca al nudillo del
+// medio; t a lo ancho, hacia el pulgar; u hacia la palma) y cada falange gira lo justo para envolver
+// un puño del radio del manubrio apoyado en la base de los dedos, 2 cm antes de los nudillos (agarre de
+// fuerza, como con los dedos virtuales). El pulgar lo rodea del otro lado: cada hueso gira, para un
+// lado o para el otro, lo mínimo para que la articulación siguiente quede sobre la goma sin meterse.
+void RiderModel::BuildGripFingers(int side)
+{
+    constexpr float kBarRadius = 0.0175f;    // puño de goma del manubrio (BikeMeshes: Cockpit)
+    const Mesh& m = model.meshes[0];
+    const int(&fb)[5][4] = fingerBone[side];
+    const Vector3 W = bindPos[hand[side]];
+    auto at = [&](int f, int j) { return bindPos[fb[f][j]]; };
+    const Vector3 A = Vector3Normalize(Vector3Subtract(at(2, 0), W));             // hacia el nudillo del medio
+    Vector3 K = Vector3Subtract(at(1, 0), at(4, 0));                                // del meñique al índice
+    K = Vector3Normalize(Vector3Subtract(K, Vector3Scale(A, Vector3DotProduct(K, A))));
+    Vector3 P = Vector3CrossProduct(A, K);
+    // La palma, del lado del pulgar; si el pulgar no se aparta del plano de los nudillos, hacia el cuerpo.
+    const float thumbU = Vector3DotProduct(Vector3Subtract(at(0, 1), W), P);
+    if (std::fabs(thumbU) > 0.005f ? thumbU < 0.0f : P.x * W.x > 0.0f) P = Vector3Negate(P);
+    auto S = [&](Vector3 p) { return Vector3DotProduct(Vector3Subtract(p, W), A); };
+    auto T = [&](Vector3 p) { return Vector3DotProduct(Vector3Subtract(p, W), K); };
+    auto U = [&](Vector3 p) { return Vector3DotProduct(Vector3Subtract(p, W), P); };
+
+    // Grosor de un dedo: distancia media a su hueso de los vértices de la falange del medio.
+    auto radius = [&](int f) {
+        const int b = fb[f][1];
+        const Vector3 a = bindPos[b], d = Vector3Subtract(bindPos[fb[f][2]], a);
+        float sum = 0.0f;
+        int count = 0;
+        for (int v = 0; v < m.vertexCount; ++v) {
+            float w = 0.0f;
+            for (int k = 0; k < 4; ++k)
+                if (skinBone[v * 4 + k] == b) w += skinWeight[v * 4 + k];
+            if (w < 0.5f) continue;
+            const float u = mu::Clamp(Vector3DotProduct(Vector3Subtract(bindVerts[v], a), d) / std::max(Vector3DotProduct(d, d), 1e-8f), 0.0f, 1.0f);
+            sum += Vector3Distance(bindVerts[v], Vector3Add(a, Vector3Scale(d, u)));
+            ++count;
+        }
+        return count > 0 ? sum / (float)count : 0.01f;
+    };
+    float sK = 0.0f, tMid = 0.0f, uK = 0.0f, rFinger = 0.0f;
+    for (int f = 1; f < 5; ++f) {
+        sK += 0.25f * S(at(f, 0));
+        tMid += 0.25f * T(at(f, 0));
+        uK += 0.25f * U(at(f, 0));
+        rFinger += 0.25f * radius(f);
+    }
+    // El centro del puño: contra la base de los dedos (del lado de la palma) y 2 cm antes de los nudillos.
+    const Vector2 bar = {sK - 0.02f, uK + rFinger + kBarRadius};
+    const Vector3 axis = Vector3Normalize(Vector3CrossProduct(A, P));   // girar +: de "a lo largo" hacia la palma
+    auto rotate2 = [](Vector2 p, Vector2 c, float a) {                 // +a lleva +s hacia +u
+        const Vector2 d = Vector2Subtract(p, c);
+        return Vector2Add(c, {d.x * std::cos(a) - d.y * std::sin(a), d.x * std::sin(a) + d.y * std::cos(a)});
+    };
+    auto segDist = [](Vector2 c, Vector2 a, Vector2 b) {                // de c al segmento ab
+        const Vector2 d = Vector2Subtract(b, a);
+        const float k = mu::Clamp(Vector2DotProduct(Vector2Subtract(c, a), d) / std::max(Vector2DotProduct(d, d), 1e-8f), 0.0f, 1.0f);
+        return Vector2Distance(c, Vector2Add(a, Vector2Scale(d, k)));
+    };
+
+    float curls[5][3] = {};
+    for (int f = 1; f < 5; ++f) {
+        // Cada falange gira (hacia la palma) hasta que la articulación siguiente queda a la distancia del
+        // puño; un poco más en las dos últimas: aprieta la goma.
+        Vector2 J[4];
+        for (int j = 0; j < 4; ++j) J[j] = {S(at(f, j)), U(at(f, j))};
+        const float wrap = kBarRadius + radius(f);
+        for (int j = 0; j < 3; ++j) {
+            float best = 0.0f, bestDist = 1e9f;
+            for (int deg = 0; deg <= 110; ++deg) {
+                const float a = mu::Rad((float)deg);
+                const float dist = Vector2Distance(rotate2(J[j + 1], J[j], a), bar);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    best = a;
+                }
+                if (dist <= wrap) break;
+            }
+            curls[f][j] = best + (j > 0 ? mu::Rad(8.0f) : 0.0f);
+            for (int k = j + 1; k < 4; ++k) J[k] = rotate2(J[k], J[j], curls[f][j]);
+        }
+    }
+    {
+        Vector2 J[4];
+        for (int j = 0; j < 4; ++j) J[j] = {S(at(0, j)), U(at(0, j))};
+        const float wrap = kBarRadius + radius(0);
+        for (int j = 0; j < 3; ++j) {
+            float best = 0.0f, bestCost = 1e9f;
+            for (int deg = -80; deg <= 80; ++deg) {
+                const float a = mu::Rad((float)deg);
+                const Vector2 next = rotate2(J[j + 1], J[j], a);
+                float cost = std::fabs(Vector2Distance(next, bar) - wrap) + 0.004f * std::fabs(a);
+                const float inside = wrap - 0.002f - segDist(bar, J[j], next);
+                if (inside > 0.0f) cost += 4.0f * inside;
+                if (cost < bestCost) {
+                    bestCost = cost;
+                    best = a;
+                }
+            }
+            curls[0][j] = best;
+            for (int k = j + 1; k < 4; ++k) J[k] = rotate2(J[k], J[j], best);
+        }
+    }
+    for (int f = 0; f < 5; ++f)
+        for (int j = 0; j < 4; ++j) {
+            const int b = fb[f][j];
+            if (j < 3) {
+                curlAngle[b] = curls[f][j];
+                curlAxis[b] = axis;
+            }
+            fingerBones.push_back(b);
+        }
+
+    Grip& g = grip[side];
+    g.across = K;
+    g.along = A;
+    g.palm = P;
+    g.channel = Vector3Add(W, Vector3Add(Vector3Scale(A, bar.x), Vector3Add(Vector3Scale(K, tMid), Vector3Scale(P, bar.y))));
+    g.valid = true;
+    TraceLog(LOG_INFO, "piloto: mano %s con sus dedos (índice %.0f/%.0f/%.0f°, pulgar %.0f/%.0f/%.0f°, grosor %.1f cm)",
+             side == 0 ? "izquierda" : "derecha", mu::Deg(curls[1][0]), mu::Deg(curls[1][1]), mu::Deg(curls[1][2]), mu::Deg(curls[0][0]),
+             mu::Deg(curls[0][1]), mu::Deg(curls[0][2]), 100.0f * rFinger);
 }
 
 // Arma los dedos de una mano. Mide la mano en reposo en sus propios ejes (s a lo largo desde la
@@ -330,6 +469,7 @@ void RiderModel::BuildGrip(int side)
         order.push_back(b);
         curlAngle.push_back(curl);
         curlAxis.push_back(axis);
+        fingerBones.push_back(b);
         return b;
     };
     int finger[3];
@@ -393,7 +533,7 @@ Quaternion RiderModel::GripRotation(int side, Vector3 barInward, Vector3 forearm
 
 void RiderModel::CurlFingers()
 {
-    for (int b = realBones; b < (int)bindPos.size(); ++b) {
+    for (int b : fingerBones) {
         const int pa = parent[b];
         pos[b] = Vector3Add(pos[pa], Vector3RotateByQuaternion(Vector3Subtract(bindPos[b], bindPos[pa]), delta[pa]));
         delta[b] = QuaternionMultiply(QuaternionFromAxisAngle(Vector3RotateByQuaternion(curlAxis[b], delta[pa]), curlAngle[b] * gripAmount), delta[pa]);
@@ -472,10 +612,14 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
             delta[b] = pelvisTurn;
         } else if (b == spineChain[0] || b == spineChain[1] || b == spineChain[2]) {
             delta[b] = QuaternionMultiply(spineStep, delta[b]);
-        } else if (b == head) {
-            // Mirando la pista: la cara (+Z en reposo) hacia adelante y un poco abajo.
+        } else if (b == neck || b == head) {
+            // Mirando la pista: la cara (+Z en reposo) hacia adelante y abajo (22°, la pera hacia el pecho,
+            // como en la posición de ataque). La mitad del giro la toma el cuello: girando sólo la cabeza, la
+            // piel del cuello se estiraba entre el casco y el cuello de la campera (con el cuello largo del
+            // modelo 3 se veía un cogote de jirafa).
             const Vector3 face = Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, delta[b]);
-            delta[b] = QuaternionMultiply(FromTo(face, {0.0f, -0.2f, 1.0f}), delta[b]);
+            const Quaternion look = FromTo(face, {0.0f, -0.4f, 1.0f});
+            delta[b] = QuaternionMultiply(b == neck ? QuaternionSlerp(QuaternionIdentity(), look, 0.5f) : look, delta[b]);
         }
         for (int i = 0; i < 2; ++i) {
             const float side = i == 0 ? 1.0f : -1.0f;               // +X = izquierda

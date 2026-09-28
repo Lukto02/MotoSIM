@@ -72,6 +72,7 @@ public:
     std::atomic<bool> touched{false};
     std::atomic<float> closing{0.0f}, fromOther{0.0f};
     std::atomic<int> player{-1};
+    std::atomic<float> hitNX{0.0f}, hitNY{0.0f}, hitNZ{0.0f}, hitPX{0.0f}, hitPY{0.0f}, hitPZ{0.0f}, hitMine{0.0f};
     // Cola raspando (el Step corre en un solo hilo: alcanza con que cada campo sea atómico).
     std::atomic<bool> scraping{false}, scrapeTerrain{false};
     std::atomic<float> scrapeX{0.0f}, scrapeY{0.0f}, scrapeZ{0.0f}, scrapeDX{0.0f}, scrapeDZ{0.0f}, scrapeSpeed{0.0f};
@@ -132,6 +133,13 @@ private:
             closing = c;
             fromOther = std::max(0.0f, -vOther);
             player = (int)other.GetUserData();
+            hitNX = n.GetX();
+            hitNY = n.GetY();
+            hitNZ = n.GetZ();
+            hitPX = (float)p.GetX();
+            hitPY = (float)p.GetY();
+            hitPZ = (float)p.GetZ();
+            hitMine = vMine;
         }
     }
 };
@@ -219,7 +227,15 @@ PhysicsWorld::Impact PhysicsWorld::LastImpact() const
 
 PhysicsWorld::BikeHit PhysicsWorld::LastBikeHit() const
 {
-    return {filters->contacts.closing.load(), filters->contacts.fromOther.load(), filters->contacts.player.load()};
+    const ContactFlag& c = filters->contacts;
+    BikeHit h;
+    h.closing = c.closing.load();
+    h.fromOther = c.fromOther.load();
+    h.player = c.player.load();
+    h.normal = Vec3(c.hitNX.load(), c.hitNY.load(), c.hitNZ.load());
+    h.point = Vec3(c.hitPX.load(), c.hitPY.load(), c.hitPZ.load());
+    h.mineAlongNormal = c.hitMine.load();
+    return h;
 }
 
 PhysicsWorld::Scrape PhysicsWorld::LastScrape() const

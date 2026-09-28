@@ -671,6 +671,30 @@ Texture2D GenSoilTexture()
     return UploadTileable(img);
 }
 
+// Arena: neutra clara (el vértice le da el tono) con grano fino y ondas de viento (ripples) que
+// serpentean; A = altura (las ondas dan el relieve de cerca). Las crestas de las ondas van a lo largo
+// de x de la textura (el suelo la usa con x = este, así que corren de este a oeste).
+Texture2D GenSandTexture()
+{
+    const int n = 512;
+    std::vector<float> lum(n * n), height(n * n);
+    for (int y = 0; y < n; ++y)
+        for (int x = 0; x < n; ++x) {
+            const float warp = TileFbm(x, y, n, 81);                 // 0..1, tileable
+            const float big = TileFbm(x, y, n, 82);
+            // 16 ondas por lado de la textura, corridas por el warp (las crestas se curvan y se cortan).
+            const float ph = ((float)y / (float)n * 16.0f + warp * 3.0f) * 6.2831853f;
+            const float ripple = 0.5f + 0.5f * std::sin(ph + 0.6f * std::sin(ph));   // cresta aguda, valle ancho
+            const float grain = TileNoise(x, y, n, 256, 83);
+            lum[y * n + x] = 0.70f + 0.07f * (big - 0.5f) + 0.035f * (ripple - 0.5f) + 0.06f * (grain - 0.5f);
+            height[y * n + x] = 0.25f + 0.5f * ripple * (0.6f + 0.4f * big) + 0.08f * grain;
+        }
+    Image img = GenImageColor(n, n, WHITE);
+    Color* px = (Color*)img.data;
+    for (int i = 0; i < n * n; ++i) px[i] = {U8(lum[i]), U8(lum[i] * 0.985f), U8(lum[i] * 0.965f), U8(height[i])};
+    return UploadTileable(img);
+}
+
 // Hojas de pasto para las matas 3D: fondo transparente (con color de pasto para que el filtrado
 // no oscurezca los bordes), hojas finas que se afinan hacia la punta. La base queda abajo.
 Texture2D GenBladeTexture()
@@ -1208,6 +1232,7 @@ void Renderer::Init()
     grassTex = GenGrassTexture();
     pavedTex = GenPavedTexture();
     soilTex = GenSoilTexture();
+    sandTex = GenSandTexture();
     pavedTintLoc = GetShaderLocation(terrainShader, "pavedTint");
     terrainShader.locs[SHADER_LOC_MAP_NORMAL] = GetShaderLocation(terrainShader, "dirtMap");
     terrainShader.locs[SHADER_LOC_MAP_ROUGHNESS] = GetShaderLocation(terrainShader, "grassMap");
@@ -1281,10 +1306,11 @@ void Renderer::SetLook(const MapLook& look)
     fogDensity = look.fog;
     exposure = look.exposure;
     // Suelo: tierra de pista y pasto (dirt), pavimento y tierra roja (street) o asfalto y pasto (circuit).
-    const bool street = look.groundTextures == "street", circuit = look.groundTextures == "circuit";
-    terrainMaterial.maps[MATERIAL_MAP_NORMAL].texture = street || circuit ? pavedTex : dirtTex;
-    terrainMaterial.maps[MATERIAL_MAP_ROUGHNESS].texture = street ? soilTex : grassTex;
-    const float tint = street || circuit ? 1.0f : 0.0f;
+    // Arena: las dos capas son arena y el color de vértice tiñe las dos (tono de la arena o de la huella).
+    const bool street = look.groundTextures == "street", circuit = look.groundTextures == "circuit", sand = look.groundTextures == "sand";
+    terrainMaterial.maps[MATERIAL_MAP_NORMAL].texture = sand ? sandTex : (street || circuit ? pavedTex : dirtTex);
+    terrainMaterial.maps[MATERIAL_MAP_ROUGHNESS].texture = sand ? sandTex : (street ? soilTex : grassTex);
+    const float tint = street || circuit || sand ? 1.0f : 0.0f;
     SetShaderValue(terrainShader, pavedTintLoc, &tint, SHADER_UNIFORM_FLOAT);
 }
 
@@ -1333,6 +1359,7 @@ void Renderer::Shutdown()
     UnloadTexture(grassTex);
     UnloadTexture(pavedTex);
     UnloadTexture(soilTex);
+    UnloadTexture(sandTex);
     UnloadTexture(bladeTex);
     rlUnloadFramebuffer(shadowMap.id);        // también libera la textura de profundidad
 }

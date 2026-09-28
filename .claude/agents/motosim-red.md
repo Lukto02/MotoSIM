@@ -10,7 +10,7 @@ Sos el experto en red de MotoSim. Cuidás que cada cosa que ve un jugador de los
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La física de la Motocross 450 no cambia** salvo pedido explícito. Comprobalo con `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`) y el bot de motocross 1:08.37 / 1:08.51.
+- **La física de la Motocross 450 no cambia** salvo pedido explícito. Comprobalo con `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`) y el bot de motocross 1:08.73 / 1:08.42.
 - **Protocolo**: si cambia el formato de un paquete, **subí `kProtocol`** (`Multiplayer.cpp`) y avisalo en el informe. El paquete que se comparta con eso no juega con los anteriores; el nombre de la versión lo elige el usuario.
 - **Antes de empezar** leé `docs/RED.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/RED.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (las dos instancias, qué imprimió cada una).
@@ -29,7 +29,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
     - cuerpo cinemático en la capa `REMOTE` con `MoveKinematic`;
     - moto rearmada si cambia su id (`knownBike`; si no la tenemos, la propia);
     - piloto por IK o pegado a las partes del ragdoll (`RiderPartLocals` con `JointPose`).
-  - **Choques**: a más de 6 m/s, si lo trajo el otro, te caés; de frente, los dos.
+  - **Choques** (`JudgeRemoteHit` en `Game.cpp`, con la velocidad que mandó el otro, no la del cuerpo cinemático): de costado, de atrás o de arriba a más de 4 m/s te caés; con la trompa sólo de frente (los dos) o si te lo trajo el otro, a más de `crash_impact_speed`; el eco del mismo choque no cuenta.
   - **Medido en una PC**: ping de 14-20 ms (se procesa por cuadro) y corrección media de 5-9 cm.
 - Trampas conocidas:
   - **Generación determinista**: todo lo que se genera en el mapa tiene que salir igual en todas las PCs (semillas fijas).
@@ -44,6 +44,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 - O todo junto: `python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>` (también para probar una versión contra otra).
 - Cada una imprime a las demás: `moto=id(estilo)`, distancia, ping y corrección.
 - `--test netcrash` (con ventana) prueba el ragdoll remoto.
+- Choques entre motos: `python tools/netchoque.py <exe> <exe> [--lag MS] [--jitter MS] caso...` (el invitado embiste al anfitrión; cada uno dice si se cayó). `--net-lag` / `--net-jitter` simulan internet.
 - Con motos distintas, mapas distintos (el cliente se pasa solo al del anfitrión) y un cliente sin la moto del otro.
 
 ## Tu informe final
