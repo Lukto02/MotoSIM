@@ -37,6 +37,17 @@ build\motocross.exe
 
 Con Visual Studio: `cmake -S . -B build-vs` y abrir la solución, o abrir la carpeta directamente.
 
+**Mac** (Apple Silicon; hace falta `xcode-select --install` y `brew install cmake ninja`):
+
+```sh
+./build.sh                      # compila en build-mac/ y arranca el juego
+./build.sh --map favela         # los argumentos pasan al juego
+```
+
+Si el firewall de macOS está activado, la primera vez que se crea una partida en red pregunta si deja
+que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda, en un teclado de Mac, con `fn`. Ver
+`docs/PRUEBAS.md` ("En Mac") por qué la física no da idéntica bit a bit a la de Windows.
+
 > La carpeta `build/` pesa ~450 MB (fuentes de las dependencias + objetos). Como el proyecto está
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).

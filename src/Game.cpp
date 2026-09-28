@@ -158,16 +158,23 @@ void Game::Init()
         for (int c : {0xE1, 0xE9, 0xED, 0xF3, 0xFA, 0xF1, 0xC1, 0xC9, 0xCD, 0xD3, 0xDA, 0xD1, 0xA1, 0xBF, 0xB0, 0xB7, 0x2190, 0x2191, 0x2192, 0x2193,
                       0xE7, 0xC7, 0xE3, 0xC3, 0xF5, 0xD5, 0xEA, 0xCA, 0xE2, 0xC2, 0xF4, 0xD4})   // + portugués: ç ã õ ê â ô
             cps.push_back(c);
-        if (FileExists("C:/Windows/Fonts/segoeui.ttf") && FileExists("C:/Windows/Fonts/consola.ttf")) {
-            font = LoadFontEx("C:/Windows/Fonts/segoeuib.ttf", 64, cps.data(), (int)cps.size());
-            if (font.texture.id == 0) font = LoadFontEx("C:/Windows/Fonts/segoeui.ttf", 64, cps.data(), (int)cps.size());
-            mono = LoadFontEx("C:/Windows/Fonts/consola.ttf", 36, cps.data(), (int)cps.size());
+        // Windows: Segoe UI + Consolas. Mac: Arial + Monaco (raylib no lee las .ttc de Helvetica y Menlo).
+        struct FontSet { const char *bold, *regular, *mono; };
+        const FontSet sets[] = {
+            {"C:/Windows/Fonts/segoeuib.ttf", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/consola.ttf"},
+            {"/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Monaco.ttf"},
+        };
+        for (const FontSet& set : sets) {
+            if (!FileExists(set.regular) || !FileExists(set.mono)) continue;
+            font = LoadFontEx(set.bold, 64, cps.data(), (int)cps.size());
+            if (font.texture.id == 0) font = LoadFontEx(set.regular, 64, cps.data(), (int)cps.size());
+            mono = LoadFontEx(set.mono, 36, cps.data(), (int)cps.size());
             SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
             SetTextureFilter(mono.texture, TEXTURE_FILTER_BILINEAR);
             fontsLoaded = true;
-        } else {
-            font = mono = GetFontDefault();
+            break;
         }
+        if (!fontsLoaded) font = mono = GetFontDefault();
     }
 
     ScanMods();

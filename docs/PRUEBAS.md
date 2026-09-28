@@ -20,6 +20,43 @@
   LF (pasó con una docena de archivos). Para editar sin cambiarlo: leer y escribir en binario, o
   `open(..., newline='')`. Chequeo: contar `\r\n` contra `\n` con Python.
 
+### Windows y Mac en `main`
+
+`main` compila en los dos: `build.bat` en Windows, `./build.sh` en Mac. El workflow
+`.github/workflows/build.yml` lo comprueba en cada push (MSVC en `windows-latest`, Apple clang en
+`macos-latest`) con una prueba corta sin ventana: `--test bikestats` sin errores de mods, dos vueltas
+del bot y la favela con **1052 casas** (si no da eso en Mac, se perdió el `-ffp-contract=off`). No
+compara tiempos de vuelta: difieren entre sistemas (ver abajo). Lo que se agregue para un sistema va
+detrás de `if(APPLE)` / `if(MSVC)` en el CMake o probando rutas de los dos (como las fuentes).
+
+### En Mac
+
+`./build.sh [args del juego]` compila en `build-mac/` (CMake + Ninja de Homebrew, Apple clang) y
+arranca el juego desde ahí; `build-mac/motocross` corre desde esa carpeta (encuentra el glTF en `../`).
+Las herramientas de `tools/` andan igual (`bash tools/regresion.sh`, sin permiso de ejecución en git).
+Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
+
+- **Jolt 5.6 compila shaders de GPU** si encuentra Vulkan (el de Homebrew, sin `dxc`/`glslang`: falla) o
+  Metal (pide Xcode completo). El juego no los usa → `JPH_USE_VK`/`JPH_USE_MTL` en OFF en el CMake.
+- **clang no acepta** un struct anidado con inicializadores de miembros como argumento por defecto
+  (`= {}`) dentro de la misma clase (MSVC y GCC sí): `EngineSound::Character` pasó a ser un alias de
+  `EngineSoundCharacter`, declarado afuera.
+- **`typeinfo for JPH::GroupFilter` sin definir** al linkear: Jolt va sin RTTI y el juego hereda de sus
+  clases. En Mac el juego se compila con `-fno-rtti` (no usa `dynamic_cast` ni `typeid`).
+- **Fuentes**: la interfaz y los carteles del circuito cargaban sólo de `C:/Windows/Fonts` y en Mac caía
+  la pixelada de raylib (las flechas salían `?`). Ahora prueba Arial Bold + Monaco y el Impact de
+  `/System/Library/Fonts/Supplemental`; raylib no lee `.ttc` (Helvetica, Menlo). Monaco no tiene ← ↑,
+  pero la mono sólo muestra números y códigos.
+- **FMA**: clang en ARM fusiona `a*b+c` (`-ffp-contract=on`) y MSVC en x64 no. La favela salía con 1035
+  casas en vez de 1052 (un umbral de ubicación que cambia arrastra a todas las siguientes), y en red
+  Mac-Windows cada uno vería otras paredes. El juego va con `-ffp-contract=off` en Mac: 1052 casas.
+- **La telemetría no da idéntica a la de Windows** ni así (ni con Jolt sin FMA): `sin`/`cos`/`atan2` de
+  cada sistema y NEON contra SSE. Vueltas del bot en Mac: **1:08.41 y 1:08.55** (Windows 1:08.37 /
+  1:08.51). La regresión en Mac se hace Mac contra Mac (un `build-mac` de referencia del commit anterior).
+- Anda sin cambios: la red (rama POSIX de `Net.cpp`; anfitrión y cliente sin ventana en la misma Mac),
+  el audio (miniaudio sobre Core Audio), Retina (se dibuja y se captura a la resolución real: una
+  ventana de 1280×720 da capturas de 2560×1440) y la pantalla completa.
+
 ## Regresiones: la motocross tiene que dar idéntica
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los

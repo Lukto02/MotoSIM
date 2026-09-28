@@ -31,6 +31,10 @@ set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
 set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
 set(PROFILER_IN_DEBUG_AND_RELEASE       OFF CACHE BOOL "" FORCE)
 set(FLOATING_POINT_EXCEPTIONS_ENABLED   OFF CACHE BOOL "" FORCE)
+# Jolt 5.6 compila shaders de cómputo por GPU (pelo/tela) si encuentra Vulkan o Metal; el juego no los
+# usa y en Mac rompen el build (Vulkan de Homebrew sin dxc/glslang; Metal pide Xcode completo).
+set(JPH_USE_VK  OFF CACHE BOOL "" FORCE)
+set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
 # Jolt usa por defecto el runtime estático de MSVC (/MT) y raylib + el juego el dinámico (/MD):
 # mezclados no linkean. Para repartir el juego conviene el estático en todo (el .exe no pide
 # instalar el "Visual C++ Redistributable" en otra PC): -DMOTOSIM_STATIC_RUNTIME=ON. Sin efecto en MinGW.
@@ -100,6 +104,15 @@ if(MSVC)
     target_compile_definitions(motocross PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(motocross PRIVATE -Wall -Wno-missing-field-initializers)
+endif()
+if(APPLE)
+    # Jolt se compila sin RTTI; el linker de Apple pide igual el typeinfo de sus clases base cuando el
+    # juego hereda de ellas (RiderCollisionFilter : JPH::GroupFilter). El juego no usa RTTI.
+    target_compile_options(motocross PRIVATE -fno-rtti)
+    # clang en ARM fusiona a*b+c en una FMA (otro redondeo) y MSVC en x64 no: alcanza para que la favela
+    # ponga otras casas (1035 en vez de 1052), y en red Mac-Windows cada uno tendría otras paredes.
+    # Jolt queda con lo suyo (-ffp-contract=on en ARM); apagarlo ahí tampoco iguala la telemetría.
+    target_compile_options(motocross PRIVATE -ffp-contract=off)
 endif()
 
 # tuning.ini and the mods/ folder (maps, bikes and objects as text files; see MODDING.md) live next to

@@ -1,0 +1,44 @@
+# Compila el juego en Windows (MSVC) y en Mac (Apple clang, arm64) en cada push y pull request, y corre
+# una prueba corta sin ventana en cada uno. Ver docs/PRUEBAS.md ("En Mac").
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            exe: build/Release/motocross.exe
+          - os: macos-latest
+            exe: build/motocross
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Compilar
+        run: cmake --build build --config Release --parallel
+
+      # Sin ventana, desde la carpeta del ejecutable (ahí el build copia tuning.ini y mods/).
+      - name: Probar sin ventana
+        shell: bash
+        run: |
+          set -eo pipefail
+          cd "$(dirname "${{ matrix.exe }}")"
+          exe="./$(basename "${{ matrix.exe }}")"
+          "$exe" --headless --test bikestats | tee stats.txt
+          if grep '^mods: ' stats.txt | grep -v ' mapas, '; then echo "::error::errores de mods"; exit 1; fi
+          [ "$(grep -c '^moto ' stats.txt)" -ge 5 ] || { echo "::error::faltan motos en bikestats"; exit 1; }
+          "$exe" --headless --bot --time 150 | grep Vuelta | tee vueltas.txt
+          [ "$(wc -l < vueltas.txt)" -ge 2 ] || { echo "::error::el bot no completó 2 vueltas"; exit 1; }
+          # La favela se genera igual en los dos sistemas (en Mac depende de -ffp-contract=off)
+          "$exe" --headless --map favela --time 1 | grep "favela:" | tee favela.txt
+          grep -q "1052 casas" favela.txt || { echo "::error::la favela no tiene 1052 casas"; exit 1; }

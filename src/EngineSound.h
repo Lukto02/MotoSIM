@@ -4,15 +4,19 @@
 // "ladrido" (más brillo y ruido) y el limitador produce fallos de encendido. Un cuatro tiempos explota
 // una vez cada dos vueltas por cilindro; un dos tiempos, en cada vuelta y con otro carácter (ver
 // Synth::StepTwoStroke). Se genera en el hilo de audio de raylib.
+// Cómo suena el motor de una moto (sale de su tuning). Va fuera de EngineSound porque clang no deja
+// usar como argumento por defecto (`= {}`) un struct anidado con inicializadores de miembros dentro
+// de la misma clase; se usa como EngineSound::Character.
+struct EngineSoundCharacter {
+    float cylinders = 1.0f;          // más cilindros = más explosiones por vuelta: grita en vez de ladrar
+    bool twoStroke = false;
+    float revLimit = 10000.0f;       // rpm de corte (la 2T se "pone en la pipa" arriba de ~60% de esto)
+};
+
 class EngineSound {
 public:
     static constexpr int kVoices = 4;    // la moto propia + hasta 3 de otros jugadores
-    // Cómo suena el motor de una moto (sale de su tuning).
-    struct Character {
-        float cylinders = 1.0f;          // más cilindros = más explosiones por vuelta: grita en vez de ladrar
-        bool twoStroke = false;
-        float revLimit = 10000.0f;       // rpm de corte (la 2T se "pone en la pipa" arriba de ~60% de esto)
-    };
+    using Character = EngineSoundCharacter;
 
     bool Init();
     void Shutdown();

@@ -1438,7 +1438,7 @@ void Circuit::CreateCollision(PhysicsWorld& world)
 void Circuit::BuildAtlas()
 {
     Image img = GenImageColor(kAtlas, kAtlas, Color{255, 255, 255, 255});
-    // Fuente: una condensada y gruesa de Windows si está (la de los carteles de publicidad); si no, la de raylib.
+    // Fuente: una condensada y gruesa del sistema (Windows o Mac) si está (la de los carteles de publicidad); si no, la de raylib.
     std::string all = name;
     for (const std::string& b : billboards) all += b;
     all += " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.,-'!&";
@@ -1450,7 +1450,8 @@ void Circuit::BuildAtlas()
     unique.erase(std::unique(unique.begin(), unique.end()), unique.end());
     Font font{};
     bool own = false;
-    for (const char* path : {"C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/segoeuib.ttf"}) {
+    for (const char* path : {"C:/Windows/Fonts/impact.ttf", "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/segoeuib.ttf",
+                             "/System/Library/Fonts/Supplemental/Impact.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf"}) {
         if (!FileExists(path)) continue;
         font = LoadFontEx(path, 112, unique.data(), (int)unique.size());
         if (font.texture.id != 0) {
