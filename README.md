@@ -77,25 +77,39 @@ versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`k
 | Piloto adelante / atrás | Stick izq. Y | ↑ / ↓ |
 | Cuerpo a los costados | Stick der. X | ← / → |
 | Bajar / subir marcha | LB / RB | Q / E |
-| Reaparecer en la pista (caído, no reaparece solo) | Y | R |
+| Reaparecer (caído no reaparece solo; en la pista, en la pista; en un mapa libre, donde quedaste, mirando para donde ibas) | Y | R |
 | Volver a la largada | Back | Retroceso |
-| Caja automática / manual (arranca en automática) | X | F3 |
+| Menú (ajustes y controles) | Start | Esc |
+| Pausa (no anda en red) | — | P |
+| Caja automática / manual (arranca en automática; se recuerda) | X | F3 |
 | Cámara lateral (debug) | R3 | C |
 | Cámara orbital | — | arrastrar con el mouse (rueda: zoom); al soltar vuelve sola atrás |
-| Pantalla completa | — | F11 o Alt+Enter (también en el menú); se recuerda en `preferencias.ini` |
+| Ayuda de teclas (sale sola al empezar; en pausa también) | — | H |
+| Datos técnicos (velocidad, motor, suspensión, agarre, cuadros por segundo) | — | T |
+| Sonido | — | M |
+| Pantalla completa | — | F11 o Alt+Enter (también en Ajustes); se recuerda en `preferencias.ini` |
 | Marcha atrás (lenta) | auto: mantener LT parado · manual: LB desde 1ª | auto: mantener S parado · manual: Q desde 1ª |
 
-**Esc** abre el menú: la carrera sigue de fondo y la cámara pasa (en ~1 s, desde donde estaba) a un
-plano de cine, bajo y con teleobjetivo, que gira despacio alrededor de la moto (corrida a la derecha);
-abajo a la derecha, la tarjeta con el mapa y la moto de ahora (potencia, peso, velocidad máxima). Se
-elige con flechas, mouse o joystick (también 1, 2, 3...). Jugar solo / seguir, crear partida en red
-(abre la sala con el código grande, C lo copia, y los pilotos conectados), unirse (el código en
-casilleros, Ctrl+V lo pega), mapa, moto, pantalla completa, tu nombre (el que ven los demás) y salir.
+**Esc** (Start en el joystick) abre el menú: la carrera sigue de fondo y la cámara pasa (en ~1 s, desde
+donde estaba) a un plano de cine, bajo y con teleobjetivo, que gira despacio alrededor de la moto (corrida a
+la derecha); abajo a la derecha, la tarjeta con el mapa y la moto de ahora (potencia, peso, velocidad
+máxima). Se elige con flechas, mouse o joystick (stick o cruz; también 1, 2, 3...); Esc, B o el botón
+derecho del mouse vuelven. Jugar solo / seguir, crear partida en red (abre la sala con el código grande, C
+lo copia, y los pilotos conectados), unirse (el código en casilleros, Ctrl+V lo pega), mapa, moto, tu nombre
+(el que ven los demás; se recuerda), **Ajustes**, **Controles** (todas las teclas y botones) y salir.
 Corriendo, F10 copia el código de invitación (anfitrión).
 
+**Ajustes** (en el menú principal y en el de la partida en red; se guardan solos en `preferencias.ini`, se
+cambien ahí o con su tecla): pantalla completa, motion blur, sacudón de cámara, volumen (M lo apaga), la
+ayuda de teclas (al empezar, siempre o nunca), los datos técnicos (T), la caja (F3) y el control de
+tracción (F6). ↑ ↓ eligen, ← → o Enter cambian.
+
+En los mapas libres (pista `guide`, como Los Médanos) no hay cronómetro de vuelta: arriba se ve cuánto
+volás en cada salto y el mejor.
+
 Debug: **F1** vectores físicos (suspensión verde, neumático rojo, normal azul, COM naranja),
-F2 HUD, F11 / Alt+Enter pantalla completa (sin bordes, del tamaño del monitor; `--fullscreen` y `--windowed` la fuerzan sin guardarla), F4 cámara lenta, **F5 recarga `tuning.ini`** (Shift+F5: los mods), F6 control de tracción, F7 efectos de cámara (motion blur, viñeta, grano), F8 surcos físicos, F9 piloto modelo/generado,
-M sonido, P pausa (F4 y P no andan en red). `[` `]` mueven el centro de masa adelante/atrás, `-` `=` lo suben/bajan, `0` lo resetea.
+F2 esconde todo el HUD, F11 / Alt+Enter pantalla completa (sin bordes, del tamaño del monitor; `--fullscreen` y `--windowed` la fuerzan sin guardarla), F4 cámara lenta, **F5 recarga `tuning.ini`** (Shift+F5: los mods), F6 control de tracción, F7 efectos de cámara (motion blur, viñeta, grano), F8 surcos físicos, F9 piloto modelo/generado
+(F4 y P no andan en red). `[` `]` mueven el centro de masa adelante/atrás, `-` `=` lo suben/bajan, `0` lo resetea.
 
 Consejos: el piloto adelante (↑ / stick arriba) mantiene la rueda delantera abajo al acelerar
 fuerte; atrás ayuda en los aterrizajes y en los wheelies. En el aire, adelante/atrás gira la moto
@@ -210,16 +224,23 @@ Los mapas y las motos son archivos de texto en `mods/` (ver **Mods** abajo): los
     cola sale hasta 85° (cavalo de pau).
 
 - **Parque de física** (mod `sandbox`), con la **Dos tiempos 250** (moto de ejemplo, `dostiempos.ini`):
-  llano, con una pista alrededor y adentro líneas de saltos de tres tamaños, una mesa, rampa de
-  lanzamiento, quarter pipe, pump track (caños medio enterrados) y objetos sueltos para voltear:
-  tambores, una pirámide de cajas, bolos y pelotas gigantes.
+  un parque de saltos llano, con la pista alrededor y adentro zonas que se andan todas hacia el norte,
+  desde la recta de largada: la **línea de tierra** (tres mesas, la grande da para un mortal), la
+  **línea de madera** (tres cajones con rampa, mesa y bajada) y un **pump track** (óvalo de lomitos con
+  peraltes); al norte, un **bowl** y **La Pared** (quarter de tierra). Al final de cada línea hay algo
+  suelto para voltear: la pirámide de cajas, la bolera, el muro de tambores y las pelotas gigantes (viven
+  en el bowl). Lo genera `tools/parque.py`.
 - **Valle** (mod `sandbox`): terreno sacado de una imagen (`valle.png`); se baja por el fondo del valle y
   se vuelve por la ladera.
 - **Los Médanos** (mod `sandbox`), con la Motocross 450: dunas de arena al atardecer para andar libre,
-  sin pista (una vuelta guía invisible para el bot y el reaparecer). El **Médano Grande** (22 m, se vuela
-  2-3 s cayendo en su cara de 36°), el **Gigante** (mesa de 6 m con patada de 42°: da para un mortal a
-  55-65 km/h), la **Escalera** (tres mesas de 1.4, 2.6 y 4 m), los **Lomos**, un **Cráter** con paredes de
-  55° y **La Ola**, una pared de 6.5 m que tira para arriba y se cae en su espalda.
+  sin pista (una vuelta guía invisible de 1.3 km para el bot y el reaparecer, con peraltes de arena en
+  las esquinas). La vuelta es una línea de saltos tras otra: el **Gigante** (mesa de 6 m con patada de
+  42°: da para un mortal a 55-65 km/h), **La Cadena** (seis saltos de médano seguidos, cada uno de otro
+  alto y otro ángulo), **El Serrucho** (lomitos, **Los Lomos** y lomazos) y la **Escalera** (tres mesas de
+  1.4, 2.6 y 4 m) con **Los Dientes** (un serrucho de médanitos). Adentro, cerca uno del otro: el
+  **Médano Grande** (22 m, se vuela 2-3 s cayendo en su cara de 36°), un **Cráter** con paredes de 55°,
+  **La Ola** (una pared de 6.5 m que tira para arriba y se cae en su espalda) y **Los Montes** (mesas
+  redondas para saltar para cualquier lado). Lo genera `tools/medanos.py`.
 - **Autódromo Sierra de los Vientos** (circuito de velocidad), con la **Carrera 1000**: 3757 m y 14 m de
   ancho. Recta de casi un kilómetro, horquilla a fondo de frenos, chicana, eses y un curvón final. Todo
   armado desde la forma de la pista:
@@ -511,7 +532,11 @@ a la izquierda, `whiphold` la mantiene hasta el suelo); `--bot --test scrub` da 
 en todos los saltos (un poco de dirección en la cara y whip en el aire; `whipair` sólo en el aire).
 Para mirar de cerca: `--view <yaw> <pitch> <zoom>` fija la cámara (grados; zoom 1 = distancia
 normal) y `--norider` dibuja la moto sola; p. ej. `--test pose --flat --side --norider --view 0 0 0.3`.
-Menú: `--menu join|name|lobby|maps|bikes` abre esa pantalla al arrancar (con `--host` para ver la sala).
+Menú: `--menu join|name|lobby|maps|bikes|ajustes|controles|principal` abre esa pantalla al arrancar (con `--host`
+para ver la sala o, con `principal`, el menú de la partida en red); `--menu no` arranca corriendo, como "Jugar
+solo" (con la ayuda de teclas del principio). `--datos` muestra los datos técnicos (T) sin tocar
+`preferencias.ini`. `--respawn-here`: en un mapa libre, las pruebas reaparecen donde quedaron, como el
+jugador con R (con `--telemetry` imprime `REAPARECE`: dónde, a cuánto y con qué pendiente).
 `--bike mod/archivo` corre cualquier mapa con esa moto (p. ej. `--map favela --bike base/motocross`).
 `--map favela` arranca en el Morro do Grau (acepta el id `mod/archivo`, el nombre del archivo o el
 nombre visible: `--map sandbox/park`); `--test profile` imprime la altura y la pendiente de la pista
@@ -562,6 +587,7 @@ src/
   BikeMeshes.cpp         piezas de las motos (cada estilo: primitivas, tubos barridos, placas, números)
   Circuit.cpp/.h         circuito de velocidad ("generator": "circuit"): pianos, boxes, tribunas, barreras, carteles
   MeshBuilder.h          armado de mallas y combinación de primitivas transformadas
+  Coplanar.h             diagnóstico de caras que se pisan en las mallas del circuito y la favela (MOTOSIM_COPLANARES)
   Net.cpp/.h             socket UDP, direcciones IPv4 y código de invitación
   Multiplayer.cpp/.h     partida LAN: anfitrión/cliente, paquetes, motos remotas (predicción, cuerpo cinemático, piloto)
   Version.h              versión del juego

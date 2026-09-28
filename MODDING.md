@@ -148,13 +148,23 @@ stretched sideways (`"shape": "line"`) or spun around a center (`"shape": "round
 | `smooth` | 1 | meters over which the corners of the profile are rounded (0 = sharp) |
 | `bend` | 0 | line: the ends move this many meters along u (a crescent, like a barchan dune: horns downwind) |
 | `stretch` | `[1, 1]` | round: stretches the circle across and along `yaw` (an ellipse) |
+| `arc` | whole circle | round: keeps only a slice, `[from, to]`: headings seen from `at` (0 = north, 90 = east), clockwise from `from` to `to` (`[90, 180]` is the south-east quarter). Past its ends it fades out over `edge` m. With a profile that rises at the outside radius it is a **berm** (a banked turn) |
 | `mode` | `"add"` | `add`: the profile is added to the ground. `level`: the ground becomes `base` + profile (the dunes under it disappear; use it to carve flat corridors, run-ups and landings) |
 | `base` | ground at `at` | level: the height it levels to |
+| `dirt` | false | paints the shape with the track's dirt, as far as it reaches: its texture, its grip and the dust it throws (dirt jumps on a grass map read as jumps) |
+
+```jsonc
+// a berm for a left turn from east-bound to north-bound, 31 m in radius (the rider goes round the
+// center at [109, -174]): flat inside, the bank rises from 28 m out to 3.4 m, only in the south-east quarter
+{ "shape": "round", "at": [109, -174], "arc": [90, 180], "edge": 16, "mode": "level", "base": 0,
+  "profile": [[0, 0], [28, 0], [31, 0.4], [34, 1.6], [37, 3.4], [38.5, 3.4], [45, 0]] }
+```
 
 Shapes are applied in order: a later one sits on top of (or levels) the earlier ones. How to make
 jumps that land well (the landing slope has to follow the arc, and how far you fly grows with the
 square of the speed) is in `mods/sandbox/maps/medanos.json` and in `tools/medanos.py`, which
-generated it.
+generated it; `mods/sandbox/maps/park.json` (written by `tools/parque.py`) has dirt jumps, a pump
+track with berms, a bowl and a quarter pipe on flat ground.
 
 ### `track`: the lap
 

@@ -36,4 +36,7 @@ public:
     static bool RenderTest(const char* path, const char* mode = "");
     void ToggleMute();
     bool Muted() const;
+    void SetMuted(bool muted);
+    // Volumen del menú (Ajustes): 0..1 del de siempre (1 = como sonó siempre; el WAV de prueba no lo usa).
+    static void SetVolume(float level);
 };

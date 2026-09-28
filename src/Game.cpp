@@ -204,6 +204,13 @@ void Game::Init()
         first = 0;
     }
     LoadMap(mods.Maps()[first]);
+    // Ajustes del jugador (preferencias.ini): la caja y el control de tracción, sólo si maneja él (el bot y las
+    // pruebas, con los de siempre); el volumen, siempre.
+    if (PlayerDriving()) {
+        bike.engine.autoShift = prefAutoShift;
+        bike.tractionControl = prefTraction;
+    }
+    ApplySound();
     if (!mods.Errors().empty() && !opt.headless) ShowMessage("Error en un mod: " + mods.Errors().front(), 10.0f);
     if (opt.spawnS >= 0.0f) Respawn(opt.spawnS);
     if (opt.test.rfind("subida", 0) == 0 && opt.spawnS >= 0.0f) {   // aparece dado vuelta: la pista al revés
@@ -257,6 +264,7 @@ void Game::Init()
 
     // Multijugador: nombre (el usuario de Windows si no se pasó --name) y, si se pidió, la partida.
     playerName = opt.name;
+    if (playerName.empty()) playerName = savedName;             // el que se eligió en el menú (preferencias.ini)
     if (playerName.empty())
         if (const char* user = std::getenv("USERNAME")) playerName = user;
     if (playerName.empty())
@@ -282,6 +290,15 @@ void Game::Init()
             OpenMenu(Menu::Maps);
         } else if (opt.menuScreen == "bikes") {
             OpenBikeMenu();
+        } else if (opt.menuScreen == "principal") {                              // con --host: el menú de la partida en red
+            OpenMenu(Menu::Main);
+        } else if (opt.menuScreen == "ajustes") {
+            OpenMenu(Menu::Settings);
+        } else if (opt.menuScreen == "controles") {
+            OpenMenu(Menu::Controls);
+        } else if (opt.menuScreen == "no") {                                     // como "Jugar solo": la ayuda del principio
+            menu = Menu::None;
+            raced = true;
         }
     }
 }
@@ -359,6 +376,7 @@ void Game::LoadMap(const MapDef& def, bool keepPlace)
         lapCount = 0;
         halfway = false;
         grauTime = lastGrau = bestGrau = grauShow = 0.0f;
+        jumpAir = lastJump = bestJump = jumpShow = 0.0f;
     }
     mapLoaded = true;
     mapFileTime = GetFileModTime(current.file.c_str());
@@ -573,6 +591,17 @@ void Game::Frame(float frameDt)
     }
     UpdateMenuCamera(frameDt);
     messageTime = std::max(0.0f, messageTime - frameDt);
+    // La ayuda de teclas del principio: desde que se empieza a correr (se cierra el menú la primera vez), mientras
+    // se corre (con el menú abierto o en pausa no se descuenta).
+    if (helpTimer < 0.0f && menu == Menu::None && PlayerDriving()) helpTimer = 16.0f;
+    if (helpTimer > 0.0f && menu == Menu::None && !paused) helpTimer = std::max(0.0f, helpTimer - frameDt);
+    // Corriendo, el cursor se esconde si el mouse queda quieto (vuelve al moverlo, al arrastrar la cámara o en el menú).
+    const Vector2 md = GetMouseDelta();
+    mouseIdle = menu != Menu::None || md.x != 0.0f || md.y != 0.0f ? 0.0f : mouseIdle + frameDt;
+    if ((mouseIdle > 1.5f) != IsCursorHidden()) {
+        if (mouseIdle > 1.5f) HideCursor();
+        else ShowCursor();
+    }
 }
 
 // Choque con la moto de otro jugador: ¿se cae el piloto propio? Cada PC decide sólo el suyo, con lo que
@@ -724,6 +753,11 @@ void Game::Step(BikeInput in)
 
     // Caída: el piloto se suelta de la moto y sigue como ragdoll con la velocidad que llevaba.
     if (bike.crashed && bike.RiderOnBike()) {
+        {   // Para dónde iba (en un mapa libre reaparece mirando para ahí; sólo se anota).
+            const Vec3 v = impactCrash ? velBeforeStep : bike.Velocity(), f = bike.Rotation() * Vec3::sAxisZ();
+            const Vec3 flatV(v.GetX(), 0.0f, v.GetZ());
+            crashDir = (flatV.Length() > 1.5f ? flatV : Vec3(f.GetX(), 0.0f, f.GetZ())).NormalizedOr(crashDir);
+        }
         // Con el modelo, el ragdoll se arma con sus articulaciones (el generado se dibuja igual con esas).
         const RiderPose pose = riderModel.Loaded() ? riderModel.JointPose(bike.RiderPoseLocal()) : bike.RiderPoseLocal();
         ragdoll.Spawn(*physics, terrain, pose, bike.Position(), bike.Rotation(), impactCrash ? velBeforeStep : bike.Velocity(),
@@ -752,6 +786,18 @@ void Game::Step(BikeInput in)
         }
         grauShow = std::max(0.0f, grauShow - kDt);
     }
+    // Saltos (mapas libres, sólo se muestran): cuánto voló, al tocar el suelo con el piloto arriba.
+    if (bike.airTime > 0.0f && bike.RiderOnBike()) {
+        jumpAir = bike.airTime;
+    } else if (jumpAir > 0.0f) {
+        if (jumpAir > 0.7f && bike.RiderOnBike() && !bike.crashed) {
+            lastJump = jumpAir;
+            bestJump = std::max(bestJump, jumpAir);
+            jumpShow = 3.0f;
+        }
+        jumpAir = 0.0f;
+    }
+    jumpShow = std::max(0.0f, jumpShow - kDt);
     if (!opt.headless) EmitEffects();
     if (deformation.physicalRuts) {
         const Wheel& rw = bike.wheels[Bike::REAR];
@@ -760,7 +806,10 @@ void Game::Step(BikeInput in)
         deformation.CommitRuts(terrain, *physics, kDt);
     }
     const float respawnAfter = AutoRespawnAfter(opt);
-    if (bike.crashed && respawnAfter >= 0.0f && bike.crashedTime > respawnAfter) RespawnNearest();
+    if (bike.crashed && respawnAfter >= 0.0f && bike.crashedTime > respawnAfter) {
+        if (opt.respawnHere && FreeRide()) RespawnHere();   // prueba de lo que hace la R del jugador en un mapa libre
+        else RespawnNearest();
+    }
     // El bot (pruebas) no sabe salir de reversa: si queda trabado contra una pared, reaparece.
     stuckTime = (opt.bot && bike.speed < 0.6f && !bike.crashed) ? stuckTime + kDt : 0.0f;
     if (stuckTime > 4.0f) {
@@ -905,7 +954,8 @@ BikeInput Game::NetChoqueInput()
 void Game::HandleKeys()
 {
     const bool pad = IsGamepadAvailable(0);
-    if (IsKeyPressed(KEY_ESCAPE)) {
+    // Esc o Start: el menú (antes Start pausaba y con el joystick solo no había cómo abrirlo).
+    if (IsKeyPressed(KEY_ESCAPE) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT))) {
         OpenMenu(Menu::Main);
         return;
     }
@@ -918,7 +968,11 @@ void Game::HandleKeys()
     if (IsKeyPressed(KEY_F2)) showHud = !showHud;
     if (IsKeyPressed(KEY_F3) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_LEFT))) {
         bike.engine.autoShift = !bike.engine.autoShift;
-        ShowMessage(bike.engine.autoShift ? "Caja automática" : "Caja manual");
+        if (PlayerDriving()) {                       // lo mismo que en Ajustes: queda guardado
+            prefAutoShift = bike.engine.autoShift;
+            SavePrefs();
+        }
+        ShowMessage(bike.engine.autoShift ? "Caja automática" : "Caja manual  (Q y E para los cambios)");
     }
     if (IsKeyPressed(KEY_F4) && !mp.Active()) {
         slowMotion = !slowMotion;
@@ -929,8 +983,15 @@ void Game::HandleKeys()
         else LoadTuning(true);
     }
     if (IsKeyPressed(KEY_M)) {
-        sound.ToggleMute();
-        ShowMessage(sound.Muted() ? "Sonido apagado" : "Sonido encendido");
+        muted = !muted;
+        ApplySound();
+        SavePrefs();
+        ShowMessage(muted ? "Sonido apagado  (M lo prende)" : "Sonido prendido");
+    }
+    if (IsKeyPressed(KEY_H)) helpPinned = HelpVisible() ? 0 : 1;          // la ayuda de teclas
+    if (IsKeyPressed(KEY_T)) {                                            // datos técnicos
+        techData = !techData;
+        SavePrefs();
     }
     if (IsKeyPressed(KEY_C) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_THUMB))) camera.ToggleMode();
     // Cámara orbital: arrastrar con el mouse (cualquier botón) gira alrededor de la moto; la rueda acerca.
@@ -941,7 +1002,7 @@ void Game::HandleKeys()
     if (const float wheel = GetMouseWheelMove(); wheel != 0.0f) camera.Zoom(wheel);
     if (IsKeyPressed(KEY_F8)) {
         deformation.physicalRuts = !deformation.physicalRuts;
-        ShowMessage(deformation.physicalRuts ? "Surcos físicos activados" : "Surcos físicos desactivados");
+        ShowMessage(deformation.physicalRuts ? "Surcos físicos prendidos" : "Surcos físicos apagados");
     }
     if (IsKeyPressed(KEY_F9) && riderModel.Loaded()) {
         useRiderModel = !useRiderModel;
@@ -949,14 +1010,22 @@ void Game::HandleKeys()
     }
     if (IsKeyPressed(KEY_F7)) {
         postEffects = !postEffects;
-        ShowMessage(postEffects ? "Efectos de cámara activados" : "Efectos de cámara desactivados");
+        ShowMessage(postEffects ? "Efectos de imagen prendidos" : "Efectos de imagen apagados  (F7 los prende)");
     }
     if (IsKeyPressed(KEY_F6)) {
         bike.tractionControl = !bike.tractionControl;
-        ShowMessage(bike.tractionControl ? "Control de tracción activado" : "Control de tracción desactivado");
+        if (PlayerDriving()) {
+            prefTraction = bike.tractionControl;
+            SavePrefs();
+        }
+        ShowMessage(bike.tractionControl ? "Control de tracción prendido" : "Control de tracción apagado");
     }
-    if (!mp.Active() && (IsKeyPressed(KEY_P) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)))) paused = !paused;
-    if (IsKeyPressed(KEY_R) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_UP))) RespawnNearest();
+    if (!mp.Active() && IsKeyPressed(KEY_P)) paused = !paused;
+    // Reaparecer: en la pista, en la pista; en un mapa libre, donde quedaste (RespawnHere).
+    if (IsKeyPressed(KEY_R) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_UP))) {
+        if (FreeRide() && PlayerDriving()) RespawnHere();
+        else RespawnNearest();
+    }
     if (IsKeyPressed(KEY_BACKSPACE) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_LEFT))) {
         Respawn(track.startLine - 6.0f);
         lapStart = -1.0f;
@@ -971,7 +1040,7 @@ void Game::HandleKeys()
     if (IsKeyPressed(KEY_ZERO)) { bikeParams.comHeight = bikeParams.comForward = 0.0f; comChanged = true; }
     if (comChanged) {
         char buf[96];
-        std::snprintf(buf, sizeof(buf), "COM  altura %+.2f m  ·  adelante %+.2f m", bikeParams.comHeight, bikeParams.comForward);
+        std::snprintf(buf, sizeof(buf), "Centro de masa  ·  altura %+.2f m  ·  adelante %+.2f m", bikeParams.comHeight, bikeParams.comForward);
         ShowMessage(buf);
     }
 }
@@ -1433,6 +1502,82 @@ void Game::RespawnNearest()
     Respawn(s);
 }
 
+void Game::RespawnHere()
+{
+    // Desde donde quedó el piloto (o la moto, si no se cayó), mirando para donde iba. Se busca en anillos cada
+    // vez más grandes el suelo más parejo: la pendiente mayor a 1 y a 2.5 m alrededor, menos de ~9° (en la cara
+    // de un médano no se puede arrancar), y que sea el terreno y no un objeto. Si en 45 m no hay, a la guía.
+    const Vec3 from = ragdoll.Active() ? ragdoll.Position(1.0f) : bike.Position();
+    Vec3 dir = crashDir;
+    if (!bike.crashed) {
+        const Vec3 f = bike.Rotation() * Vec3::sAxisZ();
+        dir = Vec3(f.GetX(), 0.0f, f.GetZ()).NormalizedOr(crashDir);
+    }
+    auto steepness = [&](float x, float z) {
+        const float h0 = terrain.Height(x, z);
+        float worst = 0.0f;
+        for (int a = 0; a < 8; ++a) {
+            const float ang = mu::kPi * 0.25f * (float)a, c = std::cos(ang), s = std::sin(ang);
+            for (float r : {1.0f, 2.5f}) worst = std::max(worst, std::fabs(terrain.Height(x + c * r, z + s * r) - h0) / r);
+        }
+        return worst;
+    };
+    struct StaticOrProp : JPH::ObjectLayerFilter {
+        bool ShouldCollide(JPH::ObjectLayer layer) const override { return layer == Layers::STATIC || layer == Layers::PROP; }
+    } solid;
+    auto onTerrain = [&](float x, float z) {       // lo primero que hay de arriba para abajo es el terreno
+        const float h = terrain.Height(x, z);
+        const JPH::RRayCast ray(Vec3(x, h + 30.0f, z), Vec3(0.0f, -32.0f, 0.0f));
+        JPH::RayCastResult hit;
+        return !physics->Query().CastRay(ray, hit, JPH::BroadPhaseLayerFilter(), solid) || hit.mBodyID == terrain.BodyID();
+    };
+    const float lo = terrain.OriginX() + 8.0f, hi = terrain.OriginX() + terrain.Size() - 8.0f;
+    constexpr float kMaxSteep = 0.16f;             // tan 9°
+    float bestX = 0.0f, bestZ = 0.0f;
+    bool found = false;
+    for (float r = 0.0f; r <= 45.0f && !found; r += 1.5f) {
+        const int n = r <= 0.0f ? 1 : std::max(8, (int)(2.0f * mu::kPi * r / 1.5f));
+        float best = kMaxSteep;
+        for (int k = 0; k < n; ++k) {
+            const float ang = 2.0f * mu::kPi * (float)k / (float)n;
+            const float x = from.GetX() + r * std::cos(ang), z = from.GetZ() + r * std::sin(ang);
+            if (x < lo || x > hi || z < lo || z > hi) continue;
+            const float st = steepness(x, z);
+            if (st >= best || !onTerrain(x, z)) continue;
+            best = st;
+            bestX = x;
+            bestZ = z;
+            found = true;
+        }
+    }
+    if (!found) {
+        RespawnNearest();
+        return;
+    }
+    // Si para donde iba se termina el mapa (la pared del borde), mirando para el centro.
+    const float aheadX = bestX + dir.GetX() * 25.0f, aheadZ = bestZ + dir.GetZ() * 25.0f;
+    if (aheadX < lo || aheadX > hi || aheadZ < lo || aheadZ > hi) {
+        const float mid = terrain.OriginX() + terrain.Size() * 0.5f;
+        dir = Vec3(mid - bestX, 0.0f, mid - bestZ).NormalizedOr(dir);
+    }
+    const float yaw = std::atan2(dir.GetX(), dir.GetZ());
+    float ground = terrain.Height(bestX, bestZ);
+    for (float d : {-0.8f, 0.9f}) ground = std::max(ground, terrain.Height(bestX + dir.GetX() * d, bestZ + dir.GetZ() * d));
+    if (opt.telemetry) {
+        const TrackPoint& g = track.Points()[track.Nearest(bestX, bestZ)];
+        std::printf("REAPARECE t=%.2f en (%.1f, %.1f) h=%.2f, a %.1f m de donde quedo (%.1f, %.1f), pendiente %.0f%%, rumbo %.0f, a %.0f m de la guia\n",
+                    simTime, bestX, bestZ, ground, std::hypot(bestX - from.GetX(), bestZ - from.GetZ()), from.GetX(), from.GetZ(),
+                    100.0f * steepness(bestX, bestZ), mu::Deg(yaw), std::hypot(g.x - bestX, g.z - bestZ));
+    }
+    ragdoll.Remove();
+    bike.Reset(*physics, Vec3(bestX, ground + 0.88f, bestZ), yaw);
+    camera.Reset(ToRl(bike.Position()), ToRl(bike.Rotation() * Vec3::sAxisZ()));
+    trackIndex = track.Nearest(bestX, bestZ);
+    trackS = track.Points()[trackIndex].s;
+    botIndex = trackIndex;
+    wasGrounded[0] = wasGrounded[1] = false;
+}
+
 void Game::UpdateLap()
 {
     const Vec3 pos = bike.Position();
@@ -1449,7 +1594,7 @@ void Game::UpdateLap()
             lastLap = simTime - lapStart;
             bestLap = bestLap <= 0.0f ? lastLap : std::min(bestLap, lastLap);
             ++lapCount;
-            ShowMessage("Vuelta " + std::to_string(lapCount) + "   " + FormatTime(lastLap), 3.0f);
+            if (!FreeRide()) ShowMessage("Vuelta " + std::to_string(lapCount) + "   " + FormatTime(lastLap), 3.0f);   // la guía no es una vuelta
             if (opt.telemetry) std::printf("LAP %d %.2f s\n", lapCount, lastLap);
         }
         lapStart = simTime;
@@ -1493,39 +1638,72 @@ static std::string PrefsPath() { return std::string(GetApplicationDirectory()) +
 
 void Game::LoadPrefs()
 {
-    // "clave = valor" como tuning.ini: pantalla completa, sacudón de cámara, motion blur y la moto.
+    // "clave = valor" por línea, como tuning.ini (# comenta). Si falta una clave (preferencias de una versión
+    // anterior), queda el default.
     if (!FileExists(PrefsPath().c_str())) return;
     char* text = LoadFileText(PrefsPath().c_str());
     if (!text) return;
+    std::map<std::string, std::string> values;
     const std::string s(text);
     UnloadFileText(text);
-    auto flag = [&s](const char* key, bool& value) {        // si falta la clave (preferencias viejas), queda el default
-        const size_t at = s.find(key);
-        if (at == std::string::npos) return;
-        const size_t eq = s.find('=', at);
-        if (eq != std::string::npos) value = std::atoi(s.c_str() + eq + 1) != 0;
+    for (size_t at = 0; at < s.size();) {
+        size_t end = s.find('\n', at);
+        if (end == std::string::npos) end = s.size();
+        const std::string line = s.substr(at, end - at);
+        at = end + 1;
+        const size_t eq = line.find('=');
+        if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
+        auto trim = [](std::string v) {
+            v.erase(0, v.find_first_not_of(" \t\r"));
+            v.erase(v.find_last_not_of(" \t\r") + 1);
+            return v;
+        };
+        values[trim(line.substr(0, eq))] = trim(line.substr(eq + 1));
+    }
+    auto flag = [&](const char* key, bool& value) {
+        if (auto it = values.find(key); it != values.end() && !it->second.empty()) value = std::atoi(it->second.c_str()) != 0;
     };
     flag("pantalla_completa", fullscreen);
     flag("sacudon_camara", camera.shakeEnabled);
     flag("motion_blur", motionBlur);
-    const size_t mb = s.find("\nmoto");
-    if (mb != std::string::npos) {                   // "moto = mod/archivo" (vacío = la de cada mapa)
-        const size_t eq = s.find('=', mb), end = s.find('\n', mb + 1);
-        if (eq != std::string::npos && eq < end) {
-            std::string v = s.substr(eq + 1, end == std::string::npos ? std::string::npos : end - eq - 1);
-            v.erase(0, v.find_first_not_of(" \t\r"));
-            v.erase(v.find_last_not_of(" \t\r") + 1);
-            chosenBike = savedBike = v;
-        }
-    }
+    flag("datos_tecnicos", techData);
+    flag("caja_automatica", prefAutoShift);
+    flag("control_traccion", prefTraction);
+    bool sound = !muted;
+    flag("sonido", sound);
+    muted = !sound;
+    if (auto it = values.find("volumen"); it != values.end() && !it->second.empty())   // en %: 0, 10... 100
+        volume = std::clamp((std::atoi(it->second.c_str()) + 5) / 10, 0, 10);
+    if (auto it = values.find("ayuda_teclas"); it != values.end())
+        helpMode = it->second == "siempre" ? HelpMode::Always : (it->second == "nunca" ? HelpMode::Never : HelpMode::Start);
+    if (auto it = values.find("moto"); it != values.end()) chosenBike = savedBike = it->second;   // vacío = la de cada mapa
+    if (auto it = values.find("nombre"); it != values.end()) savedName = it->second;   // vacío = el usuario de Windows
 }
 
 void Game::SavePrefs() const
 {
-    const std::string text = std::string("# Preferencias de MotoSim (las guarda el juego)\npantalla_completa = ") + (fullscreen ? "1" : "0") +
-                             "\nsacudon_camara = " + (camera.shakeEnabled ? "1" : "0") + "\nmotion_blur = " + (motionBlur ? "1" : "0") +
-                             "\nmoto = " + savedBike + "\n";
+    auto b = [](bool v) { return v ? "1" : "0"; };
+    const char* help = helpMode == HelpMode::Always ? "siempre" : (helpMode == HelpMode::Never ? "nunca" : "al_empezar");
+    const std::string text = std::string("# Preferencias de MotoSim (las guarda el juego: menú -> Ajustes)\n") +
+                             "pantalla_completa = " + b(fullscreen) + "\nsacudon_camara = " + b(camera.shakeEnabled) +
+                             "\nmotion_blur = " + b(motionBlur) + "\nsonido = " + b(!muted) + "\nvolumen = " + std::to_string(volume * 10) +
+                             "\nayuda_teclas = " + help + "\ndatos_tecnicos = " + b(techData) + "\ncaja_automatica = " + b(prefAutoShift) +
+                             "\ncontrol_traccion = " + b(prefTraction) + "\nmoto = " + savedBike + "\nnombre = " + savedName + "\n";
     SaveFileText(PrefsPath().c_str(), const_cast<char*>(text.c_str()));
+}
+
+void Game::ApplySound()
+{
+    sound.SetMuted(muted);
+    EngineSound::SetVolume((float)volume / 10.0f);
+}
+
+bool Game::HelpVisible() const
+{
+    if (helpPinned >= 0) return helpPinned == 1;     // H manda hasta que se cambie el ajuste
+    if (helpMode == HelpMode::Always) return true;
+    if (helpMode == HelpMode::Never) return false;
+    return helpTimer > 0.0f || paused;               // al empezar, y en pausa
 }
 
 void Game::ShowMessage(const std::string& text, float seconds)
@@ -2031,90 +2209,119 @@ void Game::Draw()
 void Game::DrawHUD()
 {
     const int W = GetScreenWidth(), H = GetScreenHeight();
+    // Todo escalado con el alto de la ventana (pensado para 900 px; más chico que el 90% no se lee) y el texto suelto
+    // con una sombra: sobre la arena o el cielo el gris claro no se leía.
+    const float ui = mu::Clamp((float)H / 900.0f, 0.9f, 2.0f);
     auto text = [&](const Font& f, const std::string& s, float x, float y, float size, Color c) {
+        const float o = std::max(1.0f, size * 0.05f);
+        DrawTextEx(f, s.c_str(), {x + o, y + o}, size, 0.0f, Color{0, 0, 0, (unsigned char)(c.a * 0.5f)});
         DrawTextEx(f, s.c_str(), {x, y}, size, 0.0f, c);
     };
     auto textRight = [&](const Font& f, const std::string& s, float xRight, float y, float size, Color c) {
-        Vector2 m = MeasureTextEx(f, s.c_str(), size, 0.0f);
-        DrawTextEx(f, s.c_str(), {xRight - m.x, y}, size, 0.0f, c);
+        text(f, s, xRight - MeasureTextEx(f, s.c_str(), size, 0.0f).x, y, size, c);
     };
     auto textCenter = [&](const Font& f, const std::string& s, float cx, float y, float size, Color c) {
-        Vector2 m = MeasureTextEx(f, s.c_str(), size, 0.0f);
-        DrawTextEx(f, s.c_str(), {cx - m.x * 0.5f, y}, size, 0.0f, c);
+        text(f, s, cx - MeasureTextEx(f, s.c_str(), size, 0.0f).x * 0.5f, y, size, c);
     };
     char buf[128];
 
     const std::string gearText = bike.engine.reverse ? std::string("R") : std::to_string(bike.engine.gear);
 
-    // ------------------------------------------------------------ telemetría (arriba izquierda)
-    const Wheel& fw = bike.wheels[Bike::FRONT];
-    const Wheel& rw = bike.wheels[Bike::REAR];
-    struct Line { const char* label; std::string value; Color color; };
-    auto fmt = [&](const char* f, float v) { std::snprintf(buf, sizeof(buf), f, v); return std::string(buf); };
-    auto gripColor = [](float usage) { return usage >= 1.0f ? Color{255, 120, 80, 255} : kText; };
-    // Grip usado: fracción del grip disponible (100% = al límite, "slide" = deslizando).
-    auto grip = [&](const Wheel& w) {
-        if (!w.grounded) return std::string("  air");
-        return w.gripUsage >= 1.0f ? std::string("slide") : fmt("%4.0f %%", w.gripUsage * 100.0f);
-    };
-    std::vector<Line> lines = {
-        {"Speed", fmt("%6.1f km/h", bike.speed * 3.6f), kText},
-        {"RPM", fmt("%6.0f", bike.engine.rpm) + (bike.engine.limiter ? "  LIM" : (bike.engine.clutchSlipping ? "  clutch" : "")), kText},
-        {"Gear", gearText + (bike.engine.autoShift ? "  auto" : "  manual"), kText},
-        {"Throttle", fmt("%6.2f", bike.throttle) + (bike.tractionControl ? (bike.tcFactor < 0.97f ? "  TC!" : "  TC") : "     "), kText},
-        {"Front susp", fmt("%5.0f %%", fw.Compression01() * 100.0f), kText},
-        {"Rear susp", fmt("%5.0f %%", rw.Compression01() * 100.0f), kText},
-        {"Front grip", grip(fw), gripColor(fw.gripUsage)},
-        {"Rear grip", grip(rw), gripColor(rw.gripUsage)},
-        {"Rear slip", fmt("%6.2f", rw.slipRatio), std::fabs(rw.slipRatio) > 0.3f ? Color{255, 190, 90, 255} : kText},
-        {"Pitch", fmt("%6.1f°", mu::Deg(bike.pitch)), kText},
-        {"Roll", fmt("%6.1f°", mu::Deg(bike.roll)), kText},
-    };
-    std::snprintf(buf, sizeof(buf), "%+.2f / %+.2f", bikeParams.comHeight, bikeParams.comForward);
-    lines.push_back({"COM h / fwd", buf, kTextDim});
+    // ------------------------------------------------------------ datos técnicos (arriba izquierda, T)
+    // Para mirar la física: escondido por defecto (Ajustes → Datos técnicos, o T), con los cuadros por segundo.
+    if (techData || opt.techData) {
+        const Wheel& fw = bike.wheels[Bike::FRONT];
+        const Wheel& rw = bike.wheels[Bike::REAR];
+        struct Line { const char* label; std::string value; Color color; };
+        auto fmt = [&](const char* f, float v) { std::snprintf(buf, sizeof(buf), f, v); return std::string(buf); };
+        auto gripColor = [](float usage) { return usage >= 1.0f ? Color{255, 120, 80, 255} : kText; };
+        // Agarre usado: fracción del disponible (100% = al límite; "desliza" = pasado).
+        auto grip = [&](const Wheel& w) {
+            if (!w.grounded) return std::string("aire");
+            return w.gripUsage >= 1.0f ? std::string("desliza") : fmt("%4.0f %%", w.gripUsage * 100.0f);
+        };
+        const int fps = GetFPS();
+        std::vector<Line> lines = {
+            {"Cuadros/s", std::to_string(fps), fps < 45 ? Color{255, 190, 90, 255} : kTextDim},
+            {"Velocidad", fmt("%6.1f km/h", bike.speed * 3.6f), kText},
+            {"Motor", fmt("%6.0f rpm", bike.engine.rpm) + (bike.engine.limiter ? "  corte" : (bike.engine.clutchSlipping ? "  embrague" : "")), kText},
+            {"Marcha", gearText + (bike.engine.autoShift ? "  auto" : "  manual"), kText},
+            {"Gas", fmt("%4.0f %%", bike.throttle * 100.0f), kText},
+            {"Tracción", !bike.tractionControl ? std::string("apagada") : (bike.tcFactor < 0.97f ? std::string("cortando") : std::string("prendida")),
+             bike.tractionControl && bike.tcFactor < 0.97f ? Color{255, 190, 90, 255} : kText},
+            {"Susp. adelante", fmt("%4.0f %%", fw.Compression01() * 100.0f), kText},
+            {"Susp. atrás", fmt("%4.0f %%", rw.Compression01() * 100.0f), kText},
+            {"Agarre adelante", grip(fw), gripColor(fw.gripUsage)},
+            {"Agarre atrás", grip(rw), gripColor(rw.gripUsage)},
+            {"Patina atrás", fmt("%6.2f", rw.slipRatio), std::fabs(rw.slipRatio) > 0.3f ? Color{255, 190, 90, 255} : kText},
+            {"Cabeceo", fmt("%6.1f°", mu::Deg(bike.pitch)), kText},
+            {"Inclinación", fmt("%6.1f°", mu::Deg(bike.roll)), kText},
+        };
+        std::snprintf(buf, sizeof(buf), "%+.2f / %+.2f", bikeParams.comHeight, bikeParams.comForward);
+        lines.push_back({"Centro de masa", buf, kTextDim});
 
-    const float lineH = 22.0f, panelX = 18.0f, panelY = 18.0f, panelW = 272.0f;
-    const float panelH = 16.0f + lineH * (float)lines.size();
-    DrawRectangle((int)panelX, (int)panelY, (int)panelW, (int)panelH, kPanel);
-    DrawRectangle((int)panelX, (int)panelY, 44, 2, kAccent);
-    for (size_t i = 0; i < lines.size(); ++i) {
-        float y = panelY + 10.0f + lineH * (float)i;
-        text(mono, lines[i].label, panelX + 12.0f, y, 18.0f, kTextDim);
-        textRight(mono, lines[i].value, panelX + panelW - 12.0f, y, 18.0f, lines[i].color);
+        const float fs = 17.0f * ui, lineH = 21.0f * ui, panelX = 18.0f * ui, panelY = 18.0f * ui;
+        float labelW = 0.0f, valueW = 0.0f;
+        for (const Line& l : lines) {
+            labelW = std::max(labelW, MeasureTextEx(mono, l.label, fs, 0.0f).x);
+            valueW = std::max(valueW, MeasureTextEx(mono, l.value.c_str(), fs, 0.0f).x);
+        }
+        const float panelW = labelW + valueW + 40.0f * ui, panelH = 14.0f * ui + lineH * (float)lines.size();
+        DrawRectangle((int)panelX, (int)panelY, (int)panelW, (int)panelH, kPanel);
+        DrawRectangle((int)panelX, (int)panelY, (int)(44.0f * ui), (int)(2.0f * ui), kAccent);
+        for (size_t i = 0; i < lines.size(); ++i) {
+            const float y = panelY + 8.0f * ui + lineH * (float)i;
+            DrawTextEx(mono, lines[i].label, {panelX + 12.0f * ui, y}, fs, 0.0f, kTextDim);
+            const float vw = MeasureTextEx(mono, lines[i].value.c_str(), fs, 0.0f).x;
+            DrawTextEx(mono, lines[i].value.c_str(), {panelX + panelW - 12.0f * ui - vw, y}, fs, 0.0f, lines[i].color);
+        }
     }
 
     // ------------------------------------------------------------ velocímetro (abajo derecha)
-    const float right = (float)W - 36.0f, bottom = (float)H - 30.0f;
+    const float right = (float)W - 36.0f * ui, bottom = (float)H - 30.0f * ui;
     std::snprintf(buf, sizeof(buf), "%.0f", bike.speed * 3.6f);
-    textRight(font, buf, right - 92.0f, bottom - 92.0f, 84.0f, kText);
-    text(font, "km/h", right - 84.0f, bottom - 40.0f, 22.0f, kTextDim);
-    DrawRectangle((int)(right - 64.0f), (int)(bottom - 104.0f), 64, 64, kPanel);
-    DrawRectangle((int)(right - 64.0f), (int)(bottom - 104.0f), 64, 2, kAccent);
-    textCenter(font, gearText, right - 32.0f, bottom - 102.0f, 58.0f, kText);
+    textRight(font, buf, right - 92.0f * ui, bottom - 92.0f * ui, 84.0f * ui, kText);
+    text(font, "km/h", right - 84.0f * ui, bottom - 40.0f * ui, 22.0f * ui, kTextDim);
+    DrawRectangle((int)(right - 64.0f * ui), (int)(bottom - 104.0f * ui), (int)(64.0f * ui), (int)(64.0f * ui), kPanel);
+    DrawRectangle((int)(right - 64.0f * ui), (int)(bottom - 104.0f * ui), (int)(64.0f * ui), (int)(2.0f * ui), kAccent);
+    textCenter(font, gearText, right - 32.0f * ui, bottom - 102.0f * ui, 58.0f * ui, kText);
 
     // barra de RPM segmentada
     const int segs = 40;
-    const float barW = 320.0f, barX = right - barW, barY = bottom - 128.0f;
+    const float barW = 320.0f * ui, barX = right - barW, barY = bottom - 128.0f * ui;
     const float rpm01 = mu::Clamp(bike.engine.rpm / bikeParams.engine.revLimit, 0.0f, 1.0f);
     for (int i = 0; i < segs; ++i) {
         float t = (float)(i + 1) / (float)segs;
         float x = barX + (barW / segs) * i;
         Color c = t > 0.9f ? Color{232, 64, 48, 255} : (t > 0.75f ? Color{240, 170, 60, 255} : kText);
         if (t > rpm01) c = Color{255, 255, 255, 40};
-        DrawRectangle((int)x, (int)barY, (int)(barW / segs) - 2, 10, c);
+        DrawRectangle((int)x, (int)barY, (int)(barW / segs - 2.0f * ui), (int)(10.0f * ui), c);
     }
 
-    // ------------------------------------------------------------ vueltas (arriba centro)
+    // ------------------------------------------------------------ vueltas o saltos (arriba centro)
     const float cx = (float)W * 0.5f;
-    float lapTime = lapStart >= 0.0f ? simTime - lapStart : 0.0f;
-    DrawRectangle((int)(cx - 20), 18, 40, 2, kAccent);
-    textCenter(font, lapStart >= 0.0f ? FormatTime(lapTime) : "--:--.--", cx, 24.0f, 40.0f, kText);
-    std::snprintf(buf, sizeof(buf), "Vuelta %d    Última %s    Mejor %s", lapCount + 1, FormatTime(lastLap).c_str(), FormatTime(bestLap).c_str());
-    textCenter(font, buf, cx, 68.0f, 20.0f, kTextDim);
+    if (!FreeRide()) {
+        const float lapTime = lapStart >= 0.0f ? simTime - lapStart : 0.0f;
+        DrawRectangle((int)(cx - 20.0f * ui), (int)(18.0f * ui), (int)(40.0f * ui), (int)(2.0f * ui), kAccent);
+        textCenter(font, lapStart >= 0.0f ? FormatTime(lapTime) : "--:--.--", cx, 24.0f * ui, 40.0f * ui, kText);
+        std::snprintf(buf, sizeof(buf), "Vuelta %d    Última %s    Mejor %s", lapCount + 1, FormatTime(lastLap).c_str(), FormatTime(bestLap).c_str());
+        textCenter(font, buf, cx, 68.0f * ui, 20.0f * ui, kTextDim);
+    } else {
+        // Mapa libre (la guía no es una vuelta): cuánto volás. En el aire, lo que va; al caer, el salto y el mejor.
+        const bool live = jumpAir > 0.7f && bike.RiderOnBike();
+        if (live || jumpShow > 0.0f) {
+            const unsigned char a = (unsigned char)(255.0f * (live ? 1.0f : mu::Clamp(jumpShow, 0.0f, 1.0f)));
+            std::snprintf(buf, sizeof(buf), live ? "%.1f s en el aire" : "Salto  %.1f s", live ? jumpAir : lastJump);
+            DrawRectangle((int)(cx - 20.0f * ui), (int)(18.0f * ui), (int)(40.0f * ui), (int)(2.0f * ui), Color{kAccent.r, kAccent.g, kAccent.b, a});
+            textCenter(font, buf, cx, 24.0f * ui, 40.0f * ui, Color{kText.r, kText.g, kText.b, a});
+            std::snprintf(buf, sizeof(buf), "Mejor  %.1f s", bestJump);
+            if (bestJump > 0.0f) textCenter(font, buf, cx, 68.0f * ui, 20.0f * ui, Color{kTextDim.r, kTextDim.g, kTextDim.b, a});
+        }
+    }
 
     if (messageTime > 0.0f) {
         unsigned char a = (unsigned char)(255.0f * mu::Clamp(messageTime * 2.0f, 0.0f, 1.0f));
-        textCenter(font, message, cx, 104.0f, 24.0f, Color{kText.r, kText.g, kText.b, a});
+        textCenter(font, message, cx, 104.0f * ui, 24.0f * ui, Color{kText.r, kText.g, kText.b, a});
     }
 
     // Grau: con una moto de grau (la trilheira), el contador del wheelie (el actual grande, el último y el mejor).
@@ -2123,44 +2330,103 @@ void Game::DrawHUD()
         const float t = live ? grauTime : lastGrau;
         const unsigned char a = (unsigned char)(255.0f * (live ? 1.0f : mu::Clamp(grauShow, 0.0f, 1.0f)));
         std::snprintf(buf, sizeof(buf), "GRAU  %.1f s", t);
-        textCenter(font, buf, cx, (float)H * 0.2f, live ? 58.0f : 46.0f, Color{252, 214, 40, a});
+        textCenter(font, buf, cx, (float)H * 0.2f, (live ? 58.0f : 46.0f) * ui, Color{252, 214, 40, a});
         std::snprintf(buf, sizeof(buf), "mejor %.1f s", bestGrau);
-        if (bestGrau > 0.0f) textCenter(font, buf, cx, (float)H * 0.2f + 62.0f, 22.0f, Color{kTextDim.r, kTextDim.g, kTextDim.b, a});
+        if (bestGrau > 0.0f) textCenter(font, buf, cx, (float)H * 0.2f + 62.0f * ui, 22.0f * ui, Color{kTextDim.r, kTextDim.g, kTextDim.b, a});
     }
 
     // Caída: el título enseguida. El jugador no reaparece solo (mira la caída): de a poco aparece el
     // cartel de la R. El bot y las pruebas reaparecen solos (AutoRespawnAfter) y queda la línea de siempre.
     if (bike.crashed) {
-        textCenter(font, "Caída", cx, (float)H * 0.36f, 64.0f, kText);
+        textCenter(font, "Caída", cx, (float)H * 0.36f, 64.0f * ui, kText);
         if (AutoRespawnAfter(opt) >= 0.0f) {
-            textCenter(font, "R / Y para reaparecer", cx, (float)H * 0.36f + 70.0f, 24.0f, kTextDim);
+            textCenter(font, "R / Y para reaparecer", cx, (float)H * 0.36f + 70.0f * ui, 24.0f * ui, kTextDim);
         } else if (bike.crashedTime > 0.8f) {
             const float fade = mu::Clamp((bike.crashedTime - 0.8f) * 2.5f, 0.0f, 1.0f);
             auto alpha = [fade](Color c) { return Color{c.r, c.g, c.b, (unsigned char)(c.a * fade)}; };
             const char* hint = "Tocá R para reaparecer";
-            const char* pad = IsGamepadAvailable(0) ? "o Y en el joystick" : "";
-            const float size = 34.0f, y = (float)H * 0.36f + 84.0f;
-            const float w = MeasureTextEx(font, hint, size, 0.0f).x + 56.0f;
-            const float h = *pad ? 84.0f : 60.0f;
+            const char* pad = IsGamepadAvailable(0) ? "o Y en el joystick" : (FreeRide() ? "acá cerca, mirando para donde ibas" : "");
+            const float size = 34.0f * ui, y = (float)H * 0.36f + 84.0f * ui;
+            const float w = std::max(MeasureTextEx(font, hint, size, 0.0f).x, MeasureTextEx(font, pad, 20.0f * ui, 0.0f).x) + 56.0f * ui;
+            const float h = (*pad ? 84.0f : 60.0f) * ui;
             DrawRectangle((int)(cx - w * 0.5f), (int)y, (int)w, (int)h, alpha(kPanel));
-            DrawRectangle((int)(cx - 22.0f), (int)y, 44, 2, alpha(kAccent));
-            textCenter(font, hint, cx, y + 12.0f, size, alpha(kText));
-            if (*pad) textCenter(font, pad, cx, y + 52.0f, 20.0f, alpha(kTextDim));
+            DrawRectangle((int)(cx - 22.0f * ui), (int)y, (int)(44.0f * ui), (int)(2.0f * ui), alpha(kAccent));
+            textCenter(font, hint, cx, y + 12.0f * ui, size, alpha(kText));
+            if (*pad) textCenter(font, pad, cx, y + 52.0f * ui, 20.0f * ui, alpha(kTextDim));
         }
     }
-    if (paused) textCenter(font, "Pausa", cx, (float)H * 0.45f, 56.0f, kText);
+    if (paused) {
+        textCenter(font, "Pausa", cx, (float)H * 0.42f, 56.0f * ui, kText);
+        textCenter(font, "P para seguir", cx, (float)H * 0.42f + 62.0f * ui, 22.0f * ui, kTextDim);
+    }
 
-    // ------------------------------------------------------------ ayuda (abajo izquierda)
-    const char* help[] = {
-        "W / RT  gas      S / LT  freno (parado: marcha atrás)      Space / A  freno trasero (solo: derrape)",
-        "A D / stick  dirección    \xE2\x86\x91 \xE2\x86\x93 / stick  piloto adelante-atrás    \xE2\x86\x90 \xE2\x86\x92 / stick der.  cuerpo a los costados    mouse  cámara",
-        "Q E / LB RB  cambios    R / Y  reaparecer    C  cámara lateral    F1 vectores    F3 caja auto    Esc  menú y multijugador",
-        "F4 cámara lenta   F5 tuning.ini (Shift: mods)   F6 control de tracción   F7 efectos   F8 surcos físicos   F9 piloto   F11 pantalla completa   M sonido",
-    };
-    for (int i = 0; i < 4; ++i) text(font, help[i], 20.0f, (float)H - 104.0f + 22.0f * i, 18.0f, Color{230, 232, 236, 190});
-    DrawFPS(W - 100, 14);
-    text(font, MOTOSIM_VERSION, (float)W - 60.0f, (float)H - 22.0f, 16.0f, kTextDim);
+    DrawHelp(ui);
+    textRight(font, MOTOSIM_VERSION, (float)W - 12.0f * ui, (float)H - 22.0f * ui, 15.0f * ui, Color{kTextDim.r, kTextDim.g, kTextDim.b, 170});
     DrawSession();
+}
+
+// La ayuda de teclas (abajo a la izquierda): lo justo para manejar, en dos columnas. Todas las teclas están en
+// menú → Controles. Aparece los primeros segundos (y en pausa), siempre o nunca según Ajustes; H la muestra o
+// la esconde. Escondida queda una línea chica para acordarse.
+void Game::DrawHelp(float ui)
+{
+    const float H = (float)GetScreenHeight();
+    float a = HelpVisible() ? 1.0f : 0.0f;
+    if (a > 0.0f && helpPinned < 0 && helpMode == HelpMode::Start && !paused) a = mu::Clamp(helpTimer / 1.5f, 0.0f, 1.0f);   // se va de a poco
+    auto fadeTo = [](Color c, float k) { return Color{c.r, c.g, c.b, (unsigned char)((float)c.a * mu::Clamp(k, 0.0f, 1.0f))}; };
+    auto text = [&](const std::string& s, float x, float y, float size, Color c, float spacing = 0.0f) {
+        const float o = std::max(1.0f, size * 0.05f);
+        DrawTextEx(font, s.c_str(), {x + o, y + o}, size, spacing, Color{0, 0, 0, (unsigned char)(c.a * 0.5f)});
+        DrawTextEx(font, s.c_str(), {x, y}, size, spacing, c);
+    };
+    if (helpMode != HelpMode::Never && a < 1.0f && !paused && PlayerDriving())
+        text("H  ayuda de teclas", 18.0f * ui, H - 30.0f * ui, 15.0f * ui, fadeTo(Color{230, 232, 236, 150}, 1.0f - a));
+    if (a <= 0.0f) return;
+
+    struct Pair { std::string keys, action; };
+    const Pair left[] = {
+        {"W  /  RT", "gas"},
+        {"S  /  LT", "freno (parado: marcha atrás)"},
+        {"Espacio  /  A", "freno de atrás"},
+        {"A  D  /  stick", "doblar"},
+        {"Q  E  /  LB  RB", bike.engine.autoShift ? "cambios (la caja es automática)" : "cambios"},
+    };
+    const Pair right[] = {
+        {"\xE2\x86\x91  \xE2\x86\x93  /  stick", "cuerpo adelante y atrás"},
+        {"\xE2\x86\x90  \xE2\x86\x92  /  stick der.", "cuerpo a los costados"},
+        {"R  /  Y", FreeRide() ? "reaparecer acá cerca" : "reaparecer"},
+        {"Esc  /  Start", "menú: ajustes y controles"},
+        {"H", "esconder esta ayuda"},
+    };
+    const int rows = 5;
+    const float fs = 17.0f * ui, rowH = 22.0f * ui, pad = 14.0f * ui, gap = 12.0f * ui, colGap = 30.0f * ui;
+    auto colWidths = [&](const Pair* p, float& keyW, float& actW) {
+        keyW = actW = 0.0f;
+        for (int i = 0; i < rows; ++i) {
+            keyW = std::max(keyW, MeasureTextEx(font, p[i].keys.c_str(), fs, 0.0f).x);
+            actW = std::max(actW, MeasureTextEx(font, p[i].action.c_str(), fs, 0.0f).x);
+        }
+    };
+    float k1, a1, k2, a2;
+    colWidths(left, k1, a1);
+    colWidths(right, k2, a2);
+    const float panelW = pad * 2.0f + k1 + gap + a1 + colGap + k2 + gap + a2;
+    const float panelH = pad + 22.0f * ui + rowH * rows + pad * 0.6f;
+    const float x0 = 18.0f * ui, y0 = H - 18.0f * ui - panelH;
+    DrawRectangle((int)x0, (int)y0, (int)panelW, (int)panelH, fadeTo(kPanel, a));
+    DrawRectangle((int)x0, (int)y0, (int)(44.0f * ui), (int)(2.0f * ui), fadeTo(kAccent, a));
+    text("CONTROLES", x0 + pad, y0 + pad - 2.0f * ui, 13.0f * ui, fadeTo(kTextDim, a), 2.0f);
+    const std::string more = "todas las teclas: Esc, Controles";
+    text(more, x0 + panelW - pad - MeasureTextEx(font, more.c_str(), 14.0f * ui, 0.0f).x, y0 + pad - 3.0f * ui, 14.0f * ui, fadeTo(kTextDim, a));
+    auto column = [&](const Pair* p, float x, float keyW) {
+        for (int i = 0; i < rows; ++i) {
+            const float y = y0 + pad + 22.0f * ui + rowH * (float)i;
+            text(p[i].keys, x, y, fs, fadeTo(kText, a));
+            text(p[i].action, x + keyW + gap, y, fs, fadeTo(Color{200, 204, 212, 255}, a));
+        }
+    };
+    column(left, x0 + pad, k1);
+    column(right, x0 + pad + k1 + gap + a1 + colGap, k2);
 }
 
 // ======================================================================================= red
@@ -2168,6 +2434,7 @@ void Game::DrawSession()
 {
     if (!mp.Active()) return;
     const int W = GetScreenWidth();
+    const float u = mu::Clamp((float)GetScreenHeight() / 900.0f, 0.9f, 2.0f);   // escala, como el resto del HUD
     auto text = [&](const Font& f, const std::string& s, float x, float y, float size, Color c) { DrawTextEx(f, s.c_str(), {x, y}, size, 0.0f, c); };
     auto width = [&](const Font& f, const std::string& s, float size) { return MeasureTextEx(f, s.c_str(), size, 0.0f).x; };
 
@@ -2180,7 +2447,7 @@ void Game::DrawSession()
         const Vector3 wp = ToRl(head);
         const Vector3 toP = Vector3Subtract(wp, camera.cam.position), fwd = Vector3Subtract(camera.cam.target, camera.cam.position);
         if (Vector3DotProduct(toP, fwd) <= 0.0f) continue;
-        const float dist = Vector3Length(toP), size = mu::Clamp(26.0f - dist * 0.2f, 15.0f, 26.0f);
+        const float dist = Vector3Length(toP), size = mu::Clamp(26.0f - dist * 0.2f, 15.0f, 26.0f) * u;
         const Vector2 sp = GetWorldToScreen(wp, camera.cam);
         const std::string label = r.name.empty() ? std::string("...") : r.name;
         const float tw = width(font, label, size);
@@ -2192,36 +2459,36 @@ void Game::DrawSession()
     // Panel arriba a la derecha: código para invitar y jugadores.
     const bool host = mp.GetMode() == Multiplayer::Mode::Host;
     const auto roster = mp.Roster(playerName);
-    const float pw = 320.0f, px = (float)W - pw - 18.0f, py = 40.0f, x = px + 14.0f;
+    const float pw = 320.0f * u, px = (float)W - pw - 18.0f * u, py = 40.0f * u, x = px + 14.0f * u;
     const float extra = host ? 76.0f + 18.0f * (float)mp.OtherCodes().size() : (mp.Connected() ? 0.0f : 46.0f);
-    const float h = 44.0f + extra + 26.0f * (float)roster.size();
-    float y = py + 12.0f;
+    const float h = (44.0f + extra + 26.0f * (float)roster.size()) * u;
+    float y = py + 12.0f * u;
     DrawRectangle((int)px, (int)py, (int)pw, (int)h, kPanel);
-    DrawRectangle((int)px, (int)py, 44, 2, kAccent);
-    text(font, host ? "PARTIDA LAN · anfitrión" : (mp.Connected() ? "PARTIDA LAN · conectado" : "PARTIDA LAN · conectando"), x, y, 20.0f, kTextDim);
-    y += 30.0f;
+    DrawRectangle((int)px, (int)py, (int)(44.0f * u), (int)(2.0f * u), kAccent);
+    text(font, host ? "PARTIDA LAN · anfitrión" : (mp.Connected() ? "PARTIDA LAN · conectado" : "PARTIDA LAN · conectando"), x, y, 20.0f * u, kTextDim);
+    y += 30.0f * u;
     if (host) {
-        text(font, "Código para invitar (F10 lo copia)", x, y, 17.0f, kTextDim);
-        text(mono, mp.InviteCode(), x, y + 20.0f, 40.0f, kText);
-        y += 70.0f;
+        text(font, "Código para invitar (F10 lo copia)", x, y, 17.0f * u, kTextDim);
+        text(mono, mp.InviteCode(), x, y + 20.0f * u, 40.0f * u, kText);
+        y += 70.0f * u;
         for (const std::string& other : mp.OtherCodes()) {
-            text(font, "otra red: " + other, x, y, 16.0f, kTextDim);
-            y += 18.0f;
+            text(font, "otra red: " + other, x, y, 16.0f * u, kTextDim);
+            y += 18.0f * u;
         }
-        y += 6.0f;
+        y += 6.0f * u;
     } else if (!mp.Connected()) {
-        text(font, mp.Status(), x, y, 17.0f, kText);
-        text(mono, mp.InviteCode(), x, y + 20.0f, 22.0f, kTextDim);
-        y += 46.0f;
+        text(font, mp.Status(), x, y, 17.0f * u, kText);
+        text(mono, mp.InviteCode(), x, y + 20.0f * u, 22.0f * u, kTextDim);
+        y += 46.0f * u;
     }
     for (const Multiplayer::Entry& e : roster) {
-        DrawRectangle((int)x, (int)(y + 5.0f), 12, 12, Livery(e.id).plastic);
-        text(font, e.name + (e.ping < 0 ? "  (vos)" : ""), x + 22.0f, y, 20.0f, kText);
+        DrawRectangle((int)x, (int)(y + 5.0f * u), (int)(12.0f * u), (int)(12.0f * u), Livery(e.id).plastic);
+        text(font, e.name + (e.ping < 0 ? "  (vos)" : ""), x + 22.0f * u, y, 20.0f * u, kText);
         if (e.ping >= 0) {
             const std::string p = std::to_string(e.ping) + " ms";
-            text(mono, p, px + pw - 14.0f - width(mono, p, 18.0f), y + 2.0f, 18.0f, e.ping > 80 ? Color{255, 170, 90, 255} : kTextDim);
+            text(mono, p, px + pw - 14.0f * u - width(mono, p, 18.0f * u), y + 2.0f * u, 18.0f * u, e.ping > 80 ? Color{255, 170, 90, 255} : kTextDim);
         }
-        y += 26.0f;
+        y += 26.0f * u;
     }
 }
 
@@ -2415,64 +2682,137 @@ void Game::ChooseBike(const std::string& id)
 // ---------------------------------------------------------------------------------------- menú
 std::vector<Game::MenuItem> Game::MenuItems()
 {
+    // Cada opción lleva una clave para volver a marcarla al salir de su pantalla (BackToMain): los índices
+    // cambian con el menú (en red, anfitrión o invitado) y cuando se agregan opciones.
     std::vector<MenuItem> items;
+    const MenuItem settings{"Ajustes", "Imagen, sonido, lo que se ve en pantalla y la caja.",
+                            [this] { OpenMenu(Menu::Settings); }, "ajustes"};
+    const MenuItem controls{"Controles", "Todas las teclas y los botones del joystick.", [this] { OpenMenu(Menu::Controls); }, "controles"};
     if (!mp.Active()) {
-        items.push_back({raced ? "Seguir corriendo" : "Jugar solo", "Vos, la moto y la pista.", [this] { menu = Menu::None; }});
+        items.push_back({raced ? "Seguir corriendo" : "Jugar solo", FreeRide() ? "Vos, la moto y todo el mapa para andar libre." : "Vos, la moto y la pista.",
+                         [this] { menu = Menu::None; }, "jugar"});
         items.push_back({"Crear partida en red", "Tus amigos se suman con el código que te da el juego (misma red wifi).", [this] {
                              StartHost();
                              if (mp.Active()) OpenMenu(Menu::Lobby);
-                         }});
+                         }, "crear"});
         items.push_back({"Unirse a una partida", "Escribí el código que te pasó el que creó la partida.", [this] {
                              codeInput.clear();
                              OpenMenu(Menu::Join);
-                         }});
+                         }, "unirse"});
         items.push_back({"Mapa: " + current.name, "Dónde se corre (en red lo elige el que crea la partida).", [this] {
                              OpenMenu(Menu::Maps);
                              menuSel = std::max(0, CurrentMapIndex());
-                         }});
-        items.push_back({"Moto: " + bikeName, "Con cuál corrés: la de cada mapa o cualquiera, con sus números.",
-                         [this] { OpenBikeMenu(); }});
-        items.push_back({std::string("Pantalla completa: ") + (fullscreen ? "Sí" : "No"), "F11 o Alt+Enter en cualquier momento.",
-                         [this] { SetFullscreen(!fullscreen); }});
-        items.push_back({std::string("Sacudón de cámara: ") + (camera.shakeEnabled ? "Sí" : "No"), "La cámara se sacude al aterrizar y al chocar.",
-                         [this] {
-                             camera.shakeEnabled = !camera.shakeEnabled;
-                             SavePrefs();
-                         }});
-        items.push_back({std::string("Motion blur: ") + (motionBlur ? "Sí" : "No"), "Los bordes de la pantalla se desenfocan cuando vas rápido.",
-                         [this] {
-                             motionBlur = !motionBlur;
-                             SavePrefs();
-                         }});
+                         }, "mapa"});
+        items.push_back({"Moto: " + bikeName, "Con cuál corrés: la de cada mapa o cualquiera, con sus números.", [this] { OpenBikeMenu(); }, "moto"});
         items.push_back({"Nombre: " + playerName, "Cómo te ven los demás en la carrera.", [this] {
                              nameInput = playerName;
                              OpenMenu(Menu::Name);
-                         }});
+                         }, "nombre"});
+        items.push_back(settings);
+        items.push_back(controls);
     } else {
-        items.push_back({"Volver a la carrera", "", [this] { menu = Menu::None; }});
-        items.push_back({"Ver la partida", "Código para invitar y pilotos conectados.", [this] { OpenMenu(Menu::Lobby); }});
+        items.push_back({"Volver a la carrera", "", [this] { menu = Menu::None; }, "jugar"});
+        items.push_back({"Ver la partida", "Código para invitar y pilotos conectados.", [this] { OpenMenu(Menu::Lobby); }, "partida"});
         if (mp.GetMode() == Multiplayer::Mode::Host)
             items.push_back({"Mapa: " + current.name, "Cambiarlo lleva a todos al mapa nuevo.", [this] {
                                  OpenMenu(Menu::Maps);
                                  menuSel = std::max(0, CurrentMapIndex());
-                             }});
-        items.push_back({"Moto: " + bikeName, "Cada uno corre con la que quiere.",
-                         [this] { OpenBikeMenu(); }});
-        items.push_back({std::string("Pantalla completa: ") + (fullscreen ? "Sí" : "No"), "F11 o Alt+Enter en cualquier momento.",
-                         [this] { SetFullscreen(!fullscreen); }});
-        items.push_back({std::string("Sacudón de cámara: ") + (camera.shakeEnabled ? "Sí" : "No"), "La cámara se sacude al aterrizar y al chocar.",
-                         [this] {
-                             camera.shakeEnabled = !camera.shakeEnabled;
-                             SavePrefs();
-                         }});
-        items.push_back({std::string("Motion blur: ") + (motionBlur ? "Sí" : "No"), "Los bordes de la pantalla se desenfocan cuando vas rápido.",
-                         [this] {
-                             motionBlur = !motionBlur;
-                             SavePrefs();
-                         }});
-        items.push_back({"Salir de la partida", "Seguís corriendo solo.", [this] { LeaveSession(); }});
+                             }, "mapa"});
+        items.push_back({"Moto: " + bikeName, "Cada uno corre con la que quiere.", [this] { OpenBikeMenu(); }, "moto"});
+        items.push_back(settings);
+        items.push_back(controls);
+        items.push_back({"Salir de la partida", "Seguís corriendo solo.", [this] { LeaveSession(); }, "dejar"});
     }
-    items.push_back({"Salir del juego", "", [this] { quitRequested = true; }});
+    items.push_back({"Salir del juego", "", [this] { quitRequested = true; }, "salir"});
+    return items;
+}
+
+// Ajustes: lo que antes estaba suelto en el menú (pantalla completa, sacudón, motion blur) y lo que el jugador
+// puede querer cambiar (volumen, ayuda, datos técnicos, caja, tracción). Todo se guarda al cambiarlo.
+std::vector<Game::Setting> Game::SettingsItems()
+{
+    std::vector<Setting> items;
+    // Sí / no: → prende, ← apaga, Enter o click cambia.
+    auto toggle = [&](const char* group, const char* label, const std::string& hint, bool on, std::function<void()> flip) {
+        Setting s;
+        s.group = group;
+        s.label = label;
+        s.hint = hint;
+        s.kind = Setting::Kind::Toggle;
+        s.on = on;
+        s.value = on ? "Sí" : "No";
+        s.change = [on, flip](int d) {
+            if (d == 0 || (d > 0) != on) flip();
+        };
+        items.push_back(s);
+    };
+    // Una de varias: → la siguiente, ← la anterior (dan la vuelta).
+    auto choice = [&](const char* group, const char* label, const std::string& hint, const std::string& value, std::function<void(int)> step) {
+        Setting s;
+        s.group = group;
+        s.label = label;
+        s.hint = hint;
+        s.kind = Setting::Kind::Choice;
+        s.value = value;
+        s.change = [step](int d) { step(d == 0 ? 1 : d); };
+        items.push_back(s);
+    };
+
+    toggle("IMAGEN", "Pantalla completa", "Sin bordes, del tamaño del monitor. También con F11 o Alt+Enter.", fullscreen,
+           [this] { SetFullscreen(!fullscreen); });
+    toggle("IMAGEN", "Motion blur", "Los bordes de la pantalla se desenfocan cuando vas rápido.", motionBlur, [this] {
+        motionBlur = !motionBlur;
+        SavePrefs();
+    });
+    toggle("IMAGEN", "Sacudón de cámara", "La cámara se sacude al aterrizar y al chocar, y vibra a mucha velocidad.", camera.shakeEnabled, [this] {
+        camera.shakeEnabled = !camera.shakeEnabled;
+        SavePrefs();
+    });
+    {
+        Setting s;
+        s.group = "SONIDO";
+        s.label = "Volumen";
+        s.kind = Setting::Kind::Level;
+        s.level = volume;
+        s.levels = 10;
+        s.dim = muted;
+        s.value = muted ? std::string("Apagado") : std::to_string(volume * 10) + "%";
+        s.hint = muted ? "Apagado: Enter o M lo prende." : "El motor, los petardeos y las cubiertas. M lo apaga y lo prende.";
+        s.change = [this](int d) {
+            if (d == 0) muted = !muted;              // Enter: prende o apaga
+            else {
+                volume = std::clamp(volume + d, 0, 10);
+                muted = false;
+            }
+            ApplySound();
+            SavePrefs();
+        };
+        items.push_back(s);
+    }
+    const char* helpNames[] = {"Al empezar", "Siempre", "Nunca"};
+    const char* helpHints[] = {"Abajo a la izquierda los primeros segundos y en pausa. H la muestra o la esconde.",
+                               "Siempre abajo a la izquierda. H la esconde.", "No aparece sola. H la muestra."};
+    choice("EN PANTALLA", "Ayuda de teclas", helpHints[(int)helpMode], helpNames[(int)helpMode], [this](int d) {
+        helpMode = (HelpMode)(((int)helpMode + d + 3) % 3);
+        helpPinned = -1;
+        SavePrefs();
+    });
+    toggle("EN PANTALLA", "Datos técnicos", "Arriba a la izquierda: velocidad, motor, suspensión, agarre y cuadros por segundo. También con T.",
+           techData, [this] {
+               techData = !techData;
+               SavePrefs();
+           });
+    choice("MANEJO", "Caja", prefAutoShift ? "Pasa los cambios sola. También con F3 (X en el joystick)." : "Los cambios con Q y E (LB y RB). También con F3 (X).",
+           prefAutoShift ? "Automática" : "Manual", [this](int) {
+               prefAutoShift = !prefAutoShift;
+               if (PlayerDriving()) bike.engine.autoShift = prefAutoShift;
+               SavePrefs();
+           });
+    toggle("MANEJO", "Control de tracción", "Afloja el gas si la rueda de atrás patina de más; sin él, derrapa más. También con F6.", prefTraction, [this] {
+        prefTraction = !prefTraction;
+        if (PlayerDriving()) bike.tractionControl = prefTraction;
+        SavePrefs();
+    });
     return items;
 }
 
@@ -2483,6 +2823,14 @@ void Game::OpenMenu(Menu m)
     menuTime = 0.0f;
     menuSelY = -1.0f;
     while (GetCharPressed() > 0) {}                  // que no se cuelen teclas de la pantalla anterior
+}
+
+void Game::BackToMain(const std::string& key)
+{
+    OpenMenu(Menu::Main);
+    const std::vector<MenuItem> items = MenuItems();
+    for (size_t k = 0; k < items.size(); ++k)
+        if (items[k].key == key) menuSel = (int)k;
 }
 
 void Game::LeaveSession()
@@ -2497,16 +2845,52 @@ void Game::LeaveSession()
 void Game::HandleMenuKeys()
 {
     const bool pad = IsGamepadAvailable(0);
-    const bool up = IsKeyPressed(KEY_UP) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP));
-    const bool down = IsKeyPressed(KEY_DOWN) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN));
+    // El stick izquierdo hace de cruz: un paso al moverlo y, si se lo mantiene, uno cada 0.12 s desde los 0.4 s.
+    // Las flechas también repiten al mantenerlas.
+    auto stick = [&](Stick& st, int axis) {
+        const float v = pad ? GetGamepadAxisMovement(0, axis) : 0.0f;
+        const int d = v > 0.6f ? 1 : (v < -0.6f ? -1 : 0);
+        if (d != st.dir) {
+            st.dir = d;
+            st.held = 0.0f;
+            return d;
+        }
+        if (d == 0) return 0;
+        st.held += GetFrameTime();
+        if (st.held < 0.4f) return 0;
+        st.held -= 0.12f;
+        return d;
+    };
+    const int sy = stick(stickY, GAMEPAD_AXIS_LEFT_Y), sx = stick(stickX, GAMEPAD_AXIS_LEFT_X);
+    auto key = [](int k) { return IsKeyPressed(k) || IsKeyPressedRepeat(k); };
+    const bool up = key(KEY_UP) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_UP)) || sy < 0;
+    const bool down = key(KEY_DOWN) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN)) || sy > 0;
+    const bool left = key(KEY_LEFT) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT)) || sx < 0;
+    const bool right = key(KEY_RIGHT) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT)) || sx > 0;
     const bool altDown = IsKeyDown(KEY_LEFT_ALT) || IsKeyDown(KEY_RIGHT_ALT);
     const bool enter = ((IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_KP_ENTER)) && !altDown) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
-    const bool back = IsKeyPressed(KEY_ESCAPE) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT));
+    // Esc, B, Start o el botón derecho del mouse (sin teclado no había cómo salir de Ajustes o Controles): vuelve
+    // (en el principal, a la carrera).
+    const bool back = IsKeyPressed(KEY_ESCAPE) || IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) ||
+                      (pad && (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT) || IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_RIGHT)));
     const bool ctrl = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
     const bool erase = IsKeyPressed(KEY_BACKSPACE) || IsKeyPressedRepeat(KEY_BACKSPACE);
     auto closeMenu = [&] {
         menu = Menu::None;
         raced = true;
+    };
+    // Mouse: pasar por encima marca, click acepta (sobre la marcada).
+    auto mousePick = [&](int n) {
+        const Vector2 mouse = GetMousePosition();
+        const bool moved = Vector2Distance(mouse, lastMouse) > 0.5f;
+        lastMouse = mouse;
+        bool clicked = false;
+        for (int k = 0; k < (int)menuRects.size() && k < n; ++k)
+            if (CheckCollisionPointRec(mouse, menuRects[k])) {
+                if (moved) menuSel = k;
+                clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && menuSel == k;
+            }
+        return clicked;
     };
 
     switch (menu) {
@@ -2522,16 +2906,7 @@ void Game::HandleMenuKeys()
                 if (menu == Menu::None) raced = true;
                 return;
             }
-        // Mouse: pasar por encima elige, click acepta.
-        const Vector2 mouse = GetMousePosition();
-        const bool moved = Vector2Distance(mouse, lastMouse) > 0.5f;
-        lastMouse = mouse;
-        bool clicked = false;
-        for (int k = 0; k < (int)menuRects.size() && k < n; ++k)
-            if (CheckCollisionPointRec(mouse, menuRects[k])) {
-                if (moved) menuSel = k;
-                clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && menuSel == k;
-            }
+        const bool clicked = mousePick(n);
         if (enter || IsKeyPressed(KEY_SPACE) || clicked) {
             items[menuSel % n].action();
             if (menu == Menu::None) raced = true;
@@ -2540,6 +2915,38 @@ void Game::HandleMenuKeys()
         }
         break;
     }
+    case Menu::Settings: {
+        const std::vector<Setting> items = SettingsItems();
+        const int n = (int)items.size();
+        if (up || IsKeyPressed(KEY_W)) menuSel = (menuSel + n - 1) % n;
+        if (down || IsKeyPressed(KEY_S)) menuSel = (menuSel + 1) % n;
+        const bool clicked = mousePick(n);
+        const Setting& s = items[menuSel % n];
+        const Vector2 mouse = GetMousePosition();
+        if (left || IsKeyPressed(KEY_A)) {
+            s.change(-1);
+        } else if (right || IsKeyPressed(KEY_D)) {
+            s.change(1);
+        } else if (enter || IsKeyPressed(KEY_SPACE)) {
+            s.change(0);
+        } else if (clicked && s.kind == Setting::Kind::Level && settingArrows.size() == 3) {
+            // El nivel: ◀ baja, ▶ sube, sobre la barra va a ese punto; en el resto de la fila no hace nada.
+            if (CheckCollisionPointRec(mouse, settingArrows[0])) s.change(-1);
+            else if (CheckCollisionPointRec(mouse, settingArrows[1])) s.change(1);
+            else if (CheckCollisionPointRec(mouse, settingArrows[2]) && settingArrows[2].width > 0.0f) {
+                const int target = (int)std::lround((mouse.x - settingArrows[2].x) / settingArrows[2].width * (float)s.levels);
+                if (std::clamp(target, 0, s.levels) != s.level) s.change(std::clamp(target, 0, s.levels) - s.level);
+            }
+        } else if (clicked) {
+            s.change(0);
+        } else if (back) {
+            BackToMain("ajustes");
+        }
+        break;
+    }
+    case Menu::Controls:
+        if (back || enter) BackToMain("controles");
+        break;
     case Menu::Join: {
         // Letras y números (el guion lo pone solo), Backspace, Ctrl+V pega.
         auto add = [&](int c) {
@@ -2554,7 +2961,7 @@ void Game::HandleMenuKeys()
             StartJoin(codeInput);
             if (mp.Active()) OpenMenu(Menu::Lobby);
         } else if (back) {
-            OpenMenu(Menu::Main);
+            BackToMain("unirse");
         }
         break;
     }
@@ -2570,71 +2977,52 @@ void Game::HandleMenuKeys()
             nameInput.resize(n);
         }
         if (enter) {
-            if (!nameInput.empty()) playerName = nameInput;
-            OpenMenu(Menu::Main);
-            menuSel = 6;
+            if (!nameInput.empty()) {
+                playerName = nameInput;
+                if (opt.name.empty()) {                  // se recuerda (con --name, sólo por esta vez)
+                    savedName = playerName;
+                    SavePrefs();
+                }
+            }
+            BackToMain("nombre");
         } else if (back) {
-            OpenMenu(Menu::Main);
-            menuSel = 6;
+            BackToMain("nombre");
         }
         break;
     }
     case Menu::Bikes: {
         const int n = std::max(1, (int)mods.Bikes().size());
-        const int backTo = !mp.Active() ? 4 : (mp.GetMode() == Multiplayer::Mode::Host ? 3 : 2);   // "Moto:" en el menú
         if (up || IsKeyPressed(KEY_W)) menuSel = (menuSel + n - 1) % n;
         if (down || IsKeyPressed(KEY_S)) menuSel = (menuSel + 1) % n;
-        const Vector2 mouse = GetMousePosition();
-        const bool moved = Vector2Distance(mouse, lastMouse) > 0.5f;
-        lastMouse = mouse;
-        bool clicked = false;
-        for (int k = 0; k < (int)menuRects.size() && k < n; ++k)
-            if (CheckCollisionPointRec(mouse, menuRects[k])) {
-                if (moved) menuSel = k;
-                clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && menuSel == k;
-            }
+        const bool clicked = mousePick(n);
         const float wheel = GetMouseWheelMove();
         if (wheel != 0.0f) menuSel = std::clamp(menuSel - (wheel > 0.0f ? 1 : -1), 0, n - 1);
         if (enter || IsKeyPressed(KEY_SPACE) || clicked) {
             // Elegir la del mapa vuelve a "cada mapa con su moto".
             const std::string id = mods.Bikes().empty() ? std::string() : mods.Bikes()[menuSel % n].id;
-            OpenMenu(Menu::Main);
-            menuSel = backTo;
             ChooseBike(id == current.bike ? std::string() : id);
+            BackToMain("moto");
         } else if (back) {
-            OpenMenu(Menu::Main);
-            menuSel = backTo;
+            BackToMain("moto");
         }
         break;
     }
     case Menu::Maps: {
         const int n = std::max(1, (int)mods.Maps().size());
-        const bool left = IsKeyPressed(KEY_LEFT) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT));
-        const bool right = IsKeyPressed(KEY_RIGHT) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT));
         if (up || left || IsKeyPressed(KEY_W) || IsKeyPressed(KEY_A)) menuSel = (menuSel + n - 1) % n;
         if (down || right || IsKeyPressed(KEY_S) || IsKeyPressed(KEY_D)) menuSel = (menuSel + 1) % n;
-        const Vector2 mouse = GetMousePosition();
-        const bool moved = Vector2Distance(mouse, lastMouse) > 0.5f;
-        lastMouse = mouse;
-        bool clicked = false;
-        for (int k = 0; k < (int)menuRects.size() && k < n; ++k)
-            if (CheckCollisionPointRec(mouse, menuRects[k])) {
-                if (moved) menuSel = k;
-                clicked = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && menuSel == k;
-            }
+        const bool clicked = mousePick(n);
         const float wheel = GetMouseWheelMove();
         if (wheel != 0.0f) menuSel = std::clamp(menuSel - (wheel > 0.0f ? 1 : -1), 0, n - 1);
         if ((enter || IsKeyPressed(KEY_SPACE) || clicked) && !mods.Maps().empty()) {
             const int chosen = menuSel % n;
-            OpenMenu(Menu::Main);
-            menuSel = mp.Active() ? 2 : 3;
+            BackToMain("mapa");
             if (chosen != CurrentMapIndex()) {
                 mapRequested = chosen;
                 mapLoadIn = 2;                           // (LoadMap le avisa a la partida)
             }
         } else if (back) {
-            OpenMenu(Menu::Main);
-            menuSel = mp.Active() ? 2 : 3;
+            BackToMain("mapa");
         }
         break;
     }
@@ -2651,7 +3039,7 @@ void Game::HandleMenuKeys()
                 OpenMenu(mp.Active() ? Menu::Lobby : Menu::Join);
             }
         } else if (back) {
-            OpenMenu(Menu::Main);
+            BackToMain(mp.Active() ? "partida" : "unirse");
         }
         break;
     case Menu::None: break;
@@ -2768,7 +3156,7 @@ void Game::DrawMenu()
                      alpha(kTextDim, fade * appear));
             }
         }
-        footer("\xE2\x86\x91 \xE2\x86\x93  elegir      Enter  aceptar      Esc  volver      (joystick: cruz, A y B)");
+        footer("\xE2\x86\x91 \xE2\x86\x93  elegir      Enter  aceptar      Esc  volver      (joystick: stick o cruz, A y B)");
         break;
     }
     case Menu::Join: {
@@ -2992,6 +3380,175 @@ void Game::DrawMenu()
                  H - 92.0f * scale, 18.0f * scale, alpha(Color{255, 120, 100, 255}, fade));
         }
         footer("\xE2\x86\x91 \xE2\x86\x93  elegir      Enter  correr ahí      Esc  volver");
+        break;
+    }
+    case Menu::Settings: {
+        // Filas agrupadas (IMAGEN, SONIDO...) con el valor a la derecha: llave para sí / no, ◀ opción ▶, y el
+        // volumen en una barra. Debajo del título, lo que hace la marcada (no hay un subtítulo fijo: así entra).
+        const std::vector<Setting> items = SettingsItems();
+        const int n = (int)items.size();
+        menuSel = std::clamp(menuSel, 0, n - 1);
+        y = std::min(y, H * 0.31f);
+        text(font, "Ajustes", x, y - 24.0f * scale, 44.0f * scale, alpha(kText, fade));
+        text(font, items[menuSel].hint, x, y + 34.0f * scale, 21.0f * scale, alpha(kTextDim, fade));
+        int groups = 0;
+        for (int k = 0; k < n; ++k) groups += k == 0 || items[k].group != items[k - 1].group ? 1 : 0;
+        const float top = y + 76.0f * scale, headH = 28.0f * scale, gapH = 6.0f * scale;
+        const float rowH = std::min(46.0f * scale, (H - 100.0f * scale - top - (float)groups * headH - (float)(groups - 1) * gapH) / (float)n);
+        const float rowW = std::min(600.0f * scale, W * 0.46f);
+        std::vector<float> rowY((size_t)n);
+        float ry = top;
+        for (int k = 0; k < n; ++k) {
+            if (k == 0 || items[k].group != items[k - 1].group) ry += (k ? gapH : 0.0f) + headH;
+            rowY[(size_t)k] = ry;
+            ry += rowH;
+        }
+        const float targetY = rowY[(size_t)menuSel];
+        menuSelY = menuSelY < 0.0f ? targetY : menuSelY + (targetY - menuSelY) * (1.0f - std::exp(-18.0f * dt));
+        DrawRectangleRounded({x - 22.0f * scale, menuSelY + 2.0f * scale, rowW + 22.0f * scale, rowH - 4.0f * scale}, 0.4f, 8,
+                             alpha(Color{255, 255, 255, 24}, fade));
+        DrawRectangle((int)(x - 22.0f * scale), (int)(menuSelY + 8.0f * scale), (int)(5.0f * scale), (int)(rowH - 16.0f * scale), alpha(kAccent, fade));
+        // Triángulos (◀ ▶): la fuente no los trae.
+        auto arrowTri = [&](float cx, float cy, float r, int dir, Color c) {
+            if (dir > 0) DrawTriangle({cx - 0.6f * r, cy - r}, {cx - 0.6f * r, cy + r}, {cx + 0.8f * r, cy}, c);
+            else DrawTriangle({cx + 0.6f * r, cy - r}, {cx - 0.8f * r, cy}, {cx + 0.6f * r, cy + r}, c);
+        };
+        menuRects.clear();
+        settingArrows.assign(3, Rectangle{0.0f, 0.0f, 0.0f, 0.0f});
+        const float right = x + rowW - 14.0f * scale;    // donde terminan los valores
+        for (int k = 0; k < n; ++k) {
+            const Setting& s = items[(size_t)k];
+            const bool sel = k == menuSel;
+            const float a = mu::Smoothstep(0.04f * k, 0.04f * k + 0.3f, menuTime) * fade;
+            const float cy = rowY[(size_t)k] + rowH * 0.5f;
+            if (k == 0 || s.group != items[(size_t)k - 1].group)
+                text(font, s.group, x, rowY[(size_t)k] - headH + 7.0f * scale, 14.0f * scale, alpha(kAccent, a), 2.0f);
+            const float size = std::min(rowH * 0.58f, 26.0f * scale), vs = size * 0.88f;
+            text(font, s.label, x + (sel ? 10.0f * scale : 0.0f), cy - size * 0.56f, size, alpha(sel ? kText : Color{210, 214, 222, 170}, a));
+            const Color valueColor = sel ? kText : Color{210, 214, 222, 200};
+            const Color arrowColor = sel ? kAccent : Color{255, 255, 255, 70};
+            switch (s.kind) {
+            case Setting::Kind::Toggle: {
+                // Llave: prendida, del color del juego con la bolita a la derecha; apagada, gris a la izquierda.
+                const float pw = 44.0f * scale, ph = 22.0f * scale, px = right - pw, py = cy - ph * 0.5f;
+                DrawRectangleRounded({px, py, pw, ph}, 1.0f, 12, alpha(s.on ? kAccent : Color{255, 255, 255, 46}, a));
+                DrawCircleV({s.on ? px + pw - ph * 0.5f : px + ph * 0.5f, cy}, ph * 0.36f, alpha(s.on ? kText : Color{190, 194, 200, 255}, a));
+                text(font, s.value, px - 12.0f * scale - width(font, s.value, vs), cy - vs * 0.56f, vs, alpha(valueColor, a));
+                break;
+            }
+            case Setting::Kind::Choice: {
+                const float tri = 6.0f * scale, vw = width(font, s.value, vs);
+                arrowTri(right - tri, cy, tri, 1, alpha(arrowColor, a));
+                text(font, s.value, right - 2.0f * tri - 10.0f * scale - vw, cy - vs * 0.56f, vs, alpha(valueColor, a));
+                arrowTri(right - 2.0f * tri - 20.0f * scale - vw - tri, cy, tri, -1, alpha(arrowColor, a));
+                break;
+            }
+            case Setting::Kind::Level: {
+                // ◀ ▮▮▮▮▮▮▮▮▯▯ ▶  80%   (apagado: la barra gris y "Apagado")
+                const float tri = 6.0f * scale, valueW = width(font, "Apagado", vs);
+                text(font, s.value, right - width(font, s.value, vs), cy - vs * 0.56f, vs, alpha(s.dim ? kTextDim : valueColor, a));
+                const float plusX = right - valueW - 16.0f * scale - tri;
+                const float barR = plusX - tri - 12.0f * scale, barW = 150.0f * scale, barL = barR - barW, segH = 12.0f * scale;
+                const float minusX = barL - 12.0f * scale - tri;
+                arrowTri(plusX, cy, tri, 1, alpha(arrowColor, a));
+                arrowTri(minusX, cy, tri, -1, alpha(arrowColor, a));
+                for (int i = 0; i < s.levels; ++i) {
+                    const float sw = barW / (float)s.levels;
+                    const bool full = i < s.level;
+                    const Color c = !full ? Color{255, 255, 255, 36} : (s.dim ? Color{150, 154, 160, 255} : kAccent);
+                    DrawRectangle((int)(barL + sw * (float)i), (int)(cy - segH * 0.5f), (int)(sw - 3.0f * scale), (int)segH, alpha(c, a));
+                }
+                const float hit = rowH * 0.5f;
+                settingArrows[0] = {minusX - hit * 0.7f, cy - hit, hit * 1.4f, hit * 2.0f};
+                settingArrows[1] = {plusX - hit * 0.7f, cy - hit, hit * 1.4f, hit * 2.0f};
+                settingArrows[2] = {barL, cy - hit, barW, hit * 2.0f};
+                break;
+            }
+            }
+            menuRects.push_back({x - 30.0f, rowY[(size_t)k], rowW + 38.0f, rowH});
+        }
+        footer("\xE2\x86\x91 \xE2\x86\x93  elegir      \xE2\x86\x90 \xE2\x86\x92  cambiar      Enter  cambiar      Esc  volver      (se guardan solos)");
+        break;
+    }
+    case Menu::Controls: {
+        // Tres tablas (acción, tecla, botón del joystick) y lo de probar en un párrafo, sobre un panel oscuro (pasa
+        // por delante de la moto del fondo).
+        y = std::min(y, H * 0.31f);
+        text(font, "Controles", x, y - 24.0f * scale, 44.0f * scale, alpha(kText, fade));
+        text(font, IsGamepadAvailable(0) ? "Teclado y joystick (hay uno conectado)." : "Teclado y joystick (los botones sirven con cualquier joystick de Xbox o parecido).",
+             x, y + 34.0f * scale, 21.0f * scale, alpha(kTextDim, fade));
+        struct Row { const char *action, *keys, *pad; };
+        static const Row driving[] = {
+            {"Acelerar", "W", "RT"},
+            {"Frenar (parado: marcha atrás)", "S", "LT"},
+            {"Freno de atrás, derrape", "Espacio", "A"},
+            {"Doblar", "A  D", "stick izq."},
+            {"Cambios", "Q  E", "LB  RB"},
+            {"Caja automática o manual", "F3", "X"},
+        };
+        static const Row rider[] = {
+            {"Cuerpo adelante y atrás", "\xE2\x86\x91  \xE2\x86\x93", "stick izq."},
+            {"Cuerpo a los costados", "\xE2\x86\x90  \xE2\x86\x92", "stick der."},
+            {"Reaparecer", "R", "Y"},
+            {"Volver a la largada", "Retroceso", "Back"},
+        };
+        static const Row game[] = {
+            {"Menú, ajustes y controles", "Esc", "Start"},
+            {"Pausa", "P", ""},
+            {"Mirar alrededor (arrastrando)", "mouse", ""},
+            {"Acercar la cámara", "rueda", ""},
+            {"Cámara de costado", "C", "clic stick der."},
+            {"Ayuda de teclas", "H", ""},
+            {"Datos técnicos", "T", ""},
+            {"Sonido", "M", ""},
+            {"Pantalla completa (o Alt+Enter)", "F11", ""},
+            {"Copiar el código de la partida", "F10", ""},
+        };
+        const float fs = 18.0f * scale, rh = 25.0f * scale, colA = 236.0f * scale, colK = 112.0f * scale, tableW = colA + colK + 118.0f * scale;
+        auto table = [&](float tx, float ty, const char* title, const Row* rows, int count) {
+            const float a = mu::Smoothstep(0.1f, 0.4f, menuTime) * fade;
+            text(font, title, tx, ty, 14.0f * scale, alpha(kAccent, a), 2.0f);
+            text(font, "TECLADO", tx + colA, ty, 13.0f * scale, alpha(kTextDim, a), 1.5f);
+            text(font, "JOYSTICK", tx + colA + colK, ty, 13.0f * scale, alpha(kTextDim, a), 1.5f);
+            ty += 24.0f * scale;
+            for (int i = 0; i < count; ++i) {
+                if (i % 2 == 0) DrawRectangle((int)(tx - 8.0f * scale), (int)(ty - 2.0f * scale), (int)(tableW + 8.0f * scale), (int)rh, alpha(Color{255, 255, 255, 10}, a));
+                text(font, rows[i].action, tx, ty + 1.0f * scale, fs, alpha(Color{214, 218, 224, 255}, a));
+                text(font, rows[i].keys, tx + colA, ty + 1.0f * scale, fs, alpha(kText, a));
+                text(font, rows[i].pad, tx + colA + colK, ty + 1.0f * scale, fs, alpha(kTextDim, a));
+                ty += rh;
+            }
+            return ty;
+        };
+        // Para probar (lo de la física y el tuning): en líneas que entran en el ancho de las dos tablas.
+        static const char* tools[] = {"F1 vectores físicos", "F2 esconder todo el HUD", "F4 cámara lenta", "F5 releer tuning.ini (Shift+F5: los mods)",
+                                      "F6 control de tracción", "F7 efectos de imagen", "F8 surcos", "F9 piloto modelo o generado",
+                                      "[ ]  - =  0  centro de masa"};
+        const float gapX = 44.0f * scale, maxW = 2.0f * tableW + gapX, ts = 17.0f * scale;
+        std::vector<std::string> toolLines(1);
+        for (const char* t : tools) {
+            const std::string next = toolLines.back().empty() ? std::string(t) : toolLines.back() + "   \xC2\xB7   " + t;
+            if (!toolLines.back().empty() && width(font, next, ts) > maxW) toolLines.push_back(t);
+            else toolLines.back() = next;
+        }
+        const int nDriving = (int)(sizeof(driving) / sizeof(driving[0])), nRider = (int)(sizeof(rider) / sizeof(rider[0]));
+        const int nGame = (int)(sizeof(game) / sizeof(game[0]));
+        const float top = y + 84.0f * scale;
+        const float tablesH = std::max(48.0f * scale + 16.0f * scale + (float)(nDriving + nRider) * rh, 24.0f * scale + (float)nGame * rh);
+        const float panelH = tablesH + 18.0f * scale + 24.0f * scale + 23.0f * scale * (float)toolLines.size() + 26.0f * scale;
+        DrawRectangleRounded({x - 24.0f * scale, top - 16.0f * scale, maxW + 48.0f * scale, panelH}, 0.04f, 6,
+                             alpha(Color{10, 12, 16, 200}, fade));
+        float leftY = table(x, top, "MANEJO", driving, nDriving);
+        leftY = table(x, leftY + 16.0f * scale, "PILOTO", rider, nRider);
+        const float rightY = table(x + tableW + gapX, top, "JUEGO", game, nGame);
+        float py = std::max(leftY, rightY) + 18.0f * scale;
+        text(font, "PARA PROBAR", x, py, 14.0f * scale, alpha(kAccent, fade), 2.0f);
+        py += 24.0f * scale;
+        for (const std::string& l : toolLines) {
+            text(font, l, x, py, ts, alpha(kTextDim, fade));
+            py += 23.0f * scale;
+        }
+        footer("Esc  volver      (joystick: B)");
         break;
     }
     case Menu::None: break;

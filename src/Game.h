@@ -43,6 +43,7 @@ struct GameOptions {
     // reaparece con R y el bot, las pruebas y sin ventana, solos a los 3 s (las vueltas y las regresiones lo usan).
     float respawnAfter = 3.0f;
     bool respawnAfterSet = false;
+    bool respawnHere = false;        // --respawn-here: en un mapa libre las pruebas también reaparecen donde quedaron (como el jugador con R)
     float wheelLogFrom = -1.0f, wheelLogTo = -1.0f;   // --wheel-log T0 T1
     float spawnS = -1.0f;            // distancia sobre la pista donde aparecer
     int width = 1600, height = 900;
@@ -61,7 +62,8 @@ struct GameOptions {
     int port = 27015;                // --port: puerto UDP del anfitrión
     float netLag = 0.0f;             // --net-lag MS: demora lo que llega de la red (pruebas: como por internet)
     float netJitter = 0.0f;          // --net-jitter MS: más una demora al azar de hasta MS (llega en tandas)
-    std::string menuScreen;          // --menu join|name|lobby|maps: abre esa pantalla (pruebas)
+    std::string menuScreen;          // --menu join|name|lobby|maps|bikes|ajustes|controles|principal|no: abre esa pantalla (no: ninguna, como "Jugar solo")
+    bool techData = false;           // --datos: arranca con el panel de datos técnicos (T), sin tocar preferencias.ini
     std::string map;                 // --map motocross|favela|mod/mapa: mapa con que arranca (id, archivo o nombre)
     std::string bike;                // --bike mod/moto: corre con esa moto en cualquier mapa (si no, la del mapa o la elegida en el menú)
     int fullscreen = -1;             // --fullscreen / --windowed (-1: lo que se eligió la última vez)
@@ -101,6 +103,11 @@ private:
     int CurrentMapIndex() const { return mods.FindMap(current.id); }
     void Respawn(float s);
     void RespawnNearest();
+    // Mapas libres (pista guía, FreeRide): el jugador reaparece donde quedó, en el suelo firme más cercano y
+    // mirando para donde iba (la guía puede estar a 100 m). El bot y las pruebas siguen con RespawnNearest.
+    void RespawnHere();
+    bool FreeRide() const { return current.roadStyle == "guide"; }   // sin vueltas: no hay cronómetro
+    JPH::Vec3 crashDir = JPH::Vec3::sAxisZ();       // para dónde iba al caerse (horizontal)
     void UpdateLap();
     void EmitEffects();              // partículas, huellas y sacudón según el estado de las ruedas
     // Llamarada y estampido en la salida del escape de una moto (owner 0 = la propia, 1 + id = la
@@ -122,6 +129,8 @@ private:
     // La que se guarda en preferencias.ini: la elegida en el menú. --bike cambia chosenBike sólo por esa vez
     // (si se guardaba, la moto de una prueba quedaba para todos los mapas en las siguientes partidas).
     std::string savedBike;
+    std::string savedName;                          // el nombre elegido en el menú (preferencias.ini; --name no lo pisa)
+    float mouseIdle = 0.0f;                         // s sin mover el mouse corriendo (el cursor se esconde)
     std::string baseTuningPath;                     // dónde se encontró tuning.ini
     struct BikeStats {
         float hp, kg, topKmh, zeroTo100, latG, travelMm, turnRadius;
@@ -201,6 +210,8 @@ private:
     int mapScroll = 0;                              // primer mapa visible en la lista
     // Grau (wheelie): cuánto lleva el actual, el último que terminó y el mejor.
     float grauTime = 0.0f, lastGrau = 0.0f, bestGrau = 0.0f, grauShow = 0.0f;
+    // Mapas libres: los saltos (s en el aire), donde en una pista va el cronómetro: el de ahora, el último y el mejor.
+    float jumpAir = 0.0f, lastJump = 0.0f, bestJump = 0.0f, jumpShow = 0.0f;
     JPH::Vec3 ExhaustTip() const;
     JPH::Vec3 ExhaustDir() const;
     std::vector<Matrix> grassTufts;                // matas de pasto 3D alrededor de la cámara
@@ -211,9 +222,23 @@ private:
     bool pendingShiftUp = false, pendingShiftDown = false;
     bool debugVectors = false, showHud = true, slowMotion = false, paused = false;
     bool postEffects = true;                       // motion blur, aberración, viñeta y grano (F7)
-    // Menú (se guardan en preferencias.ini): el motion blur con la velocidad y el sacudón de cámara
-    // (camera.shakeEnabled). Los dos, prendidos por defecto.
+    // Ajustes (menú → Ajustes). Se guardan en preferencias.ini, se cambien desde el menú o con su tecla; si falta
+    // una clave, queda el default (lo de antes). Además de fullscreen y camera.shakeEnabled: el motion blur, el
+    // volumen (décimos del de siempre) y si está apagado (M), la ayuda de teclas, el panel de datos técnicos (T)
+    // y la caja y el control de tracción del jugador (F3, F6).
     bool motionBlur = true;
+    int volume = 10;
+    bool muted = false;
+    enum class HelpMode { Start, Always, Never };
+    HelpMode helpMode = HelpMode::Start;           // la ayuda de teclas: los primeros segundos, siempre o nunca
+    bool techData = false;                         // panel de datos técnicos arriba a la izquierda (con los cuadros/s)
+    bool prefAutoShift = true, prefTraction = true;   // a la moto sólo si maneja el jugador (no el bot ni las pruebas)
+    bool PlayerDriving() const { return !opt.bot && opt.test.empty() && !opt.headless; }
+    float helpTimer = -1.0f;                       // s que le quedan a la ayuda del principio (< 0: todavía no se empezó a correr)
+    int helpPinned = -1;                           // H: -1 lo de Ajustes, 0 escondida, 1 a la vista
+    bool HelpVisible() const;
+    void DrawHelp(float ui);
+    void ApplySound();                             // volume y muted al sintetizador
 
     // Input de teclado suavizado + gatillos del gamepad
     float kbThrottle = 0.0f, kbFront = 0.0f, kbRear = 0.0f, kbSteer = 0.0f, kbLean = 0.0f, kbSide = 0.0f;
@@ -255,13 +280,28 @@ private:
     std::vector<std::string> riderPaths;
     // Menú (Esc): principal, código para unirse, sala de la partida y nombre. La carrera sigue de fondo
     // con la cámara girando alrededor de la moto.
-    enum class Menu { None, Main, Join, Lobby, Name, Maps, Bikes };
+    enum class Menu { None, Main, Join, Lobby, Name, Maps, Bikes, Settings, Controls };
     struct MenuItem {
         std::string label, hint;
         std::function<void()> action;
+        std::string key;             // para volver a marcarla al salir de su pantalla (BackToMain)
     };
     std::vector<MenuItem> MenuItems();
     void OpenMenu(Menu m);
+    void BackToMain(const std::string& key);        // al menú principal, marcada la opción de donde se venía
+    // Ajustes: sí/no, una opción de varias o un nivel (el volumen). change(+1 / -1): Enter y → adelante, ← atrás.
+    struct Setting {
+        std::string group, label, hint, value;
+        enum class Kind { Toggle, Choice, Level } kind = Kind::Toggle;
+        bool on = false;             // Toggle
+        int level = 0, levels = 10;  // Level
+        bool dim = false;            // Level apagado (M)
+        std::function<void(int)> change;
+    };
+    std::vector<Setting> SettingsItems();
+    struct Stick { int dir = 0; float held = 0.0f; };   // el stick del joystick como la cruz, con repetición
+    Stick stickY, stickX;
+    std::vector<Rectangle> settingArrows;           // Ajustes: ◀ y ▶ del nivel (para el mouse)
     void LeaveSession();
     Menu menu = Menu::None;
     int menuSel = 0;
