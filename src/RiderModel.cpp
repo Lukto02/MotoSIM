@@ -2,17 +2,20 @@
 
 #include "RiderModel.h"
 
+#include "BikeStyleDef.h"
 #include "MathUtil.h"
 #include "raymath.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
+#include <tuple>
 
 namespace {
 
 // Ajustes de la pose del modelo sobre la moto (sus proporciones no son las del piloto generado).
-constexpr float kHipsDrop = 0.05f;       // m que baja la cadera: rodillas más dobladas (posición de ataque)
+constexpr float kHipsDrop = 0.05f;       // m que baja la cadera: rodillas más dobladas (después PoseOnBike la sube hasta el asiento)
 constexpr float kExtraLean = 0.1f;       // rad extra de torso hacia adelante respecto de la pose
 constexpr float kForwardLean = 0.35f;    // rad más tirado adelante: pecho sobre el manubrio...
 constexpr float kForwardHipsBack = 0.08f;// ...con la cola en el asiento y no sobre el tanque
@@ -21,6 +24,22 @@ constexpr float kMaxReach = 0.97f;       // brazo como mucho al 97%: nunca del t
 constexpr float kMaxExtraPitch = 0.45f;  // rad que puede sumar el torso para llegar al manubrio...
 constexpr float kMaxHipShift = 0.3f;     // ...y después m que se acerca la cadera
 constexpr float kThrottleRoll = 0.45f;   // rad que gira la mano derecha sobre el puño con el gas a fondo
+constexpr float kShoulderTurn = 0.6f;    // cuánto del giro del manubrio toman los hombros...
+constexpr float kMaxShoulderTurn = 0.5f; // ...hasta estos rad
+// Para no meterse en la moto (PoseOnBike):
+constexpr float kSeatSink = 0.015f;      // m que se hunden cola y muslos en el asiento (la espuma)
+constexpr float kMaxLift = 0.25f;        // m que puede subir la cadera (la de carreras tiene el asiento a 21 cm y la cadera de la pose a 26)
+constexpr float kSideTolerance = 0.005f; // m que se pueden meter de costado rodillas, canillas y botas
+constexpr float kMaxAnkleOut = 0.06f;    // m que se puede correr el tobillo hacia afuera en la estribera...
+constexpr float kMaxLegOutWiden = 0.15f; // ...y más, con la pata afuera
+constexpr float kMaxKneeOpen = 0.8f;     // rad que se puede abrir la rodilla
+constexpr float kBarRadius = 0.035f;     // m: el manubrio con la almohadilla, para el pecho, el casco y los brazos
+constexpr float kBarTolerance = 0.005f;
+constexpr float kMaxBackPitch = 0.6f;    // rad que se puede enderezar el torso para no atravesar el manubrio...
+constexpr float kReachLimit = 0.99f;     // ...sin que los brazos dejen de llegar
+constexpr float kLiftReach = 1.02f;      // la cadera baja si el brazo más exigido no llega ni al 102% (la mano, a ~1 cm del puño)
+constexpr float kShapeCell = 0.01f;      // m: celdas de la forma de la moto
+constexpr float kNothing = -10.0f;       // techo de una celda sin moto
 
 Vector3 V(JPH::Vec3 v) { return {v.GetX(), v.GetY(), v.GetZ()}; }
 Quaternion Q(JPH::Quat q) { return {q.GetX(), q.GetY(), q.GetZ(), q.GetW()}; }
@@ -44,6 +63,24 @@ void TwoBoneIK(Vector3 a, Vector3 target, float l1, float l2, Vector3 pole, Vect
     side = Vector3Length(side) > 1e-4f ? Vector3Normalize(side) : Vector3Perpendicular(dir);
     mid = Vector3Add(a, Vector3Add(Vector3Scale(dir, along), Vector3Scale(side, h)));
     tip = Vector3Add(a, Vector3Scale(dir, dist));
+}
+
+// Dónde va la rodilla de la IK de dos huesos de `a` a `target` (como TwoBoneIK, del lado de `pole`) girada
+// `open` rad hacia afuera (`side`: +1 = +X) alrededor de la recta a-target. Sirve de polo para TwoBoneIK.
+Vector3 OpenJoint(Vector3 a, Vector3 target, float l1, float l2, Vector3 pole, float side, float open)
+{
+    const Vector3 d = Vector3Subtract(target, a);
+    const float dist = mu::Clamp(Vector3Length(d), std::fabs(l1 - l2) + 1e-3f, (l1 + l2) * 0.999f);
+    const Vector3 n = Vector3Normalize(d);
+    const float along = (l1 * l1 - l2 * l2 + dist * dist) / (2.0f * dist);
+    const float h = std::sqrt(std::max(0.0f, l1 * l1 - along * along));
+    const Vector3 c = Vector3Add(a, Vector3Scale(n, along));
+    Vector3 e1 = Vector3Subtract(pole, a);
+    e1 = Vector3Subtract(e1, Vector3Scale(n, Vector3DotProduct(e1, n)));
+    e1 = Vector3Length(e1) > 1e-4f ? Vector3Normalize(e1) : Vector3Perpendicular(n);
+    Vector3 e2 = Vector3CrossProduct(n, e1);
+    if (e2.x * side < 0.0f) e2 = Vector3Negate(e2);
+    return Vector3Add(c, Vector3Add(Vector3Scale(e1, h * std::cos(open)), Vector3Scale(e2, h * std::sin(open))));
 }
 
 } // namespace
@@ -166,8 +203,57 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
         else BuildGrip(i);
     }
 
+    // Vértices de prueba para no meterse en la moto, por el hueso que más pesa en cada uno (uno por posición:
+    // las costuras repiten vértices). Las manos no: agarran el manubrio.
+    for (std::vector<int>& g : probe) g.clear();
+    std::map<std::tuple<long long, long long, long long>, int> seen;
+    for (int v = 0; v < m.vertexCount; ++v) {
+        const Vector3 q = bindVerts[v];
+        if (!seen.emplace(std::make_tuple(std::llround(q.x * 1e5), std::llround(q.y * 1e5), std::llround(q.z * 1e5)), v).second) continue;
+        int best = -1;
+        float bw = 0.0f;
+        for (int k = 0; k < 4; ++k)
+            if (skinWeight[v * 4 + k] > bw) {
+                bw = skinWeight[v * 4 + k];
+                best = skinBone[v * 4 + k];
+            }
+        for (int b = best; b >= 0 && b < n; b = parent[b]) {
+            int found = -1;
+            for (int i = 0; i < 2; ++i) {
+                if (b == hand[i]) found = ProbeCount;                        // afuera
+                else if (b == foot[i] || b == toe[i]) found = ProbeFoot + i;
+                else if (b == leg[i]) {
+                    // Canilla: en la del costado; cerca del tobillo también con la bota.
+                    const Vector3 k0 = bindPos[leg[i]], k1 = bindPos[foot[i]], d = Vector3Subtract(k1, k0);
+                    if (Vector3DotProduct(Vector3Subtract(q, k0), d) / Vector3DotProduct(d, d) > 0.65f) probe[ProbeFoot + i].push_back(v);
+                    found = ProbeLeg + i;
+                } else if (b == upLeg[i]) {
+                    // Muslo: en la pierna; la mitad de arriba (la que apoya en el asiento), también en el asiento.
+                    const Vector3 h0 = bindPos[upLeg[i]], h1 = bindPos[leg[i]], d = Vector3Subtract(h1, h0);
+                    const float u = Vector3DotProduct(Vector3Subtract(q, h0), d) / Vector3DotProduct(d, d);
+                    if (u < 0.5f) probe[ProbeSeat].push_back(v);
+                    probe[ProbeDrape].push_back(v);
+                    found = ProbeLeg + i;
+                } else if (b == arm[i]) found = ProbeChest;
+                else if (b == foreArm[i]) found = ProbeForearm;
+            }
+            if (found < 0 && (b == neck || b == head || b == spineChain[0] || b == spineChain[1] || b == spineChain[2])) found = ProbeChest;
+            if (found < 0 && b == hips) {
+                probe[ProbeDrape].push_back(v);
+                found = ProbeSeat;
+            }
+            if (found < 0) continue;
+            if (found < ProbeCount) probe[found].push_back(v);
+            break;
+        }
+    }
+    TraceLog(LOG_INFO, "piloto: vértices de prueba: asiento %d, piernas %d/%d, botas %d/%d, pecho %d", (int)probe[ProbeSeat].size(),
+             (int)probe[ProbeLeg].size(), (int)probe[ProbeLeg + 1].size(), (int)probe[ProbeFoot].size(), (int)probe[ProbeFoot + 1].size(),
+             (int)probe[ProbeChest].size());
+
     pos = bindPos;
     delta.assign(bindPos.size(), QuaternionIdentity());
+    shape = BikeShape{};
     loaded = true;
     TraceLog(LOG_INFO, "piloto: modelo con %d huesos (+%d de dedos virtuales) y %d vértices%s", n, (int)bindPos.size() - n, m.vertexCount,
              modelFingers[0] && modelFingers[1] ? ", con dedos propios" : "");
@@ -549,34 +635,351 @@ void RiderModel::Unload()
 
 void RiderModel::PoseOnBike(const RiderPose& p)
 {
+    gripAmount = 1.0f;
+    throttleS += (p.throttle - throttleS) * (1.0f - std::exp(-14.0f * GetFrameTime()));
+    Fit fit;
+    float pitch = 0.0f, shift = 0.0f;
+    barA = V(p.grip[0]);
+    barB = V(p.grip[1]);
+    auto solve = [&]() { return lastReach = SolveBody(p, pitch, shift, fit); };
     // Las manos no se sueltan del manubrio: si con la inclinación de la pose no llegan (sobre todo con
     // el piloto tirado atrás), el torso se inclina más hacia adelante, lo justo para que lleguen.
     // Primero se inclina el torso (hasta un límite razonable); si todavía no llega, la cadera se acerca
     // al manubrio: tirado atrás queda la cola atrás y los brazos estirados, no acostado sobre el tanque.
-    gripAmount = 1.0f;
-    throttleS += (p.throttle - throttleS) * (1.0f - std::exp(-14.0f * GetFrameTime()));
-    if (SolveBody(p, 0.0f, 0.0f) <= kMaxReach) return;
-    auto search = [&](float hiValue, auto solve) {          // el valor mínimo con el que las manos llegan
-        float lo = 0.0f, hi = hiValue;
-        for (int k = 0; k < 10; ++k) {
-            const float mid = 0.5f * (lo + hi);
-            if (solve(mid) > kMaxReach) lo = mid;
-            else hi = mid;
-        }
-        solve(hi);
+    auto reach = [&]() {
+        pitch = shift = 0.0f;
+        if (solve() <= kMaxReach) return;
+        auto search = [&](float hiValue, float& value) {    // el valor mínimo con el que las manos llegan
+            float lo = 0.0f, hi = hiValue;
+            for (int k = 0; k < 10; ++k) {
+                value = 0.5f * (lo + hi);
+                if (solve() > kMaxReach) lo = value;
+                else hi = value;
+            }
+            value = hi;
+            solve();
+        };
+        pitch = kMaxExtraPitch;
+        if (solve() <= kMaxReach) search(kMaxExtraPitch, pitch);
+        else search(kMaxHipShift, shift);
     };
-    if (SolveBody(p, kMaxExtraPitch, 0.0f) <= kMaxReach) {
-        search(kMaxExtraPitch, [&](float pitch) { return SolveBody(p, pitch, 0.0f); });
-    } else {
-        search(kMaxHipShift, [&](float shift) { return SolveBody(p, kMaxExtraPitch, shift); });
+    reach();
+    lastFit = fit;
+    if (shape.style < 0) return;             // todavía no se dibujó la moto: no se conoce su forma
+
+    // Sentado: la cola y los muslos apoyan en el asiento (se hunden hasta kSeatSink, la espuma), no adentro.
+    auto seat = [&](int group) {
+        const float before = fit.lift;
+        for (int k = 0; k < 4; ++k) {
+            const float d = SeatDepth(group);
+            if (d <= kSeatSink + 0.002f || fit.lift >= kMaxLift) break;
+            fit.lift = std::min(kMaxLift, fit.lift + d - kSeatSink);
+            solve();
+        }
+        return fit.lift > before;
+    };
+    // Cada pierna: el tobillo se corre sobre la estribera hasta que la bota no se mete en el motor, y la
+    // rodilla se abre hasta que muslo y canilla quedan afuera del tanque, los plásticos y el escape (la
+    // canilla de abajo gira con la rodilla: después se vuelve a mirar la bota). Con la pata afuera, si
+    // abriendo la rodilla no alcanza, el pie sale más (la de carreras tiene el carenado ancho).
+    auto legs = [&]() {
+        for (int i = 0; i < 2; ++i) {
+            const float most = kMaxAnkleOut + kMaxLegOutWiden * p.legOut[i];
+            auto foot = [&]() {
+                for (int k = 0; k < 3; ++k) {
+                    const float d = SideDepth(ProbeFoot + i);
+                    if (d <= kSideTolerance + 0.002f || fit.ankleOut[i] >= most) break;
+                    fit.ankleOut[i] = std::min(most, fit.ankleOut[i] + d - kSideTolerance);
+                    solve();
+                }
+            };
+            // La primera apertura (de a 0.1 rad desde la que tiene) que alcanza, afinada después; si ninguna
+            // alcanza, la que menos se mete. Devuelve cuánto se sigue metiendo.
+            auto knee = [&]() {
+                const float d0 = SideDepth(ProbeLeg + i);
+                if (d0 <= kSideTolerance) return d0;
+                const float start = fit.open[i];
+                float best = start, bestDepth = d0, found = -1.0f;
+                for (float o = start + 0.1f; o <= kMaxKneeOpen + 1e-4f; o += 0.1f) {
+                    fit.open[i] = o;
+                    solve();
+                    const float d = SideDepth(ProbeLeg + i);
+                    if (d < bestDepth) {
+                        bestDepth = d;
+                        best = o;
+                    }
+                    if (d <= kSideTolerance) {
+                        found = o;
+                        break;
+                    }
+                }
+                if (found > 0.0f) {
+                    float lo = std::max(start, found - 0.1f), hi = found;
+                    for (int k = 0; k < 5; ++k) {
+                        fit.open[i] = 0.5f * (lo + hi);
+                        solve();
+                        if (SideDepth(ProbeLeg + i) > kSideTolerance) lo = fit.open[i];
+                        else hi = fit.open[i];
+                    }
+                    best = hi;
+                    bestDepth = kSideTolerance;
+                }
+                fit.open[i] = best;
+                solve();
+                return bestDepth;
+            };
+            foot();
+            float left = knee();
+            for (int k = 0; k < 5 && left > kSideTolerance && p.legOut[i] > 0.05f && fit.ankleOut[i] < most; ++k) {
+                fit.ankleOut[i] = std::min(most, fit.ankleOut[i] + 0.03f);
+                solve();
+                left = knee();
+            }
+            foot();
+        }
+    };
+    if (seat(ProbeSeat)) reach();
+    // El pecho, el casco y los brazos no atraviesan el manubrio ni el tanque (tirado adelante con el cuerpo
+    // corrido, en el aire; agachado en la de carreras): el torso se endereza lo justo, sin soltar el
+    // manubrio (como mucho hasta donde los brazos llegan, kReachLimit).
+    if (ChestDepth(p) > kBarTolerance) {
+        const float base = pitch;
+        auto reaches = [&](float d) {
+            pitch = base - d;
+            return solve() <= kReachLimit;
+        };
+        float most = kMaxBackPitch;
+        if (!reaches(most)) {
+            float lo = 0.0f, hi = most;
+            for (int k = 0; k < 6; ++k) {
+                const float mid = 0.5f * (lo + hi);
+                if (reaches(mid)) lo = mid;
+                else hi = mid;
+            }
+            most = lo;
+        }
+        pitch = base - most;
+        solve();
+        float lo = 0.0f, hi = most;
+        if (ChestDepth(p) <= kBarTolerance) {
+            for (int k = 0; k < 7; ++k) {
+                const float mid = 0.5f * (lo + hi);
+                pitch = base - mid;
+                solve();
+                if (ChestDepth(p) > kBarTolerance) lo = mid;
+                else hi = mid;
+            }
+        }
+        pitch = base - hi;
+        solve();
     }
+    legs();
+    // Con el cuerpo corrido de costado (o el whip), el muslo de afuera cruza el asiento. La cadera del modelo
+    // es angosta: corrida entera, ese muslo queda adentro del asiento (por arriba o por el costado, cerca de
+    // la rodilla, aunque se abra del todo). Vuelve hacia el medio lo justo (el torso queda donde lo pide la
+    // pose: se inclina más) y después sube lo que falte. Mientras se busca, las rodillas abiertas del todo
+    // (lo que después se afina).
+    auto residual = [&]() {
+        return std::max({SeatDepth(ProbeDrape) - kSeatSink, SideDepth(ProbeLeg) - kSideTolerance, SideDepth(ProbeLeg + 1) - kSideTolerance});
+    };
+    if (std::fabs(p.hips.GetX()) > 0.01f && residual() > kSideTolerance) {
+        const Fit before = fit;
+        fit.open[0] = fit.open[1] = kMaxKneeOpen;
+        float lo = 0.0f, hi = 1.0f;
+        fit.center = 1.0f;
+        solve();
+        if (residual() <= kSideTolerance) {
+            for (int k = 0; k < 6; ++k) {
+                fit.center = 0.5f * (lo + hi);
+                solve();
+                if (residual() > kSideTolerance) lo = fit.center;
+                else hi = fit.center;
+            }
+        }
+        fit.center = hi;
+        fit.open[0] = before.open[0];
+        fit.open[1] = before.open[1];
+        solve();
+        legs();
+    }
+    if (seat(ProbeDrape)) legs();
+    // Lo último: las manos en el manubrio (si al subir o centrar la cadera dejaron de llegar, se vuelve a
+    // buscar la inclinación, aunque el pecho roce el manubrio). Y si ni así llegan, la cadera baja lo justo:
+    // las manos mandan (con la pata afuera en la de carreras subía hasta el tope y las manos quedaban a 15-20
+    // cm de los puños).
+    if (lastReach > kReachLimit) reach();
+    if (lastReach > kLiftReach && fit.lift > 0.0f) {
+        float lo = 0.0f, hi = fit.lift;
+        for (int k = 0; k < 7; ++k) {
+            fit.lift = 0.5f * (lo + hi);
+            reach();
+            if (lastReach > kLiftReach) hi = fit.lift;
+            else lo = fit.lift;
+        }
+        fit.lift = lo;
+        reach();
+        legs();
+    }
+    lastFit = fit;
 }
 
-float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift)
+Vector3 RiderModel::SkinVertex(int v) const
+{
+    Vector3 p = {0.0f, 0.0f, 0.0f};
+    for (int k = 0; k < 4; ++k) {
+        const float w = skinWeight[v * 4 + k];
+        if (w <= 0.0f) continue;
+        const int b = skinBone[v * 4 + k];
+        p = Vector3Add(p, Vector3Scale(Vector3Add(pos[b], Vector3RotateByQuaternion(Vector3Subtract(bindVerts[v], bindPos[b]), delta[b])), w));
+    }
+    return p;
+}
+
+bool RiderModel::BikeShape::Inside(Vector3 p, float& dl, float& dv) const
+{
+    // Bilineal (continua: la pose no salta de a una celda).
+    auto sample = [&](const std::vector<float>& f, int n0, int n1, float a, float b, float nothing) {
+        const float fa = a / kShapeCell - 0.5f, fb = b / kShapeCell - 0.5f;
+        const int ia = (int)std::floor(fa), ib = (int)std::floor(fb);
+        const float ta = fa - (float)ia, tb = fb - (float)ib;
+        auto at = [&](int x, int y) { return x < 0 || y < 0 || x >= n0 || y >= n1 ? nothing : f[(size_t)y * n0 + x]; };
+        return (at(ia, ib) * (1.0f - ta) + at(ia + 1, ib) * ta) * (1.0f - tb) + (at(ia, ib + 1) * (1.0f - ta) + at(ia + 1, ib + 1) * ta) * tb;
+    };
+    if (style < 0) return false;
+    const float w = sample(side[p.x >= 0.0f ? 0 : 1], ny, nz, p.y - y0, p.z - z0, 0.0f);
+    const float ax = std::fabs(p.x);
+    if (ax >= w) return false;
+    const float t = sample(top, nx, nz, p.x - x0, p.z - z0, kNothing);
+    if (p.y >= t) return false;
+    dl = w - ax;
+    dv = t - p.y;
+    return true;
+}
+
+// Cuánto se hunden en el asiento (hacia abajo) la cola y los muslos. Cada vértice adentro cuenta para
+// abajo o para el costado según por dónde sale más cerca, con una transición suave (si no, la pose
+// saltaría cuando un vértice cambia de lado).
+float RiderModel::SeatDepth(int group) const
+{
+    float worst = 0.0f;
+    for (int v : probe[group]) {
+        float dl, dv;
+        if (!shape.Inside(SkinVertex(v), dl, dv)) continue;
+        worst = std::max(worst, dv * mu::Smoothstep(-0.01f, 0.01f, dl - dv));
+    }
+    return worst;
+}
+
+float RiderModel::SideDepth(int group) const
+{
+    // Las rodillas, además, contra el manubrio: con la pata afuera y el manubrio a fondo para ese lado, el
+    // puño vuelve hasta la rodilla (se abre la rodilla hasta que pasa por afuera o por abajo del puño).
+    const bool legs = group == ProbeLeg || group == ProbeLeg + 1;
+    const Vector3 ab = Vector3Subtract(barB, barA);
+    const float len2 = std::max(Vector3DotProduct(ab, ab), 1e-6f);
+    float worst = 0.0f;
+    for (int v : probe[group]) {
+        const Vector3 q = SkinVertex(v);
+        if (legs) {
+            const float u = mu::Clamp(Vector3DotProduct(Vector3Subtract(q, barA), ab) / len2, 0.0f, 1.0f);
+            worst = std::max(worst, kBarRadius - Vector3Distance(q, Vector3Add(barA, Vector3Scale(ab, u))));
+        }
+        float dl, dv;
+        if (!shape.Inside(q, dl, dv)) continue;
+        worst = std::max(worst, dl * (1.0f - mu::Smoothstep(-0.01f, 0.01f, dl - dv)));
+    }
+    return worst;
+}
+
+// Pecho, casco y brazos contra el manubrio (un tubo de puño a puño, con la almohadilla del medio) y contra la
+// moto (el tanque y el carenado, agachado); los antebrazos, sólo contra el manubrio.
+float RiderModel::ChestDepth(const RiderPose& p) const
+{
+    const Vector3 a = V(p.grip[0]), b = V(p.grip[1]), ab = Vector3Subtract(b, a);
+    const float len2 = std::max(Vector3DotProduct(ab, ab), 1e-6f);
+    float worst = 0.0f;
+    for (int g : {(int)ProbeChest, (int)ProbeForearm})
+        for (int v : probe[g]) {
+            const Vector3 q = SkinVertex(v);
+            const float u = mu::Clamp(Vector3DotProduct(Vector3Subtract(q, a), ab) / len2, 0.0f, 1.0f);
+            worst = std::max(worst, kBarRadius - Vector3Distance(q, Vector3Add(a, Vector3Scale(ab, u))));
+            float dl, dv;
+            if (g == ProbeChest && shape.Inside(q, dl, dv)) worst = std::max(worst, std::min(dl, dv));
+        }
+    return worst;
+}
+
+void RiderModel::BuildShape(const Renderer& r)
+{
+    const Mesh& m = r.BikePart(BikeMesh::Body, 0);
+    if (!m.vertices || (shape.style == r.bikeStyle && shape.key == m.vertices)) return;
+    const double t0 = GetTime();
+    shape = BikeShape{};
+    shape.style = r.bikeStyle;
+    shape.key = m.vertices;
+    shape.x0 = -0.6f;
+    shape.y0 = -0.8f;
+    shape.z0 = -1.2f;
+    shape.nx = (int)(1.2f / kShapeCell);
+    shape.ny = (int)(1.7f / kShapeCell);
+    shape.nz = (int)(2.4f / kShapeCell);
+    std::vector<float> side[2] = {std::vector<float>((size_t)shape.ny * shape.nz, 0.0f), std::vector<float>((size_t)shape.ny * shape.nz, 0.0f)};
+    std::vector<float> top((size_t)shape.nx * shape.nz, kNothing);
+    const JPH::Vec3 peg = GetBikeStyle(r.bikeStyle).peg;
+    auto splat = [&](Vector3 q) {
+        const int iy = (int)((q.y - shape.y0) / kShapeCell), iz = (int)((q.z - shape.z0) / kShapeCell), ix = (int)((q.x - shape.x0) / kShapeCell);
+        if (iz < 0 || iz >= shape.nz) return;
+        if (iy >= 0 && iy < shape.ny) {
+            float& s = side[q.x >= 0.0f ? 0 : 1][(size_t)iz * shape.ny + iy];
+            s = std::max(s, std::fabs(q.x));
+        }
+        if (ix >= 0 && ix < shape.nx) {
+            float& t = top[(size_t)iz * shape.nx + ix];
+            t = std::max(t, q.y);
+        }
+    };
+    const int tris = m.indices ? m.triangleCount : m.vertexCount / 3;
+    for (int t = 0; t < tris; ++t) {
+        Vector3 v[3];
+        for (int e = 0; e < 3; ++e) {
+            const int i = m.indices ? m.indices[3 * t + e] : 3 * t + e;
+            v[e] = {m.vertices[3 * i], m.vertices[3 * i + 1], m.vertices[3 * i + 2]};
+        }
+        // Estriberas, pedal de freno y palanca de cambios: ahí apoya la bota.
+        const Vector3 c = Vector3Scale(Vector3Add(Vector3Add(v[0], v[1]), v[2]), 1.0f / 3.0f);
+        if (std::fabs(c.x) > std::fabs(peg.GetX()) - 0.05f && std::fabs(c.y - peg.GetY()) < 0.07f && c.z > peg.GetZ() - 0.10f && c.z < peg.GetZ() + 0.25f)
+            continue;
+        const float L = std::max({Vector3Distance(v[0], v[1]), Vector3Distance(v[1], v[2]), Vector3Distance(v[2], v[0])});
+        const int n = std::max(1, (int)std::ceil(L / (0.6f * kShapeCell)));
+        for (int i = 0; i <= n; ++i)
+            for (int j = 0; i + j <= n; ++j)
+                splat(Vector3Add(v[0], Vector3Add(Vector3Scale(Vector3Subtract(v[1], v[0]), (float)i / n), Vector3Scale(Vector3Subtract(v[2], v[0]), (float)j / n))));
+    }
+    // Se agranda una celda para tapar los huecos entre muestras (conservador: la moto queda 1 cm más grande).
+    auto dilate = [](const std::vector<float>& f, int n0, int n1, std::vector<float>& out) {
+        out = f;
+        for (int b = 0; b < n1; ++b)
+            for (int a = 0; a < n0; ++a) {
+                float mx = f[(size_t)b * n0 + a];
+                for (int db = -1; db <= 1; ++db)
+                    for (int da = -1; da <= 1; ++da) {
+                        const int x = a + da, y = b + db;
+                        if (x >= 0 && y >= 0 && x < n0 && y < n1) mx = std::max(mx, f[(size_t)y * n0 + x]);
+                    }
+                out[(size_t)b * n0 + a] = mx;
+            }
+    };
+    dilate(side[0], shape.ny, shape.nz, shape.side[0]);
+    dilate(side[1], shape.ny, shape.nz, shape.side[1]);
+    dilate(top, shape.nx, shape.nz, shape.top);
+    TraceLog(LOG_INFO, "piloto: forma de la moto (estilo %s) en %.0f ms", GetBikeStyle(r.bikeStyle).name, 1000.0 * (GetTime() - t0));
+}
+
+float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift, const Fit& fit)
 {
     // Cada hueso: si no tiene un ajuste propio, sigue a su padre (cinemática directa).
     const float forward = std::max(0.0f, p.lean);
-    const Vector3 hipsTarget = Vector3Add(V(p.hips), {0.0f, -kHipsDrop + 0.3f * hipShift, hipShift - kForwardHipsBack * forward});
+    const Vector3 hipsTarget = Vector3Add(V(p.hips), {-fit.center * p.hips.GetX(), -kHipsDrop + fit.lift + 0.3f * hipShift, hipShift - kForwardHipsBack * forward});
     const Vector3 torsoBind = Vector3Subtract(bindPos[neck], bindPos[hips]);
     Vector3 torsoTarget = Vector3Subtract(V(p.shoulders), V(p.hips));
     const float pitch = kExtraLean + kForwardLean * forward + extraPitch;
@@ -588,6 +991,12 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
     // cintura. Girando sólo la columna la panza se inflaba y la espalda baja se doblaba.
     const Quaternion pelvisTurn = QuaternionSlerp(QuaternionIdentity(), torsoTurn, 0.75f);
     const Quaternion spineStep = QuaternionSlerp(QuaternionIdentity(), torsoTurn, 0.25f / 3.0f);
+    // Con el manubrio girado, los hombros giran con él (sobre el eje del torso, repartido en las vértebras):
+    // el hombro de afuera va adelante con su puño. Sin esto, tirado atrás y con el manubrio a fondo la mano
+    // de afuera no llegaba al puño (quedaba a 8-9 cm).
+    const Vector3 bar = V(p.grip[0] - p.grip[1]);
+    const float shoulderTurn = mu::Clamp(-kShoulderTurn * std::atan2(bar.z, bar.x), -kMaxShoulderTurn, kMaxShoulderTurn);
+    const Quaternion twistStep = QuaternionFromAxisAngle(Vector3Normalize(torsoTarget), shoulderTurn / 3.0f);
 
     Vector3 elbow[2], wrist[2], knee[2], ankle[2];
     Quaternion handRot[2] = {QuaternionIdentity(), QuaternionIdentity()};
@@ -611,7 +1020,7 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
             pos[b] = hipsTarget;
             delta[b] = pelvisTurn;
         } else if (b == spineChain[0] || b == spineChain[1] || b == spineChain[2]) {
-            delta[b] = QuaternionMultiply(spineStep, delta[b]);
+            delta[b] = QuaternionMultiply(twistStep, QuaternionMultiply(spineStep, delta[b]));
         } else if (b == neck || b == head) {
             // Mirando la pista: la cara (+Z en reposo) hacia adelante y abajo (22°, la pera hacia el pecho,
             // como en la posición de ataque). La mitad del giro la toma el cuello: girando sólo la cabeza, la
@@ -653,11 +1062,14 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
             } else if (b == upLeg[i]) {
                 const float out = p.legOut[i];                              // pata afuera en la curva
                 // El pie apoya en la estribera; afuera, el tobillo va donde lo pide la pose.
-                const Vector3 target = Vector3Add(V(p.ankle[i]), Vector3Lerp({0.0f, 0.04f, -0.03f}, {0.0f, 0.0f, 0.0f}, out));
+                // (corrido hacia afuera lo que pida fit, para que la bota no se meta en el motor).
+                const Vector3 target = Vector3Add(V(p.ankle[i]), Vector3Add(Vector3Lerp({0.0f, 0.04f, -0.03f}, {0.0f, 0.0f, 0.0f}, out), {side * fit.ankleOut[i], 0.0f, 0.0f}));
                 const float l1 = Vector3Distance(bindPos[leg[i]], bindPos[b]), l2 = Vector3Distance(bindPos[foot[i]], bindPos[leg[i]]);
-                // Rodillas adelante y apenas abiertas; con la pata afuera, adelante, arriba y afuera.
+                // Rodillas adelante y apenas abiertas; con la pata afuera, adelante, arriba y afuera. Y abiertas lo
+                // que pida fit para no meterse en el tanque ni en los plásticos.
                 const Vector3 pole = Vector3Lerp({side * 0.25f, 0.0f, 1.0f}, {side * 0.5f, 0.6f, 0.8f}, out);
-                TwoBoneIK(pos[b], target, l1, l2, Vector3Add(pos[b], pole), knee[i], ankle[i]);
+                const Vector3 kneeAt = OpenJoint(pos[b], target, l1, l2, Vector3Add(pos[b], pole), side, fit.open[i]);
+                TwoBoneIK(pos[b], target, l1, l2, kneeAt, knee[i], ankle[i]);
                 aim(leg[i], knee[i]);
             } else if (b == leg[i]) {
                 aim(foot[i], ankle[i]);
@@ -763,6 +1175,7 @@ void RiderModel::Skin()
 
 void RiderModel::Draw(Renderer& r, const Matrix& world)
 {
+    BuildShape(r);                           // la moto que se acaba de dibujar (la de este piloto)
     r.SetGloss(0.2f);
     r.DrawMeshTextured(model.meshes[0], world, texture);
 }

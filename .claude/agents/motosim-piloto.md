@@ -54,6 +54,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - `--headless --test crashloop --time 60 --telemetry`: varias caídas seguidas.
 - **En el aire**: `--flat --drop 3 --test airrot` y `airlean`. **Sobre la cola**: `--map favela --flat --test colazo`.
 - **Capturas con el modelo**: `--size 960 540 --nohud --view <yaw> <pitch> <zoom> --screenshot T archivo.png --shots-every 0.1`. Con `--genrider`, el piloto generado, sólo para comparar. La cámara sigue a la pelvis con retraso: para la pose final, capturá ya quieto. Grilla y recortes: `tools/grilla.py`.
+- **Si el piloto se mete en la moto**: medilo con `tools/holgura` (`armar.py` compila una copia con la medición, `barrido.sh` barre ~900 poses por moto, `tabla.py` compara, `vista.py` dibuja una pose con lo que se mete marcado; ver `docs/PILOTO.md`, "Medir la holgura"). El ajuste que lo evita (`BikeShape`, `Fit` en `PoseOnBike`) está en `docs/PILOTO.md`, "El piloto se metía en la moto".
 
 ## Tu informe final
 Qué cambiaste (archivos), cómo lo probaste (mediciones y capturas de antes y después), qué quedó pendiente y una sección **Lecciones** con lo que anotaste en `docs/PILOTO.md`.

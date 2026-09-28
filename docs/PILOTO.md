@@ -19,7 +19,12 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
 - `RiderModel::PoseOnBike` la sigue por IK de dos huesos, con polos para codos y rodillas. Si las manos
   no llegan al manubrio, primero inclina más el torso (hasta `kMaxExtraPitch`) y después adelanta la
   cadera: nunca suelta el manubrio. La pelvis toma el 75% de la inclinación y cada vértebra un poco,
-  para que la espalda quede recta (girando sólo la columna se inflaba la panza).
+  para que la espalda quede recta (girando sólo la columna se inflaba la panza). Con el manubrio
+  girado, los hombros giran con él (60%, hasta 0.5 rad).
+- **No se mete en la moto** (ver "El piloto se metía en la moto"): con la forma del chasis de cada moto
+  (`BikeShape`, armada en `Draw`) y vértices de prueba del modelo, `PoseOnBike` sube la cadera hasta el
+  asiento, endereza el torso si atraviesa el manubrio, corre los tobillos sobre las estriberas y abre las
+  rodillas hasta que quedan afuera del tanque, los plásticos, el escape y el manubrio.
 - Dedos (`BuildGripFingers`): si el modelo trae los dedos (`LeftHandIndex1..4`, ..., `LeftHandThumb1..4`,
   estilo Mixamo, el 4 es la punta), se usan esos huesos con sus pesos. La mano se mide con sus
   articulaciones: a lo largo, de la muñeca al nudillo del medio; a lo ancho, del meñique al índice; la
@@ -56,6 +61,113 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
   ataque. Vale también para el modelo 2 (se ve bien: mira un poco más abajo).
 - **Se comprobó**: capturas de costado y de atrás (`--flat --test pose --side --view 0 0 0.3`) con los
   dos modelos, antes y después: el casco baja sobre el cuello de la campera.
+
+### El piloto se metía en la moto
+- **Pasaba** (lo veía seguido el usuario): con el modelo, en las cinco motos, los muslos y la cola adentro
+  del asiento, rodillas y canillas adentro del tanque, los plásticos, el carenado y el escape; en el aire,
+  tirado adelante con el whip o el cuerpo corrido, el torso y los brazos atravesando el manubrio; sobre la
+  cola (`colazo`), la cadera y el pecho adentro del tanque y el casco en la tija.
+- **Medido** con `tools/holgura` (ver "Medir la holgura"): barrido de 870 poses por moto (1059 en la de
+  carreras: suelo con cuerpo adelante/atrás, de costado, manubrio y gas; pata afuera con la suspensión con el
+  peso y a tope; aire con whip, cuerpo y la moto derecha o a 70°; sobre la cola; aterrizaje a tope; rápido,
+  agachado y colgado). Cuánto se mete cada zona (cm), lo peor / el percentil 90 de las poses:
+
+  | moto | casco | torso | cadera | brazo | antebrazo | mano | muslo | canilla | bota |
+  |---|---|---|---|---|---|---|---|---|---|
+  | Motocross 450 | 8.5/0.0 → 0.0/0.0 | 13.2/0.4 → 0.0/0.0 | 11.5/8.8 → 0.1/0.0 | 12.3/0.0 → 0.0/0.0 | 11.2/0.8 → 0.0/0.0 | 0.0/0.0 → 0.0/0.0 | 9.8/9.1 → 6.1/3.8 | 6.5/6.0 → 1.1/0.1 | 4.1/2.0 → 1.1/1.1 |
+  | Carrera 1000 | 10.9/2.2 → 0.0/0.0 | 13.3/9.4 → 1.6/0.0 | 12.2/8.6 → 8.7/0.4 | 12.5/7.5 → 0.1/0.0 | 5.1/2.8 → 0.8/0.0 | 2.9/2.7 → 2.7/2.6 | 11.2/9.7 → 8.8/4.2 | 10.2/7.3 → 2.6/0.0 | 5.0/3.8 → 1.0/0.9 |
+  | Trial 300 | 4.6/0.0 → 0.0/0.0 | 13.0/2.1 → 5.8/0.0 | 11.3/2.7 → 6.0/0.0 | 12.4/0.0 → 4.2/0.0 | 7.2/0.0 → 2.7/0.0 | 0.0/0.0 → 0.0/0.0 | 10.8/7.1 → 5.5/3.8 | 5.9/5.6 → 2.0/0.2 | 4.8/4.5 → 1.9/1.8 |
+  | Trilheira 450 | 11.4/2.7 → 4.0/0.0 | 13.3/7.5 → 0.0/0.0 | 12.0/9.0 → 0.0/0.0 | 12.7/4.9 → 0.0/0.0 | 11.1/2.4 → 1.4/0.0 | 0.0/0.0 → 0.0/0.0 | 9.9/9.4 → 3.9/3.5 | 7.5/6.0 → 0.1/0.0 | 4.7/4.3 → 1.1/1.1 |
+  | Dos tiempos 250 | 8.4/0.0 → 0.0/0.0 | 13.2/0.4 → 0.0/0.0 | 11.5/8.8 → 0.0/0.0 | 12.3/0.0 → 0.0/0.0 | 11.2/0.8 → 0.0/0.0 | 0.0/0.0 → 0.0/0.0 | 9.8/9.1 → 6.1/3.9 | 6.5/6.1 → 1.9/1.0 | 5.6/1.7 → 1.1/1.1 |
+
+  Y en las pruebas de manejo con el modelo (`MOTOSIM_HOLGURA=1`; lo peor de `cuerpo`, `airlean`, `airrot`,
+  `whip`, `flip`, `frontflip`, `wheelie`, `brake`, `sharpturn`, `colazo` y 25 s del bot, sin el primer cuadro;
+  muslo = lo que más queda, casi siempre la entrepierna contra el costado del asiento):
+
+  | moto | casco | torso | cadera | brazos | muslo | canilla | bota |
+  |---|---|---|---|---|---|---|---|
+  | Motocross 450 | 7.7 → 0.0 | 13.2 → 0.0 | 12.3 → 0.0 | 12.3 → 0.0 | 10.3 → 4.4 | 6.3 → 0.0 | 2.2 → 1.1 |
+  | Carrera 1000 | 7.2 → 0.0 | 11.4 → 0.0 | 8.5 → 0.0 | 10.1 → 0.0 | 11.6 → 2.2 | 7.6 → 0.0 | 3.4 → 0.0 |
+  | Trial 300 | 5.0 → 0.0 | 13.3 → 0.0 | 12.4 → 0.0 | 12.3 → 0.0 | 10.6 → 3.5 | 5.6 → 0.0 | 4.6 → 1.9 |
+  | Trilheira 450 | 11.4 → 0.0 | 13.3 → 0.0 | 12.0 → 0.0 | 12.0 → 0.0 | 10.4 → 3.5 | 7.4 → 0.0 | 4.3 → 1.1 |
+  | Dos tiempos 250 | 7.7 → 0.0 | 13.2 → 0.0 | 12.3 → 0.0 | 12.3 → 0.0 | 9.9 → 4.4 | 6.4 → 1.5 | 4.4 → 1.1 |
+
+  No cuentan (es el contacto que tiene que haber) la mano en el puño (1.9-2.9 cm, de antes y de ahora: los
+  dedos cerrados sobre la goma) ni la bota en la estribera.
+- **Por qué**, cuatro cosas:
+  1. La pose del estilo (`hips`, `knee`, `peg`) está hecha para el piloto generado: su pelvis es una caja que
+     apoya 5 cm debajo de `hips`. En el modelo, cola y muslos quedan ~15 cm debajo del hueso `Hips`, y encima
+     `kHipsDrop` la bajaba 5 cm (rodillas más dobladas): 8-9 cm adentro del asiento, en todas las motos.
+  2. La IK de las piernas no sabía nada de la moto: tobillo en la estribera y la rodilla "adelante y apenas
+     abierta" con un polo fijo. La cadera del modelo es angosta (articulaciones a ±8 cm; el tanque de la
+     motocross mide ±12 cm y el carenado de la de carreras ±25): muslo, rodilla y canilla caían adentro.
+  3. En `RiderPoseLocal` se suman los corrimientos de costado (whip 0.40·sen(35°), cuerpo 0.13, pata
+     afuera, colgado) y hacia adelante (tirado adelante + pata afuera): la cadera llegaba a 36 cm del centro,
+     los hombros a 55 cm (arriba de un puño) y la cola sobre el tanque.
+  4. Sobre la cola, la pose "torso derecho respecto del mundo" ponía la cadera en (0, 0.05, 0.12) y los
+     hombros en (0, 0.18, 0.62): con la moto a 80°, eso es a lo largo y adentro del tanque.
+- **Qué se hizo** (la pose es dibujo: la física no cambia; `RiderPoseLocal` también la usa el piloto generado
+  y el ragdoll al aparecer):
+  - **La forma de la moto** (`RiderModel::BikeShape`): en `Draw`, con el chasis (`BikeMesh::Body`) del estilo
+    que se acaba de dibujar (`r.bikeStyle`: `Bike::Draw` lo pone justo antes, también para los remotos), sin
+    estriberas, pedal ni palanca (ahí apoya la bota), dos mapas de 1 cm: de cada lado la |x| más afuera de la
+    superficie en cada (y, z), y el techo (la y más alta) en cada (x, z), agrandados una celda. Un punto está
+    adentro si está más cerca del centro que el costado y más abajo que el techo; sale por el costado (`dl`)
+    o por arriba (`dv`). Se arma una vez por estilo (5-8 ms) y se rearma si cambia el chasis (F5).
+  - **Vértices de prueba** del modelo, por el hueso que más pesa (uno por posición): cola y mitad de arriba de
+    los muslos (asiento), piernas, botas, pecho (torso, casco y brazos) y antebrazos. Las manos no.
+  - **`PoseOnBike`**, después de lo de siempre (que las manos lleguen): (1) sube la cadera hasta que cola y
+    muslos se hunden como mucho 1.5 cm (la espuma); (2) si pecho, casco o brazos atraviesan el manubrio (un
+    tubo de 3.5 cm de puño a puño) o la moto, endereza el torso lo justo, sin que los brazos dejen de llegar;
+    (3) cada pierna: corre el tobillo sobre la estribera (hasta 6 cm; 15 más con la pata afuera) hasta que la
+    bota no se mete en el motor, y abre la rodilla girándola alrededor de la recta cadera-tobillo (de a 0.1 rad,
+    afinado, hasta 0.8) hasta que muslo y canilla quedan afuera del tanque, los plásticos, el escape y el
+    manubrio (con la pata afuera y el manubrio a fondo para ese lado el puño vuelve hasta la rodilla); (4) con
+    el cuerpo de costado, la cadera vuelve hacia el medio lo justo (el torso queda donde lo pide la pose) y
+    sube lo que falte; (5) si los brazos dejaron de llegar, se vuelve a buscar la inclinación, y si ni así
+    llegan (más del 102%, la mano a ~1 cm del puño), la cadera baja lo justo: las manos mandan sobre el asiento
+    (con la pata afuera en la de carreras la cadera subía hasta el tope y las manos quedaban a 15-20 cm de los
+    puños; se vio con `mano_lejos` del barrido; bajando hasta el 99% quedaba sentado 7-8 cm adentro del asiento
+    tirado atrás con el manubrio a fondo, y con el 102% alcanza con 1 cm de mano afuera). Los mapas se
+    leen bilineales y cada vértice cuenta "por arriba" o "por el costado" con una transición suave: la pose no
+    salta de un cuadro a otro. Cuesta 0.4-0.6 ms por piloto y cuadro (lo peor medido, 1.8 ms).
+  - **Hombros con el manubrio**: tirado atrás y con el manubrio a fondo, la mano de afuera quedaba a 8-9 cm de
+    su puño. Los hombros giran con el manubrio (60%, hasta 0.5 rad) sobre el eje del torso: 2.3 cm, y con el
+    paso (5) ≤ 1.1 cm en todo el barrido. Con 80% y 0.6 rad era peor (2.8 cm: el hombro de adentro se va atrás).
+  - **`RiderPoseLocal`**: la cola no pasa de la punta del asiento (`style.hips.z + max(leanHipsZ, 0.19)`); el
+    corrimiento de costado se frena suave (`0.25·tanh(x/0.25)` la cadera, `0.30·tanh(x/0.30)` los hombros: lo
+    chico queda igual); sobre la cola, de pie en los pedales con las piernas casi estiradas y el torso hacia el
+    manubrio (cadera (0, 0.34, -0.08), hombros (0, 0.66, 0.30), rodillas (±0.19, -0.03, 0.05)): con la moto a
+    80°, en el mundo queda unos 30° tirado atrás, colgado del manubrio.
+- **Se comprobó**: el barrido y las pruebas de arriba; capturas antes y después con el modelo (de costado, de
+  frente, whip, colazo, las cinco motos) y vistas ortogonales con lo que se mete marcado (`tools/holgura/vista.py`);
+  regresión idéntica contra la v0.2.7 (`brakeslide`, `cuerpo`, `flip`, `whip`, `wheelie`, `accel`, `colazo`,
+  `--bot --time 40`) y el bot 1:08.73 / 1:08.42. Ragdoll con el modelo (`crashloop`, 4-5 caídas): igual que
+  antes (hombro, giro según Jolt 52-54° antes y 54-57° ahora con límite 40°; separación hasta 3 cm).
+- **Queda**:
+  - la entrepierna contra el costado del asiento, 2-4 cm (percentil 90: 3.5-3.9 cm; hasta 5-6 en poses raras
+    con el cuerpo de costado): el modelo tiene los muslos juntos y el asiento mide 24 cm; queda tapado por las
+    piernas;
+  - tirado atrás con el manubrio a fondo (y más con el cuerpo de costado) los brazos no dan: la cadera queda
+    más baja para que las manos lleguen y los muslos se hunden hasta 6 cm (motocross, 2T); en la de carreras,
+    con la pata afuera y tirado atrás, la cola hasta 8.7 cm (percentil 90: 0.4). Con brazos más largos se
+    arreglaría (ver "Proporciones");
+  - en la de carreras, la canilla contra el semimanillar con la pata afuera y el manubrio a fondo (2.6 cm) y la
+    mano contra el borde del carenado (2.5 cm: el puño está pegado al carenado, es de la moto);
+  - la trial en el aire, tirado adelante con el whip a fondo: torso y cadera contra el manubrio hasta 6 cm (los
+    brazos ya no llegan si se endereza más); en las pruebas de manejo no aparece;
+  - el primer cuadro de cada estilo (antes de que se dibuje la moto) sale sin ajustar.
+- **Proporciones**: no hace falta otro modelo. El 3 mide 1.70 m con brazos cortos (hombro a muñeca 0.52 m:
+  brazo 0.29 + antebrazo 0.23, 31% del alto; lo común es 33%), piernas cortas (cadera a tobillo 0.74 m: muslo
+  0.36 + canilla 0.38, 44%; lo común, 49%) y angosto (hombros a 0.30 m entre articulaciones, caderas a 0.16). Con el ajuste
+  entra en las cinco motos; lo único que pide más brazo es tirado atrás con el manubrio a fondo (para que las
+  manos lleguen, la cadera no sube del todo y los muslos quedan hasta 6 cm en el asiento). Agrandarlo entero
+  no se probó: el torso crece igual que los brazos y el pecho se acerca al manubrio. Si se hace uno nuevo, que
+  tenga: 1.75 m; hombro-muñeca 0.58 m (brazo 0.32 + antebrazo
+  0.26); cadera-tobillo 0.85 m (muslo 0.43 + canilla 0.42), la articulación de la cadera a 0.90 m del piso;
+  hombros (articulaciones) a 0.36-0.38 m entre sí; caderas a 0.18-0.20 m; muslos no muy gruesos (la
+  entrepierna es lo que queda contra el asiento). El ajuste (asiento, rodillas, tobillos) se acomoda solo a
+  otras medidas; el ragdoll se arma con sus articulaciones (`JointPose`) y en red cada PC usa las del suyo.
 
 ## Riggear un modelo nuevo (tools/riggear_piloto.py)
 
@@ -229,10 +341,53 @@ Tres causas, una detrás de la otra:
   `--view <yaw> <pitch> <zoom>` (la cámara sigue a la pelvis con retraso: para la pose final, capturar
   ya quieto). Comandos completos en [PRUEBAS.md](PRUEBAS.md).
 
+## Medir la holgura (tools/holgura)
+
+Cuánto se mete el piloto (el modelo, skineado) en la moto. No va en el juego: `python tools/holgura/armar.py`
+arma una copia en `build-msvc-holgura/` (src, mods, `RiderClearance.cpp/.h` de `tools/holgura` y un enganche
+en `Game::Draw` después de `riderModel.Skin()`) y la compila; el exe se corre **con ventana** desde la raíz
+del proyecto (ahí están el modelo y `mods/`). Si `Game.cpp` cambia y el enganche no entra, el script avisa.
+- **Qué mide**, en cada pose: (A) vértices del piloto adentro de cada primitiva cerrada de las piezas de la
+  moto (chasis, basculante, tijas, botellas, manubrio, guardabarros, cubiertas), con la profundidad hasta su
+  superficie; (B) puntos de la superficie de la moto cada 1.2 cm adentro de las piezas del piloto (lo que A
+  no ve: un caño fino que atraviesa un muslo). Por zona del cuerpo (el hueso que más pesa); la mano en el
+  puño y la bota en la estribera, aparte.
+- **Barrido**: `bash tools/holgura/barrido.sh build-msvc-holgura/b/motocross.exe <carpeta> <etiqueta>` (las
+  cinco motos, 3-6 min cada una; la de carreras, más) y `python tools/holgura/tabla.py <carpeta> antes
+  despues` para la tabla. El CSV trae por pose también el ajuste (`sube`, `centro`, `abre`, `tob`), lo que
+  queda según las pruebas del propio ajuste (`pAsiento`, `pPierna`, `pBota`, `pManubrio`), el alcance del
+  brazo y cuánto le falta a la mano para su puño (`mano_lejos`).
+- **En una prueba**: `MOTOSIM_HOLGURA=1 <exe> --flat --test cuerpo ...`: cada 0.05 s imprime lo que pasa de
+  1 cm y al salir lo peor de toda la prueba (el primer cuadro sale sin ajustar: descartarlo).
+- **Para mirarlo**: `MOTOSIM_HOLGURA_FILTRO="suelo L+0.0 S+0 st+0.0 g0"` (alternativas con `|`) y
+  `MOTOSIM_HOLGURA_VOLCAR=prefijo` vuelcan cada pose; `python tools/holgura/vista.py prefijo_000.bin salida.png
+  [--zoom x y z tam] [--vistas izq,der,frente,atras,arriba]` dibuja la moto y el piloto de costado, de frente
+  y de arriba, con lo que se mete en rojo (A) y amarillo (B). `MOTOSIM_HOLGURA_DEBUG=1` lista las primitivas
+  abiertas y el perfil de la forma de la moto que usa el ajuste.
+- **Lo que costó** (trampas de la medición):
+  - La malla del piloto no es cerrada: el cuerpo tiene agujeros en el cuello, los puños y los tobillos (los
+    tapan el casco, los guantes y las botas) y el casco en la base del cuello. Con un rayo por paridad, los
+    puntos adentro que salían por un agujero contaban afuera. Se tapan los bordes (se encadenan las aristas
+    que están en un solo triángulo y se cierra cada lazo con un abanico). Primero hay que soldar los vértices
+    repetidos (costuras de UV, caras de cajas): sin soldar, cada cara de una caja es una pieza "abierta".
+  - Las piezas de la moto son primitivas cerradas, salvo tubos sin tapas y láminas: se tapan sólo las bocas
+    chicas (menos de 12 cm). Tapando la lámina del carenado quedaba un volumen falso con los semimanillares y
+    las manos adentro (daba 8-10 cm de "mano adentro del chasis").
+  - Un solo rayo da falsos adentro cuando roza una arista (salió un punto "34 cm adentro del guante", 25 cm
+    debajo de él). Se usan tres rayos torcidos y vale si dos dan impar.
+  - Velocidad: el primer intento tardaba 1.2 s por pose (la confirmación y la profundidad recorrían todos los
+    triángulos del piloto). Con los triángulos proyectados a lo largo de cada rayo en grillas de 2 cm y una
+    grilla 3D de 3 cm para la distancia: ~0.2 s por pose.
+  - Sin ventana el modelo no se carga, y la medición necesita las mallas de la moto de `Renderer`: todo con
+    ventana (`--size 640 360`).
+
 ## Pendientes
 
 - **El ragdoll con el modelo, tirado adelante**: se pasa del giro del hombro y el codo se dobla de
-  costado durante la caída (ver "Con el modelo, los brazos saltaban al aparecer").
+  costado durante la caída (ver "Con el modelo, los brazos saltaban al aparecer"). Medido otra vez con el
+  piloto que ya no se mete en la moto (`crashloop`, 4-5 caídas): giro del hombro según Jolt 52-54° antes y
+  54-57° ahora (límite 40°), codo de costado +10..13°, separación hasta 3 cm: no cambió. No se tocó.
+- **El piloto contra la moto, lo que queda**: ver "El piloto se metía en la moto", "Queda".
 - **El rojo del modelo 3 se ve rosado** al sol (sobre todo la espalda): es el color de la textura de
   Tripo (carmesí, con degradés a violeta), no la luz: sin brillo (`SetGloss(0)`) y sin mipmaps da igual.
   Si molesta, se corrige la textura (o un tinte en el script), no el shader.
