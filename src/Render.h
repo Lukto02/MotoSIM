@@ -69,8 +69,8 @@ const BikeLivery& TrailLivery(int i);        // trilheira: colores de la calle (
 // color del cielo, todo en espacio lineal con tone mapping filmico. Un puñado de mallas primitivas
 // (caja, cilindro, esfera, neumático) que se dibujan con una matriz y un color.
 struct Renderer {
-    Shader lit{}, terrainShader{}, skyShader{}, depthShader{}, grassShader{};
-    Material material{}, terrainMaterial{}, skyMaterial{}, depthMaterial{}, grassMaterial{};
+    Shader lit{}, terrainShader{}, skyShader{}, depthShader{}, grassShader{}, skidShader{};
+    Material material{}, terrainMaterial{}, skyMaterial{}, depthMaterial{}, grassMaterial{}, skidMaterial{};
     Texture2D detail{}, dirtTex{}, grassTex{}, bladeTex{}, pavedTex{}, soilTex{}, sandTex{};
     Mesh box{}, cylinder{}, sphere{}, tire{}, rim{}, tuft{};
     Mesh disc{};                                    // cilindro de muchas caras (plataformas grandes)
@@ -132,6 +132,9 @@ struct Renderer {
     // twoSided = false: sólo la cara del frente (calcomanías espalda con espalda no se pisan).
     // Matas de pasto: una matriz por mata (con el tono en la fila de abajo, ver kGrassVS).
     void DrawGrass(const Matrix* transforms, int count, Texture2D marks, float terrainOrigin, float terrainSize);
+    // Marcas de goma (TerrainDeformation): los primeros `quads` cuadriláteros de la malla, oscureciendo lo que ya
+    // está dibujado, sin escribir profundidad. Después de lo opaco del suelo; no van en la pasada de sombras.
+    void DrawSkidMarks(const Mesh& mesh, int quads);
 
     // Caja unitaria (1x1x1 centrada) / cilindro unitario (radio 1, eje Y de -0.5 a 0.5)
     // transformados por una matriz de Jolt.
@@ -152,7 +155,8 @@ private:
     void FindLocs(Shader& sh, Locs& l);
     void SetCommon(Shader sh, const Locs& l, const Camera3D& cam);
 
-    Locs litLocs, terrainLocs, skyLocs, grassLocs;
+    Locs litLocs, terrainLocs, skyLocs, grassLocs, skidLocs;
+    int skidPixelLoc = -1;
     int glossLoc = -1, skyTimeLoc = -1, grassTimeLoc = -1, grassOriginLoc = -1, grassSizeLoc = -1, pavedTintLoc = -1;
     RenderTexture2D shadowMap{}, sceneRT{};
     Shader postShader{};

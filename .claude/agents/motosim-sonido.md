@@ -31,7 +31,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
     - cuatritiempea con poco gas;
     - "ding" metálico de 2.35 kHz.
   - **Petardeos**: chasquido, golpe grave y cola, con eco de 85 ms; corren el motor un momento.
-  - **Derrape**: arrastre en tierra, chillido resonante en pavimento.
+  - **Derrape** (`Game::FeedTireSound` → `SetSkid(dirt, squeal, chirp)`): arrastre en tierra; en lo duro (pavimento u objeto, `Wheel::onObject`) chillido de la goma deslizando y chirridos frenando cerca del límite (uso del agarre frenando > 30%).
   - **Raspado**: sólo contra algo duro. Dos filtros de banda en serie de 0.9 a 2.2 kHz, rumor, aspereza y chasquidos chicos; ~4.5 dB menos que la versión vieja. La vieja eran dos resonancias agudas y angostas (silbido) con clics fuertes, y el usuario dijo que sonaba feo y fuerte.
   - **Mezcla**: `tanh` final; los petardeos saturan aparte.
 - Trampas conocidas:
@@ -40,10 +40,12 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - **Centroide del espectro**: con ruido blanco sube mucho; mirá también el reparto de energía por bandas.
 
 ## Cómo probás
-- `motocross.exe --sound-test archivo.wav [2t|raspado]`:
+- `motocross.exe --sound-test archivo.wav [2t|raspado|chillido]`:
   - sin modo: 4T a fondo, cambio y petardeos;
   - `2t`: lo mismo con el dos tiempos y ralentí;
-  - `raspado`: motor bajo y raspado lento y rápido.
+  - `raspado`: motor bajo y raspado lento y rápido;
+  - `chillido`: la cubierta en el asfalto, de los chirridos cerca del límite a trabada.
+- `--headless ... --sound-log archivo.wav`: el sonido de una prueba real (cualquier `--test`, mapa y moto), más `archivo_cubiertas.wav` (solas) y una línea `snd` por paso con lo que alimenta el derrape.
 - `python tools/sonido.py archivo.wav t0-t1 ...`: RMS, pico, centroide, % arriba de 2 kHz y frecuencia de explosiones por tramo.
 - Para comparar contra un sintetizador que ya no está en el exe, reproducilo en numpy (son pocas líneas) y medí nivel y energía por bandas de los dos.
 - Si agregás un sonido nuevo, sumale un modo a `RenderTest` para poder medirlo.

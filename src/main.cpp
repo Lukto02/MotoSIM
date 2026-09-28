@@ -40,11 +40,12 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--datos")) opt.techData = true;             // panel de datos técnicos (T) a la vista
         else if (!std::strcmp(argv[i], "--bike")) opt.bike = next();                // mod/moto
         else if (!std::strcmp(argv[i], "--map")) opt.map = next();                  // motocross | favela | mod/mapa
-        else if (!std::strcmp(argv[i], "--sound-test")) {        // WAV de prueba del sonido: [2t|raspado]
+        else if (!std::strcmp(argv[i], "--sound-test")) {        // WAV de prueba del sonido: [2t|raspado|chillido]
             const char* path = next();
             const char* mode = i + 1 < argc && argv[i + 1][0] != '-' ? argv[++i] : "";
             return EngineSound::RenderTest(path, mode) ? 0 : 1;
         }
+        else if (!std::strcmp(argv[i], "--sound-log")) opt.soundLog = next();       // con --headless: WAV del sonido de la prueba
         else if (!std::strcmp(argv[i], "--drop")) opt.dropHeight = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--bot-lat")) opt.botLateralAccel = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--telemetry")) opt.telemetry = true;

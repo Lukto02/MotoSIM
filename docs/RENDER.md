@@ -27,6 +27,10 @@ mapas se arman por código (`Favela.cpp`, `Circuit.cpp`, `BikeMeshes.cpp`).
 - **Calcomanías de una cara** (favela): la cara de adelante es la que mira a `cross(derecha, arriba)`.
   La derecha del cartel tiene que ser la derecha de quien lo mira desde afuera; si no, mira a la pared
   y queda invisible (o espejado, de dos caras).
+- **Algo fino pegado al suelo** (marcas de goma): la textura de huellas no sirve en los mapas grandes (un
+  texel mide 34-50 cm en el autódromo y la plaza). Va como geometría apoyada en el terreno, sin escribir
+  profundidad, unos mm arriba y corrida hacia la cámara a lo largo de la mirada en el shader (mismo píxel,
+  otra profundidad); de lejos, ensanchada a ~1.5 px y aclarada en proporción (ver "Marcas de goma").
 - Las sombras: mapa de 2048² que cubre 64 m (3 cm por texel), con el foco enganchado a la grilla de
   texels (si no, los bordes titilan al moverse) y corrimiento por la normal de un texel.
 
@@ -50,6 +54,73 @@ MOTOSIM_COPLANARES=detalle ./motocross.exe --size 640 360 --map base/circuito --
 - Para ubicarse en una posición `(x, z)`: `--test profile` da `s → x, z` cada 2 m, y `--spawn s`.
 
 ## Bitácora
+
+### Marcas de goma en el asfalto (todas las motos, también las de los demás)
+- **Pasaba**: en el asfalto (autódromo, favela, `prueba/plaza_asfalto`) cada rueda apoyada dejaba el mismo
+  surco de tierra que en el barro: una banda marrón de 50-100 cm con borde claro y relieve, rodando normal
+  y sin patinar (captura del paquete: una estela marrón borrosa detrás de la moto). No había marcas negras.
+- **Por qué no alcanzaba la textura de huellas**: cubre todo el terreno con 4096²; en la plaza (2048 m) un
+  texel mide 50 cm y en el autódromo (1380 m) 34 cm, y la huella de una cubierta mide 10-18. Dibujada ahí,
+  una marca de goma sería otra banda borrosa de medio metro (en la motocross, 255 m, un texel mide 6 cm:
+  por eso los surcos se ven bien en la tierra). Distinguir "goma" de "surco" en un canal no arregla el tamaño.
+- **Qué se hizo**:
+  - `TerrainDeformation`: en el asfalto (`PavedAmount`; entre 0.2 y 0.6 se apagan) no hay surcos; la tierra y
+    el pasto siguen igual (con `PavedAmount` = 0 el trazo es el mismo de antes). Las marcas de goma son
+    **tiras de cuadriláteros** apoyadas en el terreno (un anillo de 16384, 4 vértices cada uno: entra justo en
+    índices de 16 bits; ~2 km de marcas, las nuevas pisan las más viejas). Un borde cada 12 cm, perpendicular
+    a hacia dónde se movió la goma (derrapando no es hacia donde mira la moto), cada borde a la altura del
+    terreno (sigue el peralte) + 4 mm. Sólo se suben a la GPU los cuadriláteros nuevos (`UpdateMeshBuffer`
+    una vez por frame, en `Flush`).
+  - Cuánto marca: por el **resbale de la goma** `hipot(ω·R − vLong, vLat)` (m/s), que ya llega en `WheelFx`
+    (`spin`, `latVel`) también de los demás. El modelo de la cubierta es tipo "constraint": mientras le
+    alcanza el agarre no resbala (rodando, ~0; acelerando a fondo, < 1 m/s; frenando con la S la de carreras,
+    0.6), así que no hace falta un umbral fino: marca desde 1.5 m/s y del todo desde 9 (smoothstep), por la
+    carga (0.3 + 0.7 · carga / 1300 N) y por lo pavimentado. Al límite (el patinaje del pico de agarre, 3-5
+    m/s) queda una línea tenue; trabada o derrapando, oscura. Ancho: 12 cm la de adelante, 15 la de atrás
+    (±15% con la carga y el resbale). Oscurece hasta el 73% por pasada y las pasadas se suman. Patinando sin
+    avanzar (burnout, golpe de gas en la largada) deja manchas del largo de la huella.
+  - Sobre una rampa, un escalón o una caja no marca (el contacto a más de 8 cm del terreno); las de los
+    demás llegan siempre a la altura del terreno (no se sabe si están sobre un objeto).
+  - Dibujo (`Renderer::DrawSkidMarks`, `kSkidVS`/`kSkidFS`): después de lo opaco del suelo, sin escribir
+    profundidad, **mezcla multiplicativa** (`BLEND_MULTIPLIED` con el color en negro: destino · (1 − alfa)):
+    oscurece igual al sol y a la sombra, y se va borrando con la niebla. Bordes suaves y vetas a lo largo.
+  - **Sin z-fighting a ninguna distancia**: 4 mm arriba del terreno y, en el shader, el vértice se corre
+    hacia la cámara **a lo largo de la mirada** 5 mm + 0.1% de la distancia (cae en el mismo píxel, sólo
+    cambia la profundidad). Rasante, los 4 mm solos ya son mucha separación a lo largo del rayo (4 mm /
+    sen del ángulo). Queda encima de las líneas pintadas y del asfalto de boxes (1 cm), como debe.
+  - **De lejos, en vez de mipmaps**: una tira de 12 cm a 50 m, o vista de costado rasante, mide menos de un
+    píxel y se rasteriza a los saltos (rayas que titilan). El shader mide cuántos píxeles mide media tira
+    (`pixelAngle` = 2·tan(fovy/2) / alto de la escena) y la ensancha hasta ~1.5 px aclarándola en la misma
+    proporción (en promedio oscurece lo mismo), hasta 16 veces.
+- **Se comprobó** (Mac, capturas del paquete de referencia `build-mac` y del nuevo, mismas pruebas):
+  derrape de costado con gas (`prueba/plaza_asfalto --bike base/carrera --test slide --view 200 25 0.8`):
+  antes, banda marrón de ~70 cm; ahora, una marca negra de ~15 cm con vetas que sigue la curva, y donde la
+  moto sale al pasto sigue el surco de siempre. Trasera trabada (`--bike base/motocross --test brakestraight`,
+  en la plaza y en el autódromo, cerca y a ~40 m con `--view 160 10 6`): línea oscura y fina, continua de lejos.
+  Frenando y doblando (`frenacurva120`): la de adelante al límite deja una línea tenue. Rodando normal
+  (`--test cuerpo`): nada (antes, la estela marrón). Favela (bot): una marca corta donde la trasera patina al
+  bajar la escalera, en vez del surco claro. La tierra (`base/motocross --test brakeslide`): los mismos
+  surcos (la diferencia entre antes y después, 3.6% de píxeles > 24 niveles, es menor que entre dos
+  corridas del mismo exe, 12.8%: pasto que se mueve, polvo). Anillo lleno a propósito (20000 tramos, da la
+  vuelta): 50 líneas paralelas de 48 m, continuas de cerca a ~60 m y de costado rasante; 17.0 ms contra
+  17.1 sin marcas (60 Hz con vsync; 64 k vértices contra los 793 k del autódromo). Autódromo con el bot, 30
+  s: 17.1 ms los dos. Regresión idéntica (la lista de PRUEBAS.md y `frenada120` en la plaza): sin ventana no
+  se llama.
+- **Frenando al límite sin trabar (marca tenue)**: la de carreras con la S no traba ninguna rueda (la
+  delantera frena al 60% del agarre y la trasera casi sin peso no llega a trabarse; con sólo el freno de
+  atrás a 32 km/h, tampoco), así que por el resbale no marcaba nada. A pedido, sin tocar la física:
+  `BrakingEdge` (Game.cpp) hace la cuenta del chirrido de `FeedTireSound` (`gripUsage` recortado a 1.3, por
+  la parte de la fuerza que frena; de costado pasado el 90%, a la mitad) pero desde 0.45 hasta 0.8, y
+  `WheelContact` lo recibe como `edge`: marca hasta un tercio de una trabada y sólo con peso (desde 300 N;
+  la trasera casi en el aire usa mucho agarre relativo pero no apoya). Sólo la moto propia: `gripUsage` no
+  viaja por la red (las de los demás, sólo por el resbale). Medido en metros de marca tenue:
+  `frenada120` con la carrera, ~31 m de la delantera; `frenacurva120x0f0.3` (frenada suave), nada; el bot
+  en el autódromo, ~27 m por minuto en las frenadas fuertes. En la captura (`--view 180 35 2.5`), una
+  línea gris fina detrás de la delantera, bastante más clara que una trabada.
+- **Quedan**: con el gas contra el freno de adelante (`--test burnout`) la trasera no patina en el asfalto:
+  la moto empuja la delantera trabada, que es la que marca. Las pruebas que aparecen con gas (la moto cae
+  con la rueda girando) dejan una mancha en la largada. En el asfalto sigue saltando "tierra" (partículas
+  de `EmitWheelEffects`, según `Dustiness`), y no hay humo de goma.
 
 ### Profundidad de 24 bits pedida, no elegida por el driver (escena y sombras)
 - **Pasaba**: nada en esta PC, pero `LoadRenderTexture` y `rlLoadTextureDepth` de raylib piden la

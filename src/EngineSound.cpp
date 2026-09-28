@@ -27,7 +27,7 @@ constexpr float kVolume = 0.8f;            // el volumen de siempre (Ajustes →
 std::atomic<float> gVolume{kVolume};
 std::atomic<bool> gMuted{false};
 std::atomic<int> gPopRequests{0};          // petardeos pedidos y todavía no empezados
-std::atomic<float> gSkid{0.0f}, gSkidPaved{0.0f}, gScrape{0.0f};
+std::atomic<float> gSkid{0.0f}, gSqueal{0.0f}, gChirp{0.0f}, gScrape{0.0f};
 std::atomic<float> gPopStrength{1.0f};
 
 AudioStream gStream{};
@@ -209,26 +209,41 @@ struct Backfires {
     }
 } gBackfires;
 
-// Cubierta que patina: en la tierra, un arrastre grave y granulado (ruido en banda baja con golpeteo
-// de piedritas); en el pavimento, un chillido (ruido por un filtro resonante cerca de 1 kHz, con el
-// tono que tiembla). Pasa por su propia envolvente para que no clickee.
+// Cubiertas que patinan (la moto propia).
+// - En la tierra, un arrastre grave y granulado (ruido en banda baja con golpeteo de piedritas). Es el de
+//   siempre: usa su propio ruido en el mismo orden, así sale idéntico.
+// - En lo duro (pavimento, cemento, objetos), el chillido de la goma: un tono de ~0.8-1.1 kHz con armónicos
+//   (la goma que se pega y se suelta), con el tono que camina y tiembla al azar (si fuera fijo sería un
+//   silbido), más un poco de ruido resonante en la misma zona y un siseo arriba. Deslizando (squeal) suena
+//   seguido; frenando cerca del límite (chirp), en chirridos sueltos de unas decenas de ms que se juntan y
+//   suben al acercarse al bloqueo. Antes el pavimento era sólo el ruido resonante (casi un silbido) y sonaba
+//   únicamente con la rueda deslizando: la carrera frenando a fondo con la S no hacía ningún ruido.
+// Todo pasa por envolventes suaves para que no clickee.
 struct Skid {
-    float amount = 0.0f, paved = 0.0f;
+    float amount = 0.0f;                         // arrastre (tierra)
+    float squealAmt = 0.0f, chirpAmt = 0.0f;     // chillido (lo duro)
     float lp1 = 0.0f, lp2 = 0.0f, grit = 0.0f;
     float low = 0.0f, band = 0.0f, wobble = 0.0f;
-    unsigned noise = 0x68E31DA4u;
-    float Noise()
+    float phase = 0.0f, pitchTarget = 0.0f, pitchWalk = 0.0f, jitter = 0.0f, squeakPitch = 1.0f;
+    float gateEnv = 0.0f, grainLp = 0.0f, hissLp = 0.0f, hissLp2 = 0.0f;
+    bool squeak = false;
+    unsigned noise = 0x68E31DA4u, noise2 = 0x1B873593u;
+    static float Xorshift(unsigned& s)
     {
-        noise ^= noise << 13;
-        noise ^= noise >> 17;
-        noise ^= noise << 5;
-        return (float)(noise & 0xffff) / 32767.5f - 1.0f;
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        return (float)(s & 0xffff) / 32767.5f - 1.0f;
     }
-    float Sample(float target, float targetPaved, float dt)
+    float Noise() { return Xorshift(noise); }
+    float Noise2() { return Xorshift(noise2); }
+    float Sample(float targetDirt, float targetSqueal, float targetChirp, float dt)
     {
-        amount += (target - amount) * 0.0015f;
-        paved += (targetPaved - paved) * 0.0005f;
-        if (amount < 1e-4f) return 0.0f;
+        amount += (targetDirt - amount) * 0.0015f;
+        squealAmt += (targetSqueal - squealAmt) * 0.0015f;
+        chirpAmt += (targetChirp - chirpAmt) * 0.0015f;
+        const bool hard = squealAmt >= 1e-4f || chirpAmt >= 1e-4f || gateEnv >= 1e-4f;
+        if (amount < 1e-4f && !hard) return 0.0f;
         const float n = Noise();
         lp1 += (n - lp1) * 0.05f;
         lp2 += (lp1 - lp2) * 0.05f;
@@ -236,12 +251,46 @@ struct Skid {
         const float dirt = (lp1 - lp2) * 5.0f + grit * 0.8f;
         wobble += dt * 7.0f;
         const float fc = 980.0f + 90.0f * std::sin(kTau * wobble) + 40.0f * Noise();
-        const float f = 2.0f * std::sin(3.14159265f * fc / kSampleRate), q = 0.035f;   // resonante (chilla)
+        const float f = 2.0f * std::sin(3.14159265f * fc / kSampleRate), q = 0.035f;   // resonante
         const float high = n - low - q * band;
         band += f * high;
         low += f * band;
-        const float squeal = band * 0.12f;
-        return amount * (dirt * (1.0f - paved) + squeal * paved);
+        const float out = amount * dirt;
+        if (!hard) return out;
+
+        // Chirridos (frenando cerca del límite): arrancan y cortan al azar; cuanto más cerca del bloqueo, más
+        // seguidos y más largos (con chirp = 1, ~70% del tiempo sonando).
+        const float c = chirpAmt;
+        const float startRate = 3.0f + 22.0f * c, stopRate = 35.0f - 25.0f * c;       // por segundo
+        if (!squeak && c > 0.02f && Noise2() > 1.0f - 2.0f * startRate * dt) {
+            squeak = true;
+            squeakPitch = 1.0f + 0.06f * Noise2();                                   // cada uno un poco distinto
+        } else if (squeak && (c <= 0.02f || Noise2() > 1.0f - 2.0f * stopRate * dt)) {
+            squeak = false;
+        }
+        gateEnv += ((squeak ? 1.0f : 0.0f) - gateEnv) * (squeak ? 0.0075f : 0.0019f);  // ~3 ms de ataque, ~12 de caída
+        const float s = squealAmt;
+        const float level = s + (1.0f - s) * c * (0.5f + 0.5f * c) * (0.3f + 0.7f * gateEnv);
+
+        // Tono: camina al azar (~13 cambios por segundo, suaves) y tiembla rápido (la aspereza de la goma).
+        if (Noise2() > 0.9994f) pitchTarget = Noise2();
+        pitchWalk += (pitchTarget - pitchWalk) * 0.0008f;
+        jitter += (Noise2() - jitter) * 0.02f;
+        const float pitch = (780.0f + 320.0f * s) * (s > c ? 1.0f : squeakPitch) * (1.0f + 0.04f * pitchWalk + 0.5f * jitter) +
+                            50.0f * std::sin(kTau * wobble);
+        phase += pitch * dt;
+        if (phase > 1.0f) phase -= 1.0f;
+        const float p = kTau * phase;
+        const float tone = std::sin(p) + 0.5f * std::sin(2.0f * p + 0.7f) + 0.28f * std::sin(3.0f * p + 1.3f) + 0.12f * std::sin(4.0f * p);
+        // Grano: el volumen tiembla un poco (la goma no chilla pareja).
+        grainLp += (Noise2() - grainLp) * 0.004f;
+        const float grain = 0.8f + 0.2f * std::clamp(grainLp * 8.0f, -1.0f, 1.0f);
+        // Siseo de la goma arrastrándose (arriba de ~2 kHz), sólo deslizando.
+        const float m = Noise2();
+        hissLp += (m - hissLp) * 0.35f;
+        hissLp2 += (hissLp - hissLp2) * 0.35f;
+        const float hiss = hissLp - hissLp2;
+        return out + level * grain * (tone * 0.17f + band * 0.05f) + s * hiss * 0.08f;
     }
 } gSkidSynth;
 
@@ -291,6 +340,8 @@ struct Scrape {
     }
 } gScrapeSynth;
 
+float* gTireTap = nullptr;         // --sound-log: las cubiertas solas (sin el tanh final), para medirlas aparte
+
 void SynthCallback(void* buffer, unsigned int frames)
 {
     float* out = (float*)buffer;
@@ -308,7 +359,7 @@ void SynthCallback(void* buffer, unsigned int frames)
         twoStroke[v] = gVoice[v].twoStroke.load();
     }
     const float volume = gMuted.load() ? 0.0f : gVolume.load();
-    const float skid = gSkid.load(), skidPaved = gSkidPaved.load(), scrape = gScrape.load();
+    const float skid = gSkid.load(), squeal = gSqueal.load(), chirp = gChirp.load(), scrape = gScrape.load();
     for (int n = gPopRequests.exchange(0); n > 0; --n) gBackfires.Start(gPopStrength.load());
 
     for (unsigned int i = 0; i < frames; ++i) {
@@ -326,10 +377,30 @@ void SynthCallback(void* buffer, unsigned int frames)
         // suenan gordos, se destacan y no clipean.
         const float pops = gBackfires.Sample(dt);
         engine *= 0.55f * (1.0f - 0.45f * gBackfires.duck);
-        const float tire = gSkidSynth.Sample(skid, skidPaved, dt) * 0.6f + gScrapeSynth.Sample(scrape) * 0.45f;
+        const float tire = gSkidSynth.Sample(skid, squeal, chirp, dt) * 0.6f + gScrapeSynth.Sample(scrape) * 0.45f;
         out[i] = std::tanh(engine + tire + std::tanh(pops * 1.8f) * 0.95f) * volume;
+        if (gTireTap) gTireTap[i] = tire * volume;
     }
 }
+
+// WAV mono de 16 bits.
+bool WriteWav(const char* path, const std::vector<short>& pcm)
+{
+    std::ofstream f(path, std::ios::binary);
+    if (!f) return false;
+    const unsigned dataBytes = (unsigned)(pcm.size() * 2), rate = kSampleRate, byteRate = kSampleRate * 2, riff = 36 + dataBytes, fmtLen = 16;
+    const unsigned short pcmFormat = 1, channels = 1, align = 2, bits = 16;
+    auto put = [&](const void* data, size_t bytes) { f.write((const char*)data, (std::streamsize)bytes); };
+    put("RIFF", 4); put(&riff, 4); put("WAVEfmt ", 8); put(&fmtLen, 4); put(&pcmFormat, 2); put(&channels, 2);
+    put(&rate, 4); put(&byteRate, 4); put(&align, 2); put(&bits, 2); put("data", 4); put(&dataBytes, 4);
+    put(pcm.data(), pcm.size() * 2);
+    return (bool)f;
+}
+
+// --sound-log: lo que va generando CaptureStep.
+std::vector<short> gCapture, gCaptureTire;
+double gCaptureDebt = 0.0;
+short ToPcm(float v) { return (short)(std::max(-1.0f, std::min(1.0f, v)) * 32767.0f); }
 
 } // namespace
 
@@ -377,13 +448,15 @@ bool EngineSound::RenderTest(const char* path, const char* mode)
     // Guion: a fondo a 9000 rpm, cambio a 1 s (corte y petardeos), a fondo otra vez, y a 2 s se suelta
     // el gas arriba (dos petardeos más). "2t": lo mismo con el dos tiempos (hasta 11000 rpm) y 1.5 s más
     // de ralentí. "raspado": el motor bajo y la cola raspando despacio (0.5-1.5 s) y rápido (1.5-2.5 s).
+    // "chillido": el motor sin gas (frenando) y la cubierta en el asfalto: chirridos cerca del límite que crecen
+    // hasta el bloqueo (0.25-1.5 s), trabada (1.5-2.5 s) y deslizando cada vez más despacio hasta parar (2.5-3 s).
     // Se escribe un WAV mono de 16 bits.
     const std::string m = mode ? mode : "";
-    const bool two = m == "2t", scrape = m == "raspado";
-    const float kSeconds = two ? 4.5f : 3.0f;
+    const bool two = m == "2t", scrape = m == "raspado", squeal = m == "chillido";
+    const float kSeconds = two ? 4.5f : (squeal ? 3.5f : 3.0f);
     constexpr int kChunk = 256;
     const float popAt[5] = {1.02f, 1.07f, 1.14f, 2.03f, 2.10f}, popStrength[5] = {0.9f, 0.65f, 0.8f, 0.5f, 0.4f};
-    int nextPop = scrape ? 5 : 0;
+    int nextPop = scrape || squeal ? 5 : 0;
     Character ch;
     ch.twoStroke = two;
     ch.revLimit = two ? 11500.0f : 10000.0f;
@@ -403,20 +476,44 @@ bool EngineSound::RenderTest(const char* path, const char* mode)
             thr = 0.15f;
             SetScrape(t > 0.5f && t < 1.5f ? 0.35f : (t >= 1.5f && t < 2.5f ? 1.0f : 0.0f));
         }
-        UpdateVoice(0, rpm, thr, false, !scrape && t >= 1.0f && t < 1.12f, 1.0f, ch);
+        if (squeal) {
+            rpm = 4000.0f - 800.0f * t;
+            thr = 0.0f;
+            const float chirp = t >= 0.25f && t < 1.25f ? 0.2f + 0.8f * (t - 0.25f) : (t >= 1.25f && t < 1.5f ? 1.0f : 0.0f);
+            const float slide = t >= 1.5f && t < 2.5f ? 1.0f : (t >= 2.5f && t < 3.0f ? 1.0f - 1.4f * (t - 2.5f) : 0.0f);
+            SetSkid(0.0f, slide, chirp);
+        }
+        UpdateVoice(0, rpm, thr, false, !scrape && !squeal && t >= 1.0f && t < 1.12f, 1.0f, ch);
         while (nextPop < 5 && popAt[nextPop] <= t) gBackfires.Start(popStrength[nextPop++]);
         SynthCallback(buffer.data(), kChunk);
         for (float v : buffer) pcm.push_back((short)(std::max(-1.0f, std::min(1.0f, v)) * 32767.0f));
     }
-    std::ofstream f(path, std::ios::binary);
-    if (!f) return false;
-    const unsigned dataBytes = (unsigned)(pcm.size() * 2), rate = kSampleRate, byteRate = kSampleRate * 2, riff = 36 + dataBytes, fmtLen = 16;
-    const unsigned short pcmFormat = 1, channels = 1, align = 2, bits = 16;
-    auto put = [&](const void* data, size_t bytes) { f.write((const char*)data, (std::streamsize)bytes); };
-    put("RIFF", 4); put(&riff, 4); put("WAVEfmt ", 8); put(&fmtLen, 4); put(&pcmFormat, 2); put(&channels, 2);
-    put(&rate, 4); put(&byteRate, 4); put(&align, 2); put(&bits, 2); put("data", 4); put(&dataBytes, 4);
-    put(pcm.data(), pcm.size() * 2);
-    return (bool)f;
+    return WriteWav(path, pcm);
+}
+
+void EngineSound::CaptureStep(float seconds)
+{
+    gCaptureDebt += seconds * kSampleRate;
+    const int n = (int)gCaptureDebt;
+    if (n <= 0) return;
+    gCaptureDebt -= n;
+    std::vector<float> buffer(n), tire(n);
+    gTireTap = tire.data();
+    SynthCallback(buffer.data(), (unsigned)n);
+    gTireTap = nullptr;
+    for (int i = 0; i < n; ++i) {
+        gCapture.push_back(ToPcm(buffer[i]));
+        gCaptureTire.push_back(ToPcm(tire[i]));
+    }
+}
+
+bool EngineSound::SaveCapture(const char* path)
+{
+    // archivo.wav: todo, como se oye; archivo_cubiertas.wav: el derrape y el raspado solos.
+    std::string tirePath = path;
+    const size_t dot = tirePath.rfind(".wav");
+    tirePath = (dot != std::string::npos ? tirePath.substr(0, dot) : tirePath) + "_cubiertas.wav";
+    return WriteWav(path, gCapture) && WriteWav(tirePath.c_str(), gCaptureTire);
 }
 
 void EngineSound::Backfire(float strength)
@@ -425,10 +522,11 @@ void EngineSound::Backfire(float strength)
     gPopRequests.fetch_add(1);
 }
 
-void EngineSound::SetSkid(float amount, float paved)
+void EngineSound::SetSkid(float dirt, float squeal, float chirp)
 {
-    gSkid.store(amount);
-    gSkidPaved.store(paved);
+    gSkid.store(dirt);
+    gSqueal.store(squeal);
+    gChirp.store(chirp);
 }
 
 void EngineSound::SetScrape(float amount) { gScrape.store(amount); }

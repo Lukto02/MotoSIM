@@ -352,6 +352,66 @@ void main()
 }
 )";
 
+// Marcas de goma en el asfalto (TerrainDeformation): tiras apoyadas en el terreno que oscurecen lo que ya
+// está dibujado (mezcla multiplicativa: sirve igual al sol y a la sombra). Cada vértice trae su borde en la
+// posición y en la normal el corrimiento desde el centro de la tira; en el color, cuánto oscurece.
+const char* kSkidVS = R"(#version 330
+in vec3 vertexPosition;
+in vec2 vertexTexCoord;
+in vec3 vertexNormal;
+in vec4 vertexColor;
+uniform mat4 mvp;
+uniform vec3 camPos;
+uniform float pixelAngle;      // rad que mide un píxel de la escena
+out vec3 fragPos;
+out float fragSide;
+out float fragDark;
+void main()
+{
+    vec3 off = vertexNormal;
+    vec3 center = vertexPosition - off;
+    vec3 d = center - camPos;
+    float dist = max(length(d), 1e-3);
+    vec3 v = d / dist;
+    // A lo lejos (o vista de costado, rasante) una tira de 12-18 cm mide menos de un píxel y se rasteriza a los
+    // saltos: rayas que titilan. Se ensancha hasta ~1.5 píxeles y se aclara en la misma proporción: en promedio
+    // oscurece lo mismo (lo que harían los mipmaps en una textura).
+    float px = length(off - dot(off, v) * v) / (dist * pixelAngle);
+    float grow = clamp(0.75 / max(px, 1e-4), 1.0, 16.0);
+    vec3 p = center + off * grow;
+    // Hacia la cámara a lo largo de la mirada: cae en el mismo píxel, sólo cambia la profundidad. Con los 4 mm
+    // de altura sobre el terreno, no se pisa con el asfalto a ninguna distancia (y queda sobre las líneas pintadas).
+    p -= v * (0.005 + 0.001 * dist);
+    fragPos = p;
+    fragSide = vertexTexCoord.x;
+    fragDark = vertexColor.a / grow;
+    gl_Position = mvp * vec4(p, 1.0);
+}
+)";
+
+const char* kSkidFS = R"(
+in vec3 fragPos;
+in float fragSide;
+in float fragDark;
+out vec4 finalColor;
+
+float Hash11(float x) { return fract(sin(x * 127.1) * 43758.5453); }
+
+void main()
+{
+    // Bordes suaves, el centro un poco más marcado y vetas a lo largo (la goma se pega despareja). Las vetas se
+    // apagan cuando la tira mide pocos píxeles: si no, titilan.
+    float s = abs(fragSide);
+    float a = fragDark * (1.0 - smoothstep(0.6, 1.0, s)) * (0.85 + 0.15 * (1.0 - s * s));
+    float streak = mix(0.7, 1.0, Hash11(floor(fragSide * 4.0) + 13.0));
+    a *= mix(streak, 0.85, clamp(fwidth(fragSide) * 2.5, 0.0, 1.0));
+    // Con la niebla se va borrando (se oscurece lo que ya tiene niebla encima).
+    float dist = length(fragPos - camPos);
+    a *= exp(-(dist * fogDensity) * (dist * fogDensity));
+    finalColor = vec4(0.0, 0.0, 0.0, a);
+}
+)";
+
 // Pasada de sombras: sólo profundidad (el framebuffer no tiene color).
 const char* kDepthVS = R"(#version 330
 in vec3 vertexPosition;
@@ -1311,10 +1371,13 @@ void Renderer::Init()
     skyShader = LoadShaderFromMemory(kLitVS, Fragment(kSkyFS, false).c_str());
     depthShader = LoadShaderFromMemory(kDepthVS, kDepthFS);
     grassShader = LoadShaderFromMemory(kGrassVS, Fragment(kGrassFS, true).c_str());
+    skidShader = LoadShaderFromMemory(kSkidVS, Fragment(kSkidFS, false).c_str());
     FindLocs(lit, litLocs);
     FindLocs(terrainShader, terrainLocs);
     FindLocs(skyShader, skyLocs);
     FindLocs(grassShader, grassLocs);
+    FindLocs(skidShader, skidLocs);
+    skidPixelLoc = GetShaderLocation(skidShader, "pixelAngle");
     glossLoc = GetShaderLocation(lit, "gloss");
     skyTimeLoc = GetShaderLocation(skyShader, "time");
     grassTimeLoc = GetShaderLocation(grassShader, "time");
@@ -1348,6 +1411,8 @@ void Renderer::Init()
     skyMaterial.shader = skyShader;
     depthMaterial = LoadMaterialDefault();
     depthMaterial.shader = depthShader;
+    skidMaterial = LoadMaterialDefault();
+    skidMaterial.shader = skidShader;
 
     postShader = LoadShaderFromMemory(nullptr, kPostFS);
     postResLoc = GetShaderLocation(postShader, "resolution");
@@ -1452,6 +1517,7 @@ void Renderer::Shutdown()
     UnloadShader(skyShader);
     UnloadShader(depthShader);
     UnloadShader(grassShader);
+    UnloadShader(skidShader);
     UnloadShader(postShader);
     if (sceneRT.id > 0) UnloadRenderTexture(sceneRT);
     UnloadTexture(detail);
@@ -1485,6 +1551,11 @@ void Renderer::BeginFrame(const Camera3D& cam)
     SetCommon(terrainShader, terrainLocs, cam);
     SetCommon(skyShader, skyLocs, cam);
     SetCommon(grassShader, grassLocs, cam);
+    SetCommon(skidShader, skidLocs, cam);
+    // Cuánto mide un píxel de la escena (la textura va al tamaño real del framebuffer): las marcas de goma se
+    // ensanchan a lo lejos para no quedar más finas que eso.
+    const float pixelAngle = 2.0f * std::tan(cam.fovy * DEG2RAD * 0.5f) / (float)std::max(1, GetRenderHeight());
+    SetShaderValue(skidShader, skidPixelLoc, &pixelAngle, SHADER_UNIFORM_FLOAT);
     const float time = (float)GetTime();
     SetShaderValue(skyShader, skyTimeLoc, &time, SHADER_UNIFORM_FLOAT);
     SetShaderValue(grassShader, grassTimeLoc, &time, SHADER_UNIFORM_FLOAT);
@@ -1607,6 +1678,22 @@ void Renderer::DrawMeshTextured(const Mesh& mesh, const Matrix& world, Texture2D
         material.maps[MATERIAL_MAP_DIFFUSE].texture = previous;
     }
     rlEnableBackfaceCulling();
+}
+
+void Renderer::DrawSkidMarks(const Mesh& mesh, int quads)
+{
+    if (shadowPass || quads <= 0) return;
+    Mesh used = mesh;
+    used.triangleCount = quads * 2;
+    // Multiplicativa: con el color en negro queda destino · (1 − alfa). Sin escribir profundidad (una marca
+    // encima de otra se suma) y de las dos caras (los cuadriláteros no tienen un orden fijo).
+    BeginBlendMode(BLEND_MULTIPLIED);
+    rlDisableDepthMask();
+    rlDisableBackfaceCulling();
+    DrawMesh(used, skidMaterial, MatrixIdentity());
+    rlEnableBackfaceCulling();
+    rlEnableDepthMask();
+    EndBlendMode();
 }
 
 void Renderer::DrawGrass(const Matrix* transforms, int count, Texture2D marks, float terrainOrigin, float terrainSize)

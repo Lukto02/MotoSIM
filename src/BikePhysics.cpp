@@ -717,6 +717,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             // neumático perpendicular al eje (la toman rígidas la horquilla / el basculante).
             const float suspensionForce = tireNormal;               // carga del neumático (para el grip)
             w.grounded = true;
+            w.onObject = groundIsObject;
             w.contactPoint = contactPoint;
             w.contactNormal = n;
             w.normalForce = tireNormal;
@@ -833,6 +834,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             applyAt(suspF + tireF, contactPoint);
         } else {
             w.grounded = false;
+            w.onObject = false;
             // En el aire la suspensión sólo empuja la rueda (fuerza interna): el chasis recibe la
             // reacción por el eje hasta que la rueda llega al tope de extensión.
             if (springForce > 0.0f) totalForce += (-axis) * springForce;

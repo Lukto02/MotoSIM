@@ -68,6 +68,7 @@ struct GameOptions {
     std::string bike;                // --bike mod/moto: corre con esa moto en cualquier mapa (si no, la del mapa o la elegida en el menú)
     int fullscreen = -1;             // --fullscreen / --windowed (-1: lo que se eligió la última vez)
     bool sizeGiven = false;          // --size: ventana de ese tamaño (pruebas: no se va a pantalla completa)
+    std::string soundLog;            // --sound-log archivo.wav: sin ventana, graba el sonido de la moto propia (motor y cubiertas)
 };
 
 class Game {
@@ -110,6 +111,7 @@ private:
     JPH::Vec3 crashDir = JPH::Vec3::sAxisZ();       // para dónde iba al caerse (horizontal)
     void UpdateLap();
     void EmitEffects();              // partículas, huellas y sacudón según el estado de las ruedas
+    void FeedTireSound();            // chillido / arrastre de las cubiertas de la moto propia (EngineSound::SetSkid)
     // Llamarada y estampido en la salida del escape de una moto (owner 0 = la propia, 1 + id = la
     // del jugador id); gain: volumen del estampido (baja con la distancia).
     void EmitBackfire(float strength, int owner, const JPH::Mat44& bikeWorld, JPH::Vec3 bikeVel, float gain);

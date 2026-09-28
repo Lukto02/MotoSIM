@@ -114,11 +114,18 @@ int Game::Run()
             pendingShiftUp |= in.shiftUp;
             pendingShiftDown |= in.shiftDown;
             Step(in);
+            if (!opt.soundLog.empty()) {                // --sound-log: el sonido de la prueba, paso a paso
+                sound.Update(bike.engine.rpm, bike.throttle, bike.engine.limiter, bike.engine.shiftTimer > 0.0f, SoundCharacter(bikeParams));
+                FeedTireSound();
+                EngineSound::CaptureStep(kDt);
+            }
             // En red, a tiempo real (si no, la simulación correría sola y los demás no la verían).
             if (mp.Active())
                 while (std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count() < simTime)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        if (!opt.soundLog.empty() && !EngineSound::SaveCapture(opt.soundLog.c_str()))
+            std::printf("no se pudo escribir %s\n", opt.soundLog.c_str());
     } else {
         int frames = 0, hitches = 0;
         double total = 0.0, worst = 0.0;
@@ -533,21 +540,7 @@ void Game::Frame(float frameDt)
 
     particles.Update(dt, terrain);
     sound.Update(bike.engine.rpm, bike.throttle, bike.engine.limiter, bike.engine.shiftTimer > 0.0f, SoundCharacter(bikeParams));
-    // Cubierta que patina: cuánto desliza el contacto (trabada, patinando o de costado) y con qué carga.
-    {
-        float skid = 0.0f, paved = 0.0f;
-        for (const Wheel& w : bike.wheels) {
-            if (!w.grounded || !bike.RiderOnBike()) continue;
-            const float slideLong = w.longVel - w.omega * w.radius;
-            const float slide = std::sqrt(slideLong * slideLong + w.latVel * w.latVel);
-            const float k = mu::Smoothstep(1.2f, 7.0f, slide) * std::min(1.0f, w.normalForce / 1400.0f);
-            if (k > skid) {
-                skid = k;
-                paved = terrain.Streets() ? terrain.TrackMask(w.contactPoint.GetX(), w.contactPoint.GetZ()) : 0.0f;
-            }
-        }
-        EngineSound::SetSkid(skid, paved);
-    }
+    FeedTireSound();
     // Motores de los demás: las voces del sintetizador, más bajas cuanto más lejos.
     int voice = 1;
     const Vec3 ear = ToJph(camera.cam.position);
@@ -1220,10 +1213,11 @@ BikeInput Game::TestInput()
         const float dir = opt.test == "whipL" ? -1.0f : 1.0f;
         if (t > 0.15f && (t < 0.75f || opt.test == "whiphold") && bike.airTime > 0.0f) in.steer = dir;
     } else if (opt.test.rfind("frenacurva", 0) == 0) {
-        // frenacurvaN[xS][dD][aA][n]: como frenadaN, pero doblando como con la D (la rampa del teclado, hasta S;
+        // frenacurvaN[xS][dD][aA][n][fF]: como frenadaN, pero doblando como con la D (la rampa del teclado, hasta S;
         // sin xS, a fondo; S < 0, a la izquierda). Por defecto dobla desde que empieza a frenar y no suelta. dD:
         // la dirección empieza D s después de frenar (D < 0: antes, viniendo inclinado con un poco de gas); aA:
-        // la suelta a los A s (un toque, o la curva que se suelta para frenar). n: no frena, para comparar.
+        // la suelta a los A s (un toque, o la curva que se suelta para frenar). n: no frena, para comparar. fF:
+        // frena con F en vez de a fondo (x0f0.3: una frenada suave derecha).
         bike.engine.autoShift = true;
         const char* arg = opt.test.c_str() + 10;
         const float vt = (float)std::atof(arg) / 3.6f;
@@ -1233,7 +1227,8 @@ BikeInput Game::TestInput()
         const float steer = x ? (float)std::atof(x + 1) : 1.0f;
         const float delay = d ? (float)std::atof(d + 1) : 0.0f;
         const float steerFor = a ? (float)std::atof(a + 1) : 1e9f;
-        const float brakeAmount = std::strchr(arg, 'n') ? 0.0f : 1.0f;
+        const char* fb = std::strchr(arg, 'f');       // fF: frena con F (0..1) en vez de a fondo (el sonido de una frenada suave)
+        const float brakeAmount = std::strchr(arg, 'n') ? 0.0f : (fb ? (float)std::atof(fb + 1) : 1.0f);
         if (!testBraking && bike.forwardSpeed >= vt) {
             testBraking = true;
             testT0 = simTime;
@@ -1846,6 +1841,45 @@ BikeState Game::LocalState() const
     return s;
 }
 
+void Game::FeedTireSound()
+{
+    // Las cubiertas de la moto propia, rueda por rueda (igual para todas las motos):
+    // - En la tierra y el pasto, el arrastre: cuánto desliza el contacto (trabada, patinando o de costado)
+    //   y con qué carga. Como siempre.
+    // - En lo duro (pavimento, cemento, o un objeto: rampa, caja, escalón, casa), el chillido: fuerte y
+    //   seguido si desliza; y frenando cerca del límite sin trabar, chirridos sueltos que se juntan al
+    //   acercarse al bloqueo. La carrera con la S no traba la delantera (le usa ~60% del agarre) y antes
+    //   no sonaba nada; frenando suave (menos de ~35%) sigue sin sonar.
+    float dirt = 0.0f, squeal = 0.0f, chirp = 0.0f;
+    for (const Wheel& w : bike.wheels) {
+        if (!w.grounded || !bike.RiderOnBike()) continue;
+        const float slideLong = w.longVel - w.omega * w.radius;
+        const float slide = std::sqrt(slideLong * slideLong + w.latVel * w.latVel);
+        const float hard = w.onObject ? 1.0f : (terrain.Streets() ? terrain.TrackMask(w.contactPoint.GetX(), w.contactPoint.GetZ()) : 0.0f);
+        dirt = std::max(dirt, mu::Smoothstep(1.2f, 7.0f, slide) * std::min(1.0f, w.normalForce / 1400.0f) * (1.0f - hard));
+        if (hard <= 0.0f) continue;
+        const float load = std::min(1.0f, w.normalForce / 700.0f);
+        squeal = std::max(squeal, mu::Smoothstep(1.0f, 6.0f, slide) * load * hard);
+        // Cuánto del agarre usa frenando (la fuerza contra la marcha) y de costado.
+        const float force = std::sqrt(w.longForce * w.longForce + w.latForce * w.latForce);
+        if (force > 1.0f) {
+            const float usage = std::min(w.gripUsage, 1.3f);
+            const float braking = w.longForce * w.longVel < 0.0f ? usage * std::fabs(w.longForce) / force : 0.0f;
+            const float side = usage * std::fabs(w.latForce) / force;
+            const float edge = std::max(mu::Smoothstep(0.3f, 0.75f, braking), mu::Smoothstep(0.9f, 1.1f, side));
+            chirp = std::max(chirp, edge * mu::Smoothstep(1.5f, 10.0f, std::fabs(w.longVel)) * load * hard);
+        }
+    }
+    EngineSound::SetSkid(dirt, squeal, chirp);
+    if (opt.headless && !opt.soundLog.empty()) {
+        const Wheel &f = bike.wheels[Bike::FRONT], &r = bike.wheels[Bike::REAR];
+        auto sl = [](const Wheel& w) { const float a = w.longVel - w.omega * w.radius; return std::sqrt(a * a + w.latVel * w.latVel); };
+        std::printf("snd t=%.3f v=%.1f dirt=%.3f squeal=%.3f chirp=%.3f fS=%.2f fU=%.2f fN=%.0f fL=%.0f fT=%.0f fO=%d rS=%.2f rU=%.2f rN=%.0f rL=%.0f rT=%.0f rO=%d\n",
+                    simTime, bike.speed * 3.6f, dirt, squeal, chirp, sl(f), f.gripUsage, f.normalForce, f.longForce, f.latForce, (int)f.onObject,
+                    sl(r), r.gripUsage, r.normalForce, r.longForce, r.latForce, (int)r.onObject);
+    }
+}
+
 void Game::EmitEffects()
 {
     // La cola raspando el piso (wheelie pasado): chispas que salen del contacto hacia donde desliza,
@@ -1945,12 +1979,31 @@ void Game::EmitEffects()
     }
 }
 
+// Frenando cerca del límite sin trabar (o de costado pasando el 90% del agarre): 0..1, para una marca de goma
+// tenue. La misma cuenta que el chirrido de FeedTireSound (uso del agarre recortado a 1.3, por la parte de la fuerza
+// que frena), pero desde 0.45: una frenada normal no ensucia la pista. Sólo la moto propia (gripUsage no viaja por la red).
+static float BrakingEdge(const Wheel& w)
+{
+    const float force = std::sqrt(w.longForce * w.longForce + w.latForce * w.latForce);
+    if (!w.grounded || force <= 1.0f) return 0.0f;
+    const float usage = std::min(w.gripUsage, 1.3f);
+    const float braking = w.longForce * w.longVel < 0.0f ? usage * std::fabs(w.longForce) / force : 0.0f;
+    const float side = usage * std::fabs(w.latForce) / force;
+    const float edge = std::max(mu::Smoothstep(0.45f, 0.8f, braking), 0.5f * mu::Smoothstep(0.9f, 1.1f, side));
+    return edge * mu::Smoothstep(1.5f, 10.0f, std::fabs(w.longVel));
+}
+
 void Game::EmitWheelEffects(int bikeSlot, int wheel, const WheelFx& w, Vec3 fwd, Vec3 bikeVel)
 {
     const int slot = 2 * bikeSlot + wheel;
     const bool landed = w.grounded && !wasGrounded[slot];
     wasGrounded[slot] = w.grounded;
-    deformation.WheelContact(slot, w.contact.GetX(), w.contact.GetZ(), w.grounded, w.load, w.markSlip);
+    // Goma en el asfalto: a cuánto resbala la cubierta sobre el suelo. Sólo apoyada en el terreno: sobre una
+    // rampa o un escalón la marca quedaría abajo, en el piso (las de los demás llegan siempre a la altura del
+    // terreno: no se sabe).
+    const bool onTerrain = std::fabs(w.contact.GetY() - terrain.Height(w.contact.GetX(), w.contact.GetZ())) < 0.08f;
+    deformation.WheelContact(slot, w.contact.GetX(), w.contact.GetZ(), w.grounded, w.load, w.markSlip, std::hypot(w.spin, w.latVel),
+                             {fwd.GetX(), fwd.GetZ()}, onTerrain, kDt, bikeSlot == 0 ? BrakingEdge(bike.wheels[wheel]) : 0.0f);
     if (!w.grounded) return;
 
     const float slide = std::fabs(w.latVel);
@@ -2078,6 +2131,8 @@ void Game::DrawScene(bool shadowCasters)
                                              Color{200, 30, 30, 255});
         }
     }
+    // Goma en el asfalto: después de lo opaco del suelo (queda encima de las líneas pintadas y del asfalto de boxes).
+    if (!shadowCasters) deformation.DrawSkids(renderer);
     if (menu == Menu::Bikes && !previewBikeId.empty()) {
         // Selector de motos: la marcada, sin piloto, girando sobre una plataforma oscura con un aro del color
         // del juego (la plataforma crece al entrar y sube la moto con ella).

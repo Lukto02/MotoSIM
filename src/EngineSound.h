@@ -25,15 +25,21 @@ public:
     // Motor de otro jugador (voces 1..kVoices-1); gain según la distancia (0 = callado).
     static void UpdateVoice(int voice, float rpm, float throttle, bool limiter, bool shifting, float gain, const Character& character = {});
     void Backfire(float strength);   // un petardeo en el escape (0..1)
-    // Cubierta que patina (la moto propia): amount 0..1 (cuánto y qué tan rápido desliza), paved 0..1
-    // (en el pavimento chilla, en la tierra arrastra).
-    static void SetSkid(float amount, float paved);
+    // Cubiertas de la moto propia, 0..1 cada uno: dirt, el arrastre en la tierra (cuánto y qué tan rápido
+    // desliza); squeal, el chillido deslizando en lo duro (trabada, patinando o de costado); chirp, frenando
+    // cerca del límite en lo duro sin trabar (chirridos sueltos que se juntan al acercarse al bloqueo).
+    static void SetSkid(float dirt, float squeal = 0.0f, float chirp = 0.0f);
     // Metal / plástico raspando algo duro (la cola en un wheelie pasado, sobre asfalto, cemento o un
     // objeto): amount 0..1; en la tierra no suena.
     static void SetScrape(float amount);
-    // Prueba (--sound-test archivo.wav [2t|raspado]): unos segundos de motor con un cambio y petardeos
-    // (el de siempre o el dos tiempos) o del raspado solo, en un WAV.
+    // Prueba (--sound-test archivo.wav [2t|raspado|chillido]): unos segundos de motor con un cambio y
+    // petardeos (el de siempre o el dos tiempos), del raspado o del chillido de la cubierta, en un WAV.
     static bool RenderTest(const char* path, const char* mode = "");
+    // Grabación de una prueba sin ventana (--sound-log archivo.wav): después de cada paso de la física se
+    // actualiza el estado (Update, SetSkid...) y CaptureStep genera esos segundos del mismo sintetizador.
+    // Sin dispositivo de audio (con ventana el hilo de audio es el que llama al sintetizador).
+    static void CaptureStep(float seconds);
+    static bool SaveCapture(const char* path);
     void ToggleMute();
     bool Muted() const;
     void SetMuted(bool muted);
