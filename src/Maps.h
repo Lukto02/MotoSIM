@@ -63,9 +63,14 @@ struct MapShape {
     float smooth = 1.0f;               // m: redondeo de los quiebres del perfil
     float bend = 0.0f;                 // line: m que se corren las puntas a lo largo (medialuna); 0 = recta
     float stretch[2] = {1.0f, 1.0f};   // round: estira el radio de costado y a lo largo (elipse)
+    // round: sólo un sector ("arc": [desde, hasta], rumbos desde el centro en grados, 0 = norte, 90 = este,
+    // en el sentido del reloj), que se desvanece en "edge" m pasando sus bordes: un peralte en una curva.
+    bool hasArc = false;
+    float arc[2] = {0.0f, 360.0f};
     bool level = false;                // false: se suma al suelo; true: lo nivela a base + perfil
     bool hasBase = false;              // level: "base" dada (si no, la altura del suelo en "at")
     float base = 0.0f;
+    bool dirt = false;                 // "dirt": la forma se pinta con la tierra de la pista (textura, agarre y polvo)
 };
 
 struct MapTerrain {

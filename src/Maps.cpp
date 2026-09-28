@@ -295,11 +295,17 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
                 ms.stretch[0] = std::max(0.05f, st[0]);
                 ms.stretch[1] = std::max(0.05f, st[1]);
             }
+            if (s.Has("arc")) {
+                ms.hasArc = ReadVec(s["arc"], ms.arc, 2);
+                if (!ms.hasArc) warn(where + ": \"arc\" tiene que ser [desde, hasta] (rumbos en grados)");
+                else if (!ms.round) warn(where + ": \"arc\" es sólo para \"round\"");
+            }
             const std::string mode = Lower(s.Str("mode", "add"));
             if (mode == "level" || mode == "nivelar") ms.level = true;
             else if (mode != "add" && mode != "sumar") warn(where + ": mode desconocido \"" + mode + "\" (add o level)");
             ms.hasBase = s.Has("base");
             ms.base = s.Num("base", 0.0f);
+            ms.dirt = s.Bool("dirt", false);
             m.terrain.shapes.push_back(ms);
         }
     }

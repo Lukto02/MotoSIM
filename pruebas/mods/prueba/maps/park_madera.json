@@ -1,3 +1,4 @@
+// Copy of mods/sandbox/maps/park.json (Parque (guía por la línea de madera)). Written by tools/parque.py.
 // Example mod: a flat physics park, laid out like a small bike park. The lap track runs around the
 // edge; inside, every line is ridden north, from the start straight to the far one (both left turns):
 //   west:   Línea de tierra, three dirt tables (small, medium and one for backflips), then a crate pyramid;
@@ -8,7 +9,7 @@
 // Copy this folder to start your own mod; every field is in MODDING.md. Save this file while the game is
 // running on this map and it rebuilds right away. (Written by tools/parque.py.)
 {
-  "name": "Parque de física",
+  "name": "Parque (guía por la línea de madera)",
   "kind": "sandbox · parque de saltos y objetos sueltos",
   "description": "Parque de saltos: línea de tierra, línea de madera, pump track, bowl y quarter, y cosas para voltear al final de cada línea.",
   "hint": "Las líneas se andan hacia el norte, desde la recta de largada · Al final de cada una hay algo para voltear",
@@ -54,15 +55,11 @@
 
   // A rounded rectangle around the park (x, z in meters; x = east, z = north).
   "track": {
-    "style": "track",
+    "style": "guide",
     "width": 12,
-    "points": [
-      [-80, -95], [0, -96], [80, -95], [97, -80],
-      [98, 0], [97, 80], [80, 97], [0, 98],
-      [-80, 97], [-97, 80], [-98, 0], [-97, -80]
-    ]
+    "points": [[0, -90], [0, -70], [0, -50], [0, -30], [0, -10], [0, 10], [0, 30], [-12, 42.5], [-24, 30], [-24, 10], [-24, -10], [-24, -30], [-24, -50], [-24, -70], [-24, -90], [-12, -102]]
   },
-  "start": [-40, -95],
+  "start": [0, -85],
   "auto_features": [
     ["kicker", "tabletop"],   // south straight (the start)
     ["rollers"],              // east

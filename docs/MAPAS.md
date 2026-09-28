@@ -21,9 +21,17 @@ El formato completo está en `MODDING.md`. Esto es lo aprendido armándolos.
   pasadas de promedio de `smooth` m, en una tabla cada 0.1 m) estirado de costado (`line`) o girado
   alrededor de un centro (`round`), que se suma al suelo o lo nivela (`level`). Sin formas, `Ground` es
   el de siempre. La pista (`track`/`street`) se estampa encima: una forma que la pista pisa queda
-  aplanada por la base suavizada de la pista.
+  aplanada por la base suavizada de la pista (hay que dejarlas a más de hw + 11 m de la línea central).
+  - `arc` (sólo `round`): nada más un sector, de un rumbo a otro visto desde el centro; pasando sus
+    bordes se desvanece con la distancia al rayo del borde, en `edge` m. Es para los **peraltes**. El
+    rumbo sale de `atan2` y `sin` del sistema (1e-7 m entre PCs, sin umbrales que lo agranden). Sin `arc`,
+    todo igual que antes.
+  - `dirt`: la forma se pinta con la tierra de la pista (`trackMask` = su cobertura: textura, agarre 1.0
+    en vez de 0.82, polvo, sin matas). En un mapa de pasto los saltos de tierra se leen como saltos.
+    `ShapeCover` da la cobertura (la misma cuenta que `ApplyShapes`, que ahora la usa).
 - Pista `guide`: la vuelta no toca el terreno (ni base suavizada, ni franja de tierra, ni peraltes) y no
-  lleva obstáculos ni estacas. Es para andar libre: el bot, el reaparecer y la vuelta la siguen igual.
+  lleva obstáculos ni estacas. Es para andar libre: el bot y la vuelta la siguen igual; el jugador reaparece
+  donde quedó y no tiene cronómetro (ver [MENU.md](MENU.md), "Mapas libres").
 - `ground_textures: "sand"`: las dos capas del suelo son arena (textura `GenSandTexture`, ver
   [RENDER.md](RENDER.md)), el color del vértice da el tono (manchones de ~80 m), pocas matas secas sólo
   en lo plano y poco polvo (`Dustiness` 0.25).
@@ -56,9 +64,11 @@ El formato completo está en `MODDING.md`. Esto es lo aprendido armándolos.
 
 En `pruebas/mods/prueba/` (no se empaquetan): el circuito de obstáculos de trial
 (`trial_obstaculos`, con variantes a otra velocidad del bot y con la motocross), escalones de 0.5, 0.75
-y 1 m, y los mapas de siempre con la trial. Ver [PRUEBAS.md](PRUEBAS.md). `medanos_crater` y
-`medanos_ola`: Los Médanos con la vuelta guía por el Cráter y por la Ola (mismo terreno; los escribe
-`tools/medanos.py`).
+y 1 m, y los mapas de siempre con la trial. Ver [PRUEBAS.md](PRUEBAS.md). `medanos_crater`,
+`medanos_ola`, `medanos_grande` y `medanos_montes`: Los Médanos con la vuelta guía por lo que la vuelta
+no pisa (mismo terreno; los escribe `tools/medanos.py`). `park_tierra`, `park_madera`, `park_pump`,
+`park_plaza` y `park_bowl`: el Parque de física con una vuelta guía (estilo `guide`: no estampa la pista)
+por cada zona, y `park` con la trial (los escribe `tools/parque.py`).
 
 ## Medir un salto
 
@@ -75,6 +85,13 @@ copia temporal del mapa con otro `bot_speed`). La s del labio sale de `--test pr
 - Para diseñar antes de medir, `tools/medanos.py --sim` simula cada salto del mapa de médanos como un
   punto pegado al suelo que se despega donde la curvatura supera a g·cos θ/v², y el vuelo. Da bien el
   orden de las cosas (aire y largo dentro del 10-20%), pero no el cabeceo ni la suspensión.
+- **Una línea entera**: `python tools/tramo.py <exe> <mod/mapa> <spawn> <s0> <s1> 40,50,60,70 ambos`
+  lista todos los vuelos entre s0 y s1 y dónde se cae, con los dos pilotos. En una línea de saltos
+  seguidos o un serrucho, cómo se cae en uno depende de cómo se llegó del anterior (velocidad y cabeceo):
+  `saltos.py` solo no alcanza. "Sin tocar nada" no frena en las curvas: una caída pasando s1 suele ser la
+  curva que viene.
+- **Todos los de Los Médanos**: `python tools/medanos.py --labios <exe>` da la s exacta de cada labio
+  (del perfil de la vuelta) y `--medir <exe> 40,50,60,70 [nombre]` corre `saltos.py` en cada uno.
 
 ## Lecciones por mapa
 
@@ -136,23 +153,31 @@ Lo aprendido:
 
 ### Los Médanos (dunas, andar libre)
 `mods/sandbox/maps/medanos.json`, generado por `tools/medanos.py` (los perfiles de los saltos están ahí,
-con nombre). 515 m a 0.5 m (1032² muestras), Motocross 450, atardecer y arena. Todo en `terrain.shapes`
-en modo `level` (cada forma aplana los médanos debajo y deja sus pasillos), con una vuelta guía de
-1236 m por lo mejor:
+con nombre). 512 m a 0.5 m (1032² muestras), Motocross 450, atardecer y arena. Todo en `terrain.shapes`
+en modo `level` (cada forma aplana los médanos debajo y deja sus pasillos).
+
+**v2** (a pedido del usuario: "tiene todas las montañas muy separadas", y le gustó el serrucho de Los
+Lomos). La v1 tenía una vuelta de 1236 m con seis cosas, a 90-150 m una de otra. Ahora la vuelta guía
+(1326 m) va por el borde de la zona de médanos cargada de saltos, con peraltes de arena en las cuatro
+esquinas, y lo grande para andar libre quedó adentro, a menos de 100 m entre sí. Los médanos naturales,
+más juntos (`wavelength` de 64 a 52).
 
 | Qué | Dónde | Forma | Medido (bot / "sin tocar nada") |
 |---|---|---|---|
-| El Gigante | playa, hacia el este desde la largada | mesa de 6 m, patada de 42°, 16 m de mesa, bajada de 36° que sigue 5 m bajo la playa | bot 40-65 km/h sin caerse, 1.4-3.1 s y hasta 7 m; 70+ se pasa la bajada (golpe). Mortal: `--spawn 104 --drop 1 --test flip`, 358° y cae a los 3.1 s en la bajada |
-| Médano Grande | x = 75, hacia el norte | 22 m: barlovento de 115 m (12°), labio de 18°, sotavento de 36° que sigue 8 m bajo el suelo, medialuna (`bend` 22) | bot 40-55 km/h: 1.85-2.75 s, 4-8 m sobre la cara; 60+ se pasa (golpe). Sin tocar nada clava la trompa (-62°): se cae desde 50 |
-| Los Lomos | franja norte, al oeste | 4 lomas de 1.3 m cada 14 m | 40-75: 0.75-1.3 s, se dobla a 70+ |
-| La Escalera | x = -180, hacia el sur | mesas de 1.4, 2.6 y 4 m con bajadas que siguen 0, 1 y 2 m bajo el suelo | 40-75 km/h las tres, los dos pilotos (0.6-2.75 s; la grande sin tocar nada se cayó una vez, a 65) |
-| El Cráter | (172, 55), fuera de la vuelta | bowl de 50 m: fondo a -2.5, paredes de 55° hasta el borde a 5 m, ladera de 18° afuera | bot 25-55 lo cruza (entra por el borde, sale volando por la pared de enfrente: 2.7 s a 55); sin tocar nada se cae a 45 |
-| La Ola | (165, -150), frente a la playa | pared de 6.5 m que termina a 55° (quarter), cresta de 1.2 m y espalda de 38° | 40-60 km/h: tira para arriba 2.4-3 s, hasta 13 m, y cae en la espalda (bot y sin tocar nada); a 30 sin tocar nada llega arriba sin velocidad y se cae |
+| El Gigante | playa, al este desde la largada; labio en s = 54 | mesa de 6 m, patada de 42°, 16 m de mesa, bajada de 36° que sigue 5 m bajo la playa (el de la v1) | bot 40-65 km/h sin caerse, 1.5-3.1 s y hasta 7 m; 70 está en el límite (una vez golpe, otra no); sin tocar nada 40-70 sin caerse. Mortal: 358° (v1) |
+| La Cadena | x = 140, al norte; labios en s = 284, 322, 370, 420, 458, 514 | seis mesas, cada una distinta: 2.0 m y 22°; "el pozo", 2.6 m y 28°; "el trampolín", 3 m y 34° con cara de radio 8 (para whips); "el largo", 1.8 m y 18°; "el escalón", 3.2 m y 26° con 12 m de mesa; "la grande", 4.4 m y 32° con 14 m de mesa. Bajadas de 20-30° que siguen 0.3-1.5 m bajo el suelo, salida en S y la cara del siguiente pasando donde cae a 70 km/h: de labio a labio 38-56 m | 40-70 km/h las seis, los dos pilotos, sin caerse: 0.5-2.5 s y hasta 8 m; vy al tocar hasta -13.8 m/s (la grande a 70, suspensión a tope) |
+| El Serrucho | z = 195, al oeste; desde s = 664 | cuatro lomitos de 0.7 m cada 10 m, 20 m de llano, Los Lomos (cuatro de 1.3 m cada 14 m, los de la v1), 14 m de llano y dos lomazos de 2 m cada 20 m | bot 40-70 sin caerse (0.5-1.1 s por loma, dobla desde 55); sin tocar nada 40-55 bien, a 60-70 se encabrita en Los Lomos y se cae |
+| La Escalera y Los Dientes | x = -150, al sur; labios en s = 944, 984, 1066 y desde 1166 | las tres mesas de la v1 (1.4, 2.6 y 4 m) con 8 m entre la salida de una y la cara de la otra; seis dientes de 1.1 m (subida de 8 m que se curva hasta la cresta, bajada en S de 3.5 m) | 40-70 los dos pilotos: mesas 0.7-2.65 s, dientes 0.5-0.9 s |
+| Peraltes | las cuatro esquinas | `round` con `arc` de 90°: piso hasta 28 m, pared cóncava (radio 14) hasta 36° y 3.4 m, lomo de 1.5 m y espalda de 24°; la guía va a 31 m (0.3 m de alto, 12°) | el bot dobla a ~12 m/s; más rápido se sube a la pared |
+| Médano Grande | x = -30, sale de la playa; labio en z = -70 | el de la v1: 22 m, barlovento de 115 m (12°), labio de 18°, sotavento de 36° que sigue 8 m bajo el suelo | como en la v1: bot 40-55 sin caerse (1.7-2.7 s); 60 se pasa (golpe); sin tocar nada clava la trompa y se cae desde 50 (`prueba/medanos_grande`) |
+| El Cráter | (-30, 112) | el de la v1 (bowl de 50 m, paredes de 55°) | bot 25-55 lo cruza; sin tocar nada se cae a 45 (`prueba/medanos_crater`) |
+| La Ola | (40, -118), frente a la playa | la de la v1 (6.5 m, 55° arriba, espalda de 38°), con 30 m de entrada | bot 30-60 tira para arriba 1.8-3.1 s y cae en la espalda; sin tocar nada 40-60 igual, a 30 no llega (`prueba/medanos_ola`) |
+| Los Montes | plaza nivelada de 50 m en (66, 80) | siete mesas redondas de 2.5-4.5 m, cima plana de 4-6 m de radio y laderas de 18-24°, a 33-35 m una de otra: se sube por cualquier lado | bot y sin tocar nada 30-60 km/h pasando por tres a cinco, sin caerse (`prueba/medanos_montes`) |
 
-El bot (`bot_speed` 15, 54 km/h) da la vuelta en 86.4-86.9 s sin caerse (4 vueltas); 58-60 fps con
-ventana en esta PC.
+El bot (`bot_speed` 15, 54 km/h) da la vuelta en 97.7-98.0 s sin caerse (5 vueltas; la v1, 86.4-86.9 s),
+un 30% del tiempo en el aire. 53-60 fps con ventana (la v1, medida a la misma hora, 53).
 
-Lo aprendido:
+Lo aprendido en la v1:
 - **La pista borra los saltos**: `StampTrack` pone la base de la pista (promedio de ±15 m, 4 pasadas) y la
   mezcla con el terreno hasta hw + 9 m: una forma que la pista pisa queda aplanada. → Pista `guide`, que
   no toca el terreno (ni franja de tierra ni estacas) y no lleva obstáculos (el bot frenaría y el
@@ -197,11 +222,103 @@ Lo aprendido:
   favela, parque, valle, favela con bot) con sólo estos cambios sobre `HEAD` y con el árbol entero; bot
   de motocross 1:08.37 / 1:08.51; favela 1052 casas.
 
+Lo aprendido en la v2 (más juntos):
+- **Más juntos, el que se pasa cae en la cara del siguiente**: con la primera Cadena (llanos de 3-16 m entre
+  salto y salto) la simulación daba, de 55 km/h para arriba, caídas sobre la subida del salto siguiente o
+  sobre la S que sale de la hoyada (-10 a -34°, vn de 12 a 18 m/s): pegar contra una pared. → Cada salto
+  lleva su bajada, una hoyada chica (0.3-1.5 m, no 2.5-3.5) con una S de 12-18 m (caer en la S, ≤ 6°, está
+  bien: vn ≤ 13) y llano hasta **pasar donde cae a 70 km/h** (30-37 m desde el labio para mesas de 2-4.4
+  m). Así quedaron a 38-56 m de labio a labio (en la v1, a 90-150). Medido: 40-70 los seis, los dos
+  pilotos. La cara del siguiente arranca en el fondo de la hoyada: `Perfil` (en `tools/medanos.py`)
+  encadena las piezas desde donde terminó la anterior.
+- **En una cadena el bot no llega a su velocidad**: a 70 despega a 49-58 km/h en los del medio, porque
+  en el aire suelta el gas y cada aterrizaje frena. Por eso se miden en fila (`tools/tramo.py`) y no
+  sueltos.
+- **Serrucho: el cabeceo crece de loma en loma**. Sin tocar nada, cada loma deja la moto cabeceando ±20-50°
+  y la siguiente lo agranda. Los Lomos solos (cuatro, desde el llano) pasan de 45 a 75; con los lomitos
+  antes (y 6-12 m de llano en el medio) o con una quinta loma, a 60-65 se cae. Veinte metros de llano
+  entre juegos no alcanzan a 60-70. El bot, que en el aire pone la trompa a -8°, pasa de 40 a 70. Quedó:
+  juegos de a cuatro como mucho, 14-20 m de llano entre juegos, y el aviso de que a 60+ hay que usar el
+  cuerpo. Los primeros lomitos (seis de 0.8 m cada 9 m, 16° de pendiente) tiraban al que no toca nada a
+  60-70 cayendo de trompa sobre el tercero → cuatro de 0.7 m cada 10 m (12°).
+- **Un serrucho no termina en una curva**: el tercer lomazo terminaba en la entrada de la curva NO; en la
+  vuelta 2 el bot cayó de trompa sobre él justo cuando empezaba a doblar (se tumbó a -59°). → Dos lomazos
+  y 40 m hasta la curva; 5 vueltas sin caerse.
+- **Peraltes con `arc`**: el primero llevaba la guía a 30 m del centro, a 1.9 m de alto sobre una pared
+  de 30°. Pasando el borde del sector el peralte se desvanece en `edge` (12 m) y la guía bajaba 2 m con
+  14% de pendiente: un escalón a la salida de cada curva (y uno a la entrada), que el perfil de la vuelta
+  (`--test profile`) mostró enseguida. → La guía al pie de la pared (piso hasta 28 m, guía a 31: 0.3 m) y
+  `edge` 16: se pasa a 0.3-0.4 m. Y las líneas tienen que arrancar pasando ese desvanecido (≥ `edge` desde
+  el borde del sector): el peralte va después en la lista y si no, aplana el primer salto.
+- **Médanos redondos**: los primeros Montes eran conos con laderas de 26-30° y 2 m de cima, sobre los
+  médanos naturales: sin tocar nada se caía a 40-50 (cae con la trompa arriba, +32°, en la ladera de
+  enfrente) y se llegaba lento. → Mesas redondas (cima plana de 4-6 m, laderas de 18-24°, pie de radio 14)
+  en una plaza nivelada: 30-60 los dos pilotos.
+- **Cómo se hizo**: el plano de arriba (la copia en numpy de `Terrain::Ground`, ahora con `arc`) para
+  ubicar todo; `--sim` para la primera idea de cada salto; `tools/tramo.py` y `tools/saltos.py` (y
+  `--medir`) en el juego; el bot 5 vueltas. Se comprobó: regresión contra la v0.2.7 idéntica (brakeslide,
+  bot 40 s, favela, circuito y valle con el bot), motocross 1:08.73 / 1:08.42, favela 1052 casas.
+
 Pendientes:
-- Reaparecer donde uno se cae (hoy va al punto de la guía más cercano, que en el medio de los médanos
-  puede quedar a 100 m) y esconder el tiempo de vuelta en los mapas sin pista (`Game.cpp`).
+- ~~Reaparecer donde uno se cae y esconder el tiempo de vuelta en los mapas sin pista~~: hecho (el jugador
+  reaparece donde quedó, en suelo parejo; arriba, los saltos en vez del cronómetro). Ver [MENU.md](MENU.md),
+  "Mapas libres".
 - El color del polvo y de la tierra que levantan las ruedas según el suelo (en la arena, arena clara) y
   subir `Dustiness` de la arena.
 - Agarre propio de la arena (hoy es el del pasto: 0.82).
 - Un test que entre a N km/h con el cuerpo atrás o adelante en el aire (hay `bajadaN`, sin tocar nada, y
   el bot, que busca -8°).
+- Sin tocar nada, a 60-70 km/h se encabrita en El Serrucho y se cae (el cabeceo crece de loma en loma); con
+  el cuerpo (el bot) pasa. Si molesta, lomas más tendidas o un amortiguamiento del cabeceo en el aire.
+
+### Parque de física (sandbox/park)
+`mods/sandbox/maps/park.json`, generado por `tools/parque.py`: es el mod de ejemplo, así que el JSON
+queda comentado y se puede tocar a mano. Llano de 255.5 m, Dos tiempos 250, la pista de siempre por el
+borde (la del bot, con sus obstáculos automáticos).
+
+**v2** (el usuario: "parece un collage sin sentido y algunas rampas son muy empinadas para subirlas y
+están puestas en cualquier lado"). Lo que tenía la v1:
+- el quarter pipe era una cuña de 45° apoyada en el piso: la rueda se encuentra con un quiebre de 45°,
+  una pared;
+- las rampas de las líneas (y la de lanzamiento, 3.5 m a 21°) eran cuñas con la espalda vertical de 1.4
+  a 3.5 m: del otro lado, o llegando corto, son paredes; y cada cosa mirando para cualquier lado en el
+  medio del campo;
+- el pump track eran caños de 3 m enterrados hasta dejar 1.1 m afuera: el piso toca el círculo a 74°,
+  troncos y no lomas;
+- los objetos sueltos, amontonados lejos de todo: nadie pasaba por ahí (el bot, 0 de 35 movidos).
+
+Ahora son zonas, y la circulación es la de la vuelta: **todas las líneas se andan hacia el norte**, se
+entra desde la recta de largada doblando a la izquierda y se sale a la recta de enfrente (otra vez a la
+izquierda), que es para donde va la vuelta. Lo que hay para voltear está al final de cada línea.
+
+| Zona | Qué | Medido (Dos tiempos, bot / "sin tocar nada") |
+|---|---|---|
+| Línea de tierra (x = -50) | tres mesas de terreno pintadas de tierra (`dirt`): 1.2 m y 20°, 2 m y 26°, y "la de mortales", 3.6 m y 34° con cara de radio 16, 10 m de mesa y bajada de 30° que sigue 1.5 m bajo el suelo. Al final, la pirámide de cajas | 30-60 km/h los dos, sin caerse (0.3-2.4 s); mortal: `--spawn 80 --drop 0.5 --test flip` en `prueba/park_tierra`, 356° y cae a los 2.8 s |
+| Línea de madera (x = 0) | tres cajones de madera: rampa de 11-20°, mesa y bajada de 9-11°, de 0.8, 1.2 y 1.8 m (se saltan o se pasan rodando, para los dos lados). Al final, la bolera | 25-55 km/h los dos (0.2-1.3 s) |
+| Pump track (x = 40-66) | óvalo de tierra: dos rectas de ocho lomitos de 0.6 m cada 6.25 m y dos peraltes (`round` con `arc` de 180°, radio 13). Al salir, el muro de tambores | el bot da vueltas de 15 a 35 km/h sin caerse (de 25 para arriba salta de lomo en lomo) |
+| La Pared (42, 52) | quarter de tierra de 3.2 m (62° arriba) con espalda de 24° | bot 20-50 pasa por arriba y cae en la espalda (1-2.4 s); sin tocar nada a 20 llega arriba sin velocidad y se cae |
+| El bowl (-20, 58) | 2.4 m de hondo, paredes de 50° y borde de 0.8 m; las tres pelotas gigantes viven adentro (siempre vuelven al fondo) | 15-35 lo cruza; a 25 empuja las tres pelotas (hasta 3.3 m) y sale; a 60 vuela el bowl entero y se frena contra la pared de enfrente, sin caerse |
+
+La vuelta del bot es la misma: 0:50.90-0:50.91 (las formas están a más de 17 m de la línea central).
+
+Lo aprendido:
+- **Rampas de madera**: nunca de más de ~20° desde el piso, y siempre con una mesa atrás (rampa, mesa y
+  bajada): así no hay pared vertical para ningún lado. Las piezas se solapan 5 cm (sin canaletas) y la
+  mesa es 4 cm más angosta que las rampas (sus costados no quedan en el mismo plano y no titilan).
+- **Tierra sobre pasto**: las mesas de terreno salían con la textura del pasto y parecían lomas verdes, no
+  saltos → `dirt` en las formas.
+- **La mesa de mortales**: con cara de radio 10, 36-38° y 3.8-4 m, sin tocar nada caía con la trompa
+  arriba (+35 a +55°) y se daba vuelta a 40-50 km/h; con radio 16, 34° y 3.6 m pasan los dos pilotos de 30
+  a 60 y el mortal sigue dando 356°. Una cara más corta y empinada levanta más la trompa.
+- **Formas y pista**: con una pista `track`, las formas a más de hw + 11 m de la línea central (acá 17 m)
+  o la base suavizada las aplana. Cada línea arranca en el borde de la pista (su llano de entrada llega
+  hasta ahí): desde la pista se ve dónde empieza.
+- **El bot sólo anda la vuelta**: cada zona se midió con una copia con la guía por ahí (`prueba/park_*`,
+  estilo `guide` para que la pista no estampe nada) con `tools/tramo.py` y `tools/saltos.py`.
+- **Objetos sueltos**: sólo lo fijo da `GOLPE`; las ruedas no pisan lo suelto (sólo lo empuja el chasis):
+  se pueden poner al final de una línea para atravesarlos.
+
+Pendientes:
+- Los objetos sueltos quedan donde cayeron hasta que se vuelve a cargar el mapa: `Props::Reset` existe
+  pero nadie lo llama (una tecla, o al reaparecer: `Game.cpp`).
+- El bot no anda las líneas del parque (sólo la vuelta); están medidas con las copias de prueba.

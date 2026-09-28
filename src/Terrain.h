@@ -74,6 +74,7 @@ private:
         std::vector<float> table;
         float first = 0.0f, last = 0.0f;   // u del primer y último punto del perfil
         float base = 0.0f;                 // level: altura a la que nivela
+        float arcWidth = 360.0f;           // round con "arc": grados que abarca el sector (360 = entera)
         float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;   // hasta dónde llega (con el borde)
     };
 
@@ -82,6 +83,8 @@ private:
     float Dunes(float x, float z) const;
     // El suelo con las formas [0, count) aplicadas en orden sobre la altura natural h.
     float ApplyShapes(float x, float z, float h, size_t count) const;
+    // Cuánto cubre la forma el punto (1 adentro, 0 fuera de su borde) y la u de su perfil ahí.
+    float ShapeCover(const Shape& s, float x, float z, float& u) const;
     void PrepareShapes();
     float Sample(const std::vector<float>& a, float x, float z) const;   // bilineal sobre la grilla
     void StampTrack(const Track& track);
