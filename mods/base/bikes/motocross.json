@@ -1,0 +1,6 @@
+// The default bike: tuning.ini as it is, motocross parts and livery.
+{
+  "name": "Motocross 450",
+  "style": "mx",
+  "description": "La de siempre: liviana, con mucho recorrido y buena para saltar."
+}

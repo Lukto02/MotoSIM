@@ -1,0 +1,67 @@
+// Morro do Grau: a Brazilian favela hill. Down the straight ladeira crossing four streets, back up
+// the zigzag with a hairpin at each end. See MODDING.md for every field.
+{
+  "name": "Morro do Grau (trial, prueba)",
+  "kind": "favela · Brasil",
+  "description": "Bajada por la ladeira cruzando calles, escaleras, quebra-molas y horquillas entre las casitas.",
+  "hint": "Grau: flecha abajo + W de golpe (soltá W: grau lento)  ·  derrape: Espacio doblando",
+  "bike": "base/trial",
+  "color": "#fcd628",     // accent color in the map list
+  "order": 2,
+
+  // "favela": a ~20% slope rising to the north. The generator fills it with houses.
+  "terrain": { "type": "favela", "edge": 12 },
+  "generator": "favela",
+
+  "track": {
+    "style": "street",    // streets cut level into the hill; crossings blend into each other
+    "width": 7.2,
+    "banking": false,
+    // [x, z] or [x, z, "surface"]: the surface holds until a later point names another one
+    // (asphalt, concrete, dirt).
+    "points": [
+      [70, 97, "concrete"], [40, 97], [14, 97],             // top street (start), heading west
+      [4, 93], [0, 84],                                     // left into the ladeira
+      [0, 60], [0, 30], [0, 0, "asphalt"], [0, -30], [0, -60], [0, -80],   // down the ladeira (crosses D, C, B, A)
+      [3, -89], [14, -93],                                  // bottom avenue, heading east
+      [45, -93], [78, -91],
+      [95, -86], [101, -77], [95, -69],                     // hairpin 1 (left)
+      [75, -66], [40, -61], [0, -56], [-40, -51], [-75, -47],   // street A, west
+      [-95, -44], [-101, -35, "concrete"], [-95, -27],      // hairpin 2 (right)
+      [-75, -24], [-40, -20], [0, -16], [40, -11], [75, -7],    // street B, east
+      [95, -4], [101, 5], [95, 13],                         // hairpin 3 (left)
+      [75, 16, "dirt"], [40, 21], [0, 27], [-40, 33], [-75, 37],   // street C, west (dirt)
+      [-95, 40], [-101, 49], [-95, 57],                     // hairpin 4 (right)
+      [-75, 60], [-40, 64], [0, 69], [40, 74], [70, 78],    // street D, east
+      [88, 83, "concrete"], [92, 91], [84, 97]              // hairpin 5, back to the top street
+    ]
+  },
+
+  "start": [46, 97],
+
+  // Placed by hand: each one goes on the track point closest to "at" (centered there; stairs start there).
+  "features": [
+    { "kind": "quebramola", "at": [26, 97] },
+    { "kind": "escadaria",  "at": [0, 86.5] },
+    { "kind": "quebramola", "at": [0, -38] },
+    { "kind": "quebramola", "at": [32, -93] },
+    { "kind": "quebramola", "at": [62, -92] },
+    { "kind": "quebramola", "at": [52, -62.5] },
+    { "kind": "quebramola", "at": [-42, -51] },
+    { "kind": "quebramola", "at": [-48, -21] },
+    { "kind": "quebramola", "at": [46, -10] },
+    { "kind": "rampa",      "at": [-28, 31] },
+    { "kind": "rampa",      "at": [38, 73.5] }
+  ],
+
+  // The ladeira is terraced: a level plateau at each crossing, and between them a drop that leaves
+  // over a lip (a jump) and flattens out before the next plateau.
+  "terraces": {
+    "from": [0, 88],
+    "to": [0, -80],
+    "plateaus": [[0, 69], [0, 27], [0, -16], [0, -56]],
+    "half": 4.5
+  },
+
+  "look": { "preset": "sunset" }
+}

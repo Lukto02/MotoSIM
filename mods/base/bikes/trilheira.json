@@ -1,0 +1,9 @@
+// Brazilian street trail bike used on Morro do Grau.
+// "tuning" is read AFTER tuning.ini and overrides only the keys it contains (mass, engine, tires,
+// wheelie limiter, grau assist...). F5 in game reloads both.
+{
+  "name": "Trilheira 450 (escape aberto)",
+  "style": "trail",
+  "description": "Callejera de morro: sin silenciador y hecha para el grau.",
+  "tuning": "trilheira.ini"
+}

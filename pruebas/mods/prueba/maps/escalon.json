@@ -1,0 +1,21 @@
+// Recta larga con escalones de frente (sin rampa) para las pruebas con guion (--test wheelie,
+// launch, arranque...) y --spawn: cajón de 0.5 m con la cara en s = 28 y de 1 m con la cara en s = 78.
+{
+  "name": "Escalones trial (prueba)",
+  "kind": "prueba",
+  "bike": "base/trial",
+  "terrain": { "type": "flat", "edge": 10 },
+  "track": {
+    "style": "track",
+    "width": 8,
+    "banking": false,
+    "points": [[0, -100], [0, -50], [0, 0], [0, 50], [0, 100], [12, 112], [24, 100], [24, -100], [12, -112]]
+  },
+  "start": [0, -80],
+  "look": { "preset": "day" },
+  "objects": [
+    { "shape": "box", "at": [0, 0, -70], "size": [7, 0.5, 4], "color": "#9aa3ad" },
+    { "shape": "box", "at": [0, 0, -20], "size": [7, 1.0, 4], "color": "#c7b27f" },
+    { "shape": "box", "at": [0, 0, 30],  "size": [7, 0.75, 4], "color": "#8a939d" }
+  ]
+}

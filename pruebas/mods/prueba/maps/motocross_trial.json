@@ -1,0 +1,40 @@
+// The original motocross track. See MODDING.md for every field.
+{
+  "name": "Pista de motocross (trial, prueba)",
+  "kind": "motocross · circuito",
+  "description": "Rectas con saltos, whoops y peraltes de tierra. La pista de siempre.",
+  "bike": "base/trial",
+  "order": 1,             // place in the map list (lower = first; mods default to 100)
+
+  "terrain": { "type": "hills", "height": 10, "scale": 0.011, "detail": 0.5, "edge": 14 },
+
+  "track": {
+    "style": "track",     // smoothed base, long shoulders, berms in the corners
+    "width": 9,
+    "scale": 0.95,        // multiplies every point below
+    // Closed loop through these points (x, z in meters). Start straight first.
+    "points": [
+      [-70, -87], [-10, -88], [50, -86],
+      [84, -74], [96, -48], [82, -22],
+      [40, -24], [0, -18], [-38, -4],
+      [-58, 24], [-42, 52],
+      [5, 50], [55, 46], [86, 60],
+      [86, 92], [45, 101],
+      [-35, 97], [-85, 88],
+      [-104, 58], [-102, 10], [-106, -45],
+      [-96, -78]
+    ]
+  },
+
+  // One list per straight (>= 40 m long), in race order, starting with the straight that holds the
+  // start line. Obstacles that do not fit in their straight are dropped.
+  "auto_features": [
+    ["rollers", "tabletop", "kicker"],
+    ["stepup"],
+    ["double"],
+    ["whoops", "tabletop"],
+    ["rollers", "kicker"]
+  ],
+
+  "look": { "preset": "day" }
+}

@@ -1,0 +1,9 @@
+// Example bike: a light, revvy 250 two-stroke. "mx2t" is the motocross look with a two-stroke engine
+// (expansion chamber, flat head, 90s colors); the physics are only what dostiempos.ini changes (read
+// after tuning.ini; F5 in game reloads it).
+{
+  "name": "Dos tiempos 250",
+  "style": "mx2t",
+  "description": "Dos tiempos gritona: poca fuerza abajo, se despierta arriba.",
+  "tuning": "dostiempos.ini"
+}

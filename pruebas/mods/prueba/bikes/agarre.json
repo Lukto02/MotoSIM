@@ -1,0 +1,6 @@
+// Prueba: la de motocross con cubiertas de pista (agarra 12.5 m/s2 de costado).
+{
+  "name": "Agarre (prueba)",
+  "style": "race",
+  "tuning": "agarre.ini"
+}

@@ -1,0 +1,36 @@
+// Circuito de prueba de la moto de trial: rectángulo plano con escalones, rampas, un tronco y
+// bajadas encima de la pista (el bot pasa por arriba de todo). El bot no sabe levantar la rueda: los
+// cajones altos tienen una rampa corta adelante; los escalones de frente son de 0.2 y 0.3 m.
+{
+  "name": "Circuito trial con la MX (prueba)",
+  "kind": "prueba",
+  "bike": "base/motocross",
+  "bot_speed": 7,
+  "terrain": { "type": "flat", "edge": 10 },
+  "track": {
+    "style": "track",
+    "width": 8,
+    "banking": false,
+    "points": [
+      [-20, -40], [-20, -10], [-20, 20], [-20, 42], [-10, 52], [10, 52],
+      [20, 42], [20, 20], [20, -10], [20, -40], [10, -50], [-10, -50]
+    ]
+  },
+  "start": [-20, -32],
+  "look": { "preset": "day" },
+  "objects": [
+    // Lado oeste (hacia el norte): escalón de 0.3 de frente, cajón de 0.5 con rampa corta y
+    // rampa a un cajón de 1 m que termina en una bajada de 1 m.
+    { "shape": "box",  "at": [-20, 0, -13],   "size": [7, 0.3, 4], "color": "#9aa3ad" },
+    { "shape": "ramp", "at": [-20, 0, -1.25], "size": [7, 0.5, 2.5], "color": "#d9c9a3" },
+    { "shape": "box",  "at": [-20, 0, 3],     "size": [7, 0.5, 6], "color": "#8a939d" },
+    { "shape": "ramp", "at": [-20, 0, 18],    "size": [7, 1.0, 4], "color": "#d9c9a3" },
+    { "shape": "box",  "at": [-20, 0, 23],    "size": [7, 1.0, 6], "color": "#c7b27f" },
+    // Lado este (hacia el sur): rampa a 0.6, escalón abajo a 0.3 y bajada, tronco, cordón de 0.2.
+    { "shape": "ramp", "at": [20, 0, 26],   "size": [7, 0.6, 4], "yaw": 180, "color": "#d9c9a3" },
+    { "shape": "box",  "at": [20, 0, 22.5], "size": [7, 0.6, 3], "color": "#9aa3ad" },
+    { "shape": "box",  "at": [20, 0, 19],   "size": [7, 0.3, 4], "color": "#8a939d" },
+    { "shape": "cylinder", "at": [20, -0.1, 4], "size": [0.4, 7], "roll": 90, "color": "#7a5a3a" },
+    { "shape": "box",  "at": [20, 0, -17],  "size": [7, 0.2, 4], "color": "#c7b27f" }
+  ]
+}

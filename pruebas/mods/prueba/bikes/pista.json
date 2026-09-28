@@ -1,0 +1,6 @@
+// Moto de prueba (sólo para probar el circuito mientras no está base/carrera): rápida y con slicks.
+{
+  "name": "Pista (prueba)",
+  "style": "race",
+  "tuning": "pista.ini"
+}

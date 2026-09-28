@@ -1,0 +1,9 @@
+// Competition trials bike: light, torquey, huge steering lock, always ridden standing up.
+// "tuning" is read AFTER tuning.ini and overrides only the keys it contains (mass, engine, gearing,
+// suspension, tires, steering...). F5 in game reloads both.
+{
+  "name": "Trial 300",
+  "style": "trial",
+  "description": "De trial: liviana, gira en el lugar y trepa escalones levantando la rueda.",
+  "tuning": "trial.ini"
+}

@@ -1,0 +1,33 @@
+// Example of a heightmap terrain: valle.png is stretched over the whole map (256 m, top of the
+// image = north, white = high). Paint your own in any image editor (grayscale PNG).
+// The track goes down the valley floor and comes back up along the east slope.
+{
+  "name": "Valle (trial, prueba)",
+  "kind": "sandbox · terreno desde una imagen",
+  "description": "Bajada por el fondo de un valle que serpentea y subida por la ladera. Ejemplo de heightmap.",
+  "color": "#8bc34a",
+  "bike": "base/trial",
+
+  "terrain": { "type": "heightmap", "image": "valle.png", "height": 30, "base": -4, "edge": 12 },
+
+  "track": {
+    "style": "track",
+    "width": 9,
+    "points": [
+      [30, 95], [13, 50], [-24, 0], [-23, -50], [12, -95],     // down the valley floor, heading south
+      [36, -108], [59, -95],                                   // south hairpin
+      [22, -50], [21, 0], [58, 50], [75, 95],                  // back up the east slope, heading north
+      [52, 108]                                                // north hairpin
+    ]
+  },
+  // This track has no long straights, so the obstacles go by hand: each one is centered on the
+  // track point closest to "at".
+  "features": [
+    { "kind": "rollers",  "at": [-5, 25] },
+    { "kind": "tabletop", "at": [-23.5, -25] },
+    { "kind": "kicker",   "at": [21.5, -25] },
+    { "kind": "whoops",   "at": [40, 25] }
+  ],
+
+  "look": { "preset": "day", "fog": 0.0032 }
+}

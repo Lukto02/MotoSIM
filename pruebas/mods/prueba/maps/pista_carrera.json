@@ -1,0 +1,30 @@
+// Pista de pruebas de la moto de carreras (no se entrega): recta de ~840 m, horquilla, eses,
+// curva rápida, chicana, contrarrecta y dos curvas de 90 grados.
+{
+  "name": "Pista de pruebas (carrera)",
+  "kind": "prueba · asfalto",
+  "bike": "base/carrera",
+  "bot_speed": 90,
+  "bot_lateral": 12,
+  "markers": false,
+  "terrain": {"type": "flat", "size": 1024, "resolution": 1.0, "edge": 10},
+  "start": [-300, -390],
+  "track": {
+    "style": "street", "width": 14, "banking": false,
+    "points": [
+      [-300, -420, "asphalt"], [-300, -330], [-300, -240], [-300, -150], [-300, -60], [-300, 30],
+      [-300, 120], [-300, 210], [-300, 300], [-300, 390], [-300, 425],
+      [-297, 452], [-284, 471], [-262, 481], [-241, 474], [-229, 453],
+      [-226, 410], [-224, 360], [-220, 330],
+      [-205, 303], [-178, 290], [-150, 298], [-118, 318], [-88, 318],
+      [-58, 300], [-38, 270], [-28, 232],
+      [-26, 180], [-25, 120], [-24, 80],
+      [-16, 57], [2, 48], [14, 30], [9, 6],
+      [6, -40], [8, -110], [10, -180], [11, -250],
+      [9, -320], [-4, -370], [-35, -412], [-82, -442],
+      [-140, -458], [-200, -466], [-240, -470],
+      [-270, -466], [-290, -452]
+    ]
+  },
+  "look": {"preset": "day", "ground_textures": "circuit", "fog": 0.0012}
+}

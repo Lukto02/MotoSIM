@@ -1,0 +1,8 @@
+// Race bike (MotoGP / superbike style): full fairing, clip-ons, slicks and a high-revving 4-cylinder.
+// "tuning" is read AFTER tuning.ini and overrides only the keys it contains. F5 in game reloads both.
+{
+  "name": "Carrera 1000 (4 cilindros)",
+  "style": "race",
+  "description": "Superbike de 4 cilindros: 245 hp, 330 km/h y rodilla al piso en las curvas.",
+  "tuning": "carrera.ini"
+}

@@ -1,0 +1,112 @@
+// Example mod: a flat physics park. A lap track around the edge, and inside it jump lines, a table,
+// a launch ramp, a quarter pipe, a pump track, and loose barrels, crates, bowling pins and giant
+// balls to crash into. Copy this folder to start your own mod; every field is in MODDING.md.
+//
+// Save this file while the game is running on this map and it rebuilds right away.
+{
+  "name": "Parque de física",
+  "kind": "sandbox · rampas y objetos sueltos",
+  "description": "Líneas de saltos, mesa, quarter pipe, pump track y cosas para voltear. Ejemplo de mod.",
+  "hint": "Los tambores, cajas, bolos y pelotas se mueven: pasales por encima o empujalos",
+  "color": "#4fc3f7",
+  "bike": "sandbox/dostiempos",
+
+  "terrain": { "type": "flat", "edge": 10 },
+
+  // A rounded rectangle around the park (x, z in meters; x = east, z = north).
+  "track": {
+    "style": "track",
+    "width": 12,
+    "points": [
+      [-80, -95], [0, -96], [80, -95], [97, -80],
+      [98, 0], [97, 80], [80, 97], [0, 98],
+      [-80, 97], [-97, 80], [-98, 0], [-97, -80]
+    ]
+  },
+  "start": [-40, -95],
+  "auto_features": [
+    ["kicker", "tabletop"],   // south straight (the start)
+    ["rollers"],              // east
+    ["double"],               // north
+    ["whoops"]                // west
+  ],
+
+  "look": { "preset": "day", "sun_dir": [-0.35, 0.8, -0.5] },
+
+  // shape: box | ramp | cylinder | sphere. "at": [x, y, z] where y is the gap between the ground and
+  // the lowest point of the object (negative = buried). size: [width, height, length] in meters
+  // (cylinder: [diameter, height], sphere: [diameter]). yaw / pitch / roll in degrees. A ramp rises
+  // towards its "yaw" direction (0 = north, 90 = east). dynamic: true makes it a loose object with
+  // "mass" in kg. Fixed objects can be ridden on; loose ones get pushed by the bike's body.
+  "objects": [
+    // --- Jump line (west), three sizes, riding north ---------------------------------------
+    { "shape": "ramp", "at": [-40, 0, -50], "size": [5, 1.4, 5],  "color": "#d9c9a3" },
+    { "shape": "ramp", "at": [-40, 0, -34], "size": [5, 1.4, 7],  "yaw": 180, "color": "#d9c9a3" },
+    { "shape": "ramp", "at": [-40, 0, -14], "size": [5, 1.8, 6],  "color": "#d9c9a3" },
+    { "shape": "ramp", "at": [-40, 0, 4],   "size": [5, 1.8, 8],  "yaw": 180, "color": "#d9c9a3" },
+    { "shape": "ramp", "at": [-40, 0, 25],  "size": [6, 2.6, 8],  "color": "#c7b27f" },
+    { "shape": "ramp", "at": [-40, 0, 50],  "size": [6, 2.6, 12], "yaw": 180, "color": "#c7b27f" },
+
+    // --- Table (middle): up, 22 m flat top, down ----------------------------------------------
+    { "shape": "ramp", "at": [0, 0, -40], "size": [6, 1.5, 6], "color": "#9aa3ad" },
+    { "shape": "box",  "at": [0, 0, -26], "size": [6, 1.5, 22], "color": "#8a939d" },
+    { "shape": "ramp", "at": [0, 0, -12], "size": [6, 1.5, 6], "yaw": 180, "color": "#9aa3ad" },
+
+    // --- Launch ramp and a long landing (for flips) -----------------------------------------
+    { "shape": "ramp", "at": [0, 0, 45], "size": [7, 3.5, 9],  "color": "#e0a040" },
+    { "shape": "ramp", "at": [0, 0, 75], "size": [8, 3.5, 14], "yaw": 180, "color": "#e0a040" },
+
+    // --- Quarter pipe (north-east): 45 degrees, 4 m tall -------------------------------------
+    { "shape": "ramp", "at": [45, 0, 52], "size": [12, 4, 4], "color": "#b04a4a" },
+
+    // --- Pump track (east): half-buried pipes lying across the path --------------------------
+    { "shape": "cylinder", "at": [65, -1.9, -62], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
+    { "shape": "cylinder", "at": [65, -1.9, -55], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
+    { "shape": "cylinder", "at": [65, -1.9, -48], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
+    { "shape": "cylinder", "at": [65, -1.9, -41], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
+    { "shape": "cylinder", "at": [65, -1.9, -34], "size": [3, 6], "roll": 90, "color": "#6b8e4e" },
+
+    // --- Loose oil drums (south-east) --------------------------------------------------------
+    { "shape": "cylinder", "at": [30, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
+    { "shape": "cylinder", "at": [31, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+    { "shape": "cylinder", "at": [32, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
+    { "shape": "cylinder", "at": [33, 0, -40], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
+    { "shape": "cylinder", "at": [30, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+    { "shape": "cylinder", "at": [31, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
+    { "shape": "cylinder", "at": [32, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
+    { "shape": "cylinder", "at": [33, 0, -39], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
+    { "shape": "cylinder", "at": [30, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#f1c40f" },
+    { "shape": "cylinder", "at": [31, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#e67e22" },
+    { "shape": "cylinder", "at": [32, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#c0392b" },
+    { "shape": "cylinder", "at": [33, 0, -38], "size": [0.6, 0.9], "dynamic": true, "mass": 20, "color": "#2e86c1" },
+
+    // --- Crate pyramid (east): 4 + 3 + 2 + 1 --------------------------------------------------
+    { "shape": "box", "at": [38.35, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [39.45, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [40.55, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [41.65, 0, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [38.9, 1, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [40.0, 1, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [41.1, 1, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [39.45, 2, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#a0703c" },
+    { "shape": "box", "at": [40.55, 2, 10], "size": 1, "dynamic": true, "mass": 12, "color": "#b07c44" },
+    { "shape": "box", "at": [40.0, 3, 10],  "size": 1, "dynamic": true, "mass": 12, "color": "#c9302c" },
+
+    // --- Bowling pins (north-east) -----------------------------------------------------------
+    { "shape": "cylinder", "at": [22, 0, 56],     "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [21.4, 0, 57.2], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [22.6, 0, 57.2], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [20.8, 0, 58.4], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [22, 0, 58.4],   "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#d62c2c" },
+    { "shape": "cylinder", "at": [23.2, 0, 58.4], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [20.2, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [21.4, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [22.6, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+    { "shape": "cylinder", "at": [23.8, 0, 59.6], "size": [0.45, 1.5], "dynamic": true, "mass": 6, "color": "#f4f4f4" },
+
+    // --- Giant balls ---------------------------------------------------------------------------
+    { "shape": "sphere", "at": [15, 0, 25], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#e84393" },
+    { "shape": "sphere", "at": [19, 0, 30], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#00b894" },
+    { "shape": "sphere", "at": [12, 0, 32], "size": 2.2, "dynamic": true, "mass": 45, "friction": 0.6, "color": "#fdcb6e" }
+  ]
+}
