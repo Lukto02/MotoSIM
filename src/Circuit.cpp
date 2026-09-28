@@ -9,6 +9,7 @@
 
 #include "Circuit.h"
 
+#include "Coplanar.h"
 #include "Json.h"
 #include "MathUtil.h"
 #include "MeshBuilder.h"
@@ -24,6 +25,8 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <map>
+#include <tuple>
 
 namespace {
 
@@ -618,14 +621,15 @@ void Circuit::Generate(Geometry* geo)
         const float in = hw - 0.05f;
         const int n = std::max(2, (int)std::lround(s1 - s0));
         auto w = [&](float s) { return width * std::clamp(std::min(s - s0, s1 - s) / 3.0f, 0.15f, 1.0f); };
+        const float lift = 0.008f * (float)(kerbs % 2);    // dos pianos que se cruzan (entrada y vértice) no quedan en el mismo plano
         for (int q = 0; q < n; ++q) {
             const float a = s0 + (s1 - s0) * (float)q / (float)n, b = s0 + (s1 - s0) * (float)(q + 1) / (float)n;
             const Color col = q % 2 ? kWhite : kRed;
             Vector3 ai = W(a, side * in), ao = W(a, side * (in + w(a))), bi = W(b, side * in), bo = W(b, side * (in + w(b)));
-            ai.y += 0.014f;
-            bi.y += 0.014f;
-            ao.y += 0.06f;
-            bo.y += 0.06f;
+            ai.y += 0.014f + lift;
+            bi.y += 0.014f + lift;
+            ao.y += 0.06f + lift;
+            bo.y += 0.06f + lift;
             MeshBuilder& mb = D(ai, 8);
             Vector3 n0 = Vector3Normalize(Vector3CrossProduct(Vector3Subtract(ao, ai), Vector3Subtract(bi, ai)));
             if (n0.y < 0.0f) n0 = Vector3Negate(n0);
@@ -726,7 +730,12 @@ void Circuit::Generate(Geometry* geo)
             const float fenceTop = type == 3 ? 4.2f : 3.4f;
             MeshBuilder& m = S(mid, 200);
             const Vector3 c = {mid.x + outDir.x * 0.2f, y0 + (0.3f + wall) * 0.5f, mid.z + outDir.z * 0.2f};
-            YawBox(m, c, {0.2f, (0.3f + wall) * 0.5f, len * 0.5f + 0.02f}, yaw, (i0 / 3) % 2 && type == 3 ? kPaint : kConcrete, 0.08f, kPlaster);
+            // Frente a la tribuna los tramos alternan blanco y cemento: los blancos, 2 cm más gruesos y más altos,
+            // porque los vecinos se solapan 4 cm con las caras en el mismo plano y se pisaban en cada junta.
+            const bool painted = (i0 / 3) % 2 && type == 3;
+            const float thick = painted ? 0.02f : 0.0f;
+            YawBox(m, {c.x, c.y + thick * 0.5f, c.z}, {0.2f + thick, (0.3f + wall + thick) * 0.5f, len * 0.5f + 0.02f}, yaw, painted ? kPaint : kConcrete, 0.08f,
+                   kPlaster);
             const float top = y0 + 0.3f + wall;
             const Vector3 pa = {a.x + outDir.x * 0.2f, top, a.z + outDir.z * 0.2f}, pb = {b.x + outDir.x * 0.2f, top, b.z + outDir.z * 0.2f};
             if (post++ % 2 == 0 || len > 5.0f) Bar(m, pa, Vector3{pa.x, top + fenceTop - 0.3f, pa.z}, 0.05f, kDarkSteel, 0.4f);
@@ -742,13 +751,15 @@ void Circuit::Generate(Geometry* geo)
                     const Vector3 at = {p.x + outDir.x * 0.38f, G.Height(p.x, p.z) - 0.05f, p.z + outDir.z * 0.38f};
                     const int k = (i0 * 7 + q) % 9;
                     const Color col = k == 0 ? kWhite : (k == 4 ? kRed : Shade(kTyre, br.R(0.9f, 1.15f)));
-                    Cylinder(S(at, 24), at, 0.33f, 1.05f, col, 0.15f, 6);
+                    Cylinder(S(at, 24), at, 0.33f, 1.02f, col, 0.15f, 6);        // 3 cm debajo del borde del muro
                 }
             } else if (type == 2) {                        // air fence: colchón azul con una banda blanca
                 const Vector3 fm = Vector3Lerp(fa, fb, 0.5f);
                 const Vector3 cc = {fm.x + outDir.x * 0.52f, y0 + 0.3f + 0.8f, fm.z + outDir.z * 0.52f};
                 YawBox(m, cc, {0.5f, 0.8f + 0.3f, len * 0.5f + 0.03f}, yaw, kAirBlue, 0.25f);
-                YawBox(m, {cc.x - outDir.x * 0.02f, y0 + 0.3f + 1.25f, cc.z - outDir.z * 0.02f}, {0.5f, 0.16f, len * 0.5f + 0.035f}, yaw, kWhite, 0.25f);
+                // La banda, 2 cm más ancha que el colchón de los dos lados. Antes se corría hacia la pista con outDir,
+                // que no es perpendicular al tramo cuando la barrera se abre de golpe: quedaba en la cara del colchón.
+                YawBox(m, {cc.x, y0 + 0.3f + 1.25f, cc.z}, {0.52f, 0.16f, len * 0.5f + 0.05f}, yaw, kWhite, 0.25f);
             }
         }
     }
@@ -767,7 +778,7 @@ void Circuit::Generate(Geometry* geo)
             for (int q = 0; q < cols; ++q) {
                 const float l0 = -hw + 2.0f * hw * (float)q / (float)cols, l1 = -hw + 2.0f * hw * (float)(q + 1) / (float)cols;
                 const float a = sLine - 0.6f + 0.4f * (float)r, b = a + 0.4f;
-                groundQuad(W(a, l0), W(a, l1), W(b, l1), W(b, l0), (q + r) % 2 ? kBlack : kWhite, 0.2f, 0.016f);
+                groundQuad(W(a, l0), W(a, l1), W(b, l1), W(b, l0), (q + r) % 2 ? kBlack : kWhite, 0.2f, 0.022f);   // 1 cm sobre las líneas del borde
             }
         for (int slot = 0; slot < 24; ++slot) {
             const int row = slot / 3, col = slot % 3;
@@ -816,8 +827,10 @@ void Circuit::Generate(Geometry* geo)
             // Los carteles con el nombre, a los dos lados de la viga.
             for (float face : {-1.0f, 1.0f}) {
                 const Vector3 n = Vector3Scale(fwd, face);
-                const Vector3 at = Vector3Add({c.x, beamY + 0.05f, c.z}, Vector3Scale(n, 0.56f));
-                YawBox(m, Vector3Add({c.x, beamY + 0.05f, c.z}, Vector3Scale(n, 0.53f)), {std::min(span * 0.42f, 9.0f), 0.62f, 0.02f}, yaw, kWhite, 0.2f);
+                // Tablero por delante de las diagonales de la viga (estaba 1 cm delante) y por debajo del larguero
+                // de arriba; el cartel, 3 cm delante del tablero.
+                const Vector3 at = Vector3Add({c.x, beamY + 0.05f, c.z}, Vector3Scale(n, 0.61f));
+                YawBox(m, Vector3Add({c.x, beamY + 0.05f, c.z}, Vector3Scale(n, 0.56f)), {std::min(span * 0.42f, 9.0f), 0.57f, 0.02f}, yaw, kWhite, 0.2f);
                 Sign(X(at, 4), at, Vector3Scale(right, -face), n, std::min(span * 0.42f, 9.0f) - 0.1f, 0.55f, CellUV(kNameCell));
             }
         }
@@ -853,11 +866,17 @@ void Circuit::Generate(Geometry* geo)
             band(sPit0, sPit1, 4.0f, 0.02f, 0.1f, [&](float) { return p * laneIn; }, [&](float) { return p * laneOut; }, [&](float, int) { return kPitAsphalt; });
             // Líneas: el borde del lado del muro y la que separa la vía rápida de la de trabajo.
             band(sPit0, sPit1, 4.0f, 0.03f, 0.2f, [&](float) { return p * (laneIn + 0.1f); }, [&](float) { return p * (laneIn + 0.28f); }, [&](float, int) { return kWhite; });
-            band(sPit0, sPit1, 3.0f, 0.03f, 0.2f, [&](float) { return p * (hw + 12.4f); }, [&](float) { return p * (hw + 12.6f); },
-                 [&](float, int q) { return q % 2 ? kPitAsphalt : kWhite; });
-            // Línea de velocidad controlada a la entrada y a la salida.
+            // La de trazos, sólo los trazos (los huecos eran otra capa de asfalto 1 cm arriba del asfalto).
+            {
+                const int n = std::max(1, (int)std::ceil((sPit1 - sPit0) / 3.0f));
+                for (int q = 0; q < n; q += 2) {
+                    const float a = sPit0 + (sPit1 - sPit0) * (float)q / (float)n, b = sPit0 + (sPit1 - sPit0) * (float)(q + 1) / (float)n;
+                    groundQuad(W(a, p * (hw + 12.4f)), W(a, p * (hw + 12.6f)), W(b, p * (hw + 12.6f)), W(b, p * (hw + 12.4f)), kWhite, 0.2f, 0.03f);
+                }
+            }
+            // Línea de velocidad controlada a la entrada y a la salida (1 cm sobre las otras líneas, que cruza).
             for (float s : {sPit0 + 2.0f, sPit1 - 2.0f})
-                groundQuad(W(s, p * laneIn), W(s, p * laneOut), W(s + 0.5f, p * laneOut), W(s + 0.5f, p * laneIn), kWhite, 0.2f, 0.032f);
+                groundQuad(W(s, p * laneIn), W(s, p * laneOut), W(s + 0.5f, p * laneOut), W(s + 0.5f, p * laneIn), kWhite, 0.2f, 0.04f);
         }
         // Muro de boxes con alambrado; del lado de la calle, los puestos de los equipos.
         for (float s = sPit0 + 6.0f; s < sPit1 - 6.0f; s += 6.0f) {
@@ -869,7 +888,8 @@ void Circuit::Generate(Geometry* geo)
             if (!geo) continue;
             MeshBuilder& m = S(mid, 250);
             YawBox(m, {mid.x, mid.y + 0.45f, mid.z}, {0.3f, 0.75f, len * 0.5f + 0.01f}, yaw, kPaint, 0.1f, kPlaster);
-            YawBox(m, {mid.x, mid.y + 1.25f, mid.z}, {0.31f, 0.06f, len * 0.5f + 0.012f}, yaw, kRed, 0.2f);
+            // El borde rojo, apoyado arriba del muro y 3 cm más ancho (1 cm no alcanza de lejos).
+            YawBox(m, {mid.x, mid.y + 1.26f, mid.z}, {0.33f, 0.06f, len * 0.5f + 0.03f}, yaw, kRed, 0.2f);
             Bar(m, {a.x, a.y + 1.2f, a.z}, {a.x, a.y + 4.2f, a.z}, 0.05f, kDarkSteel);
             for (float h : {1.9f, 2.8f, 3.7f}) Bar(m, {a.x, a.y + h, a.z}, {b.x, b.y + h, b.z}, 0.012f, kSteel);
             Bar(m, {a.x, a.y + 4.15f, a.z}, {b.x, b.y + 4.15f, b.z}, 0.035f, kSteel);
@@ -900,19 +920,22 @@ void Circuit::Generate(Geometry* geo)
             // vecinos quedan girados apenas y, tocándose justo, se solapaban en una cuña con caras casi en el mismo
             // plano y de colores distintos (bordes dentados que titilaban).
             YawBox(m, at(w0 + 8.75f, 3.7f), {7.25f, 3.5f, 4.97f}, yaw, kPaint, 0.08f, kPlaster);            // cuerpo
-            YawBox(m, at(w0 + 1.52f, 2.35f), {0.02f, 2.15f, 4.2f}, yaw, {34, 36, 40, 255}, 0.05f);        // adentro del garaje
+            // El fondo oscuro, 5 cm delante del frente del cuerpo: con la cara justo en el mismo plano, blanco y
+            // gris oscuro se pisaban en toda la abertura del garaje.
+            YawBox(m, at(w0 + 1.47f, 2.35f), {0.02f, 2.15f, 4.2f}, yaw, {34, 36, 40, 255}, 0.05f);        // adentro del garaje
             YawBox(m, at(w0 + 1.4f, 4.05f), {0.05f, 0.45f, 4.2f}, yaw, {196, 198, 200, 255}, 0.3f);       // portón a medio subir
             YawBox(m, at(w0 + 0.75f, 5.85f), {0.75f, 1.35f, 4.97f}, yaw, team, 0.25f);                     // dintel
-            YawBox(m, at(w0 + 0.7f, 5.3f), {0.76f, 0.12f, 4.98f}, yaw, kWhite, 0.25f);
-            for (float dz : {-4.6f, 4.6f}) {                                                             // pilares
+            YawBox(m, at(w0 + 0.7f, 5.3f), {0.76f, 0.12f, 5.0f}, yaw, kWhite, 0.25f);
+            for (float dz : {-4.6f, 4.6f}) {             // pilares: hasta abajo del dintel (se metían 10 cm con la cara en su plano)
                 const Vector3 f = fwdAt(sc);
-                YawBox(m, Vector3Add(at(w0 + 0.75f, 2.3f), {f.x * dz, 0.0f, f.z * dz}), {0.75f, 2.3f, 0.4f}, yaw, kPaint, 0.08f, kPlaster);
+                YawBox(m, Vector3Add(at(w0 + 0.75f, 2.25f), {f.x * dz, 0.0f, f.z * dz}), {0.75f, 2.25f, 0.4f}, yaw, kPaint, 0.08f, kPlaster);
             }
             YawBox(m, at(w0 + 9.25f, 9.0f), {6.75f, 1.8f, 4.97f}, yaw, kGlass, 0.85f);                    // piso de arriba vidriado
             YawBox(m, at(w0 - 0.4f, 7.35f), {2.1f, 0.15f, 4.97f}, yaw, kPaint, 0.1f);                     // balcón
-            YawBox(m, at(w0 - 2.4f, 7.9f), {0.05f, 0.45f, 4.97f}, yaw, {160, 190, 210, 255}, 0.9f);        // baranda de vidrio
-            YawBox(m, at(w0 + 6.0f, 11.1f), {10.0f, 0.3f, 4.99f}, yaw, {150, 154, 160, 255}, 0.2f);       // alero y techo
-            YawBox(m, at(w0 - 3.9f, 11.1f), {0.1f, 0.31f, 5.0f}, yaw, kPaint, 0.1f);
+            YawBox(m, at(w0 - 2.4f, 7.9f), {0.05f, 0.45f, 4.95f}, yaw, {160, 190, 210, 255}, 0.9f);        // baranda de vidrio
+            // Alero y techo, y adelante la franja del color del equipo. Antes el alero, una tapa blanca y la franja
+            // tenían el frente en el mismo plano (se pisaban los tres); ahora la franja va pegada delante del alero.
+            YawBox(m, at(w0 + 6.05f, 11.1f), {9.95f, 0.3f, 4.99f}, yaw, {150, 154, 160, 255}, 0.2f);
             YawBox(m, at(w0 + 10.0f + (float)(q % 3), 11.75f), {1.1f, 0.4f, 1.3f}, yaw, {120, 124, 130, 255}, 0.3f);   // equipos del aire
             YawBox(m, at(w0 - 3.95f, 11.1f), {0.05f, 0.34f, 5.0f}, yaw, team, 0.3f);
         }
@@ -925,7 +948,7 @@ void Circuit::Generate(Geometry* geo)
                 const Vector3 c = {fr.x, y0 + 12.7f, fr.z};
                 if (geo) {
                     YawBox(S(c, 30), Vector3Add(c, Vector3Scale(n, -0.08f)), {0.06f, 1.35f, 10.8f}, yawAt(s), kWhite, 0.2f);
-                    Sign(X(c, 4), Vector3Add(c, Vector3Scale(n, 0.0f)), Vector3Scale(fwdAt(s), p < 0.0f ? 1.0f : -1.0f), n, 10.6f, 1.3f, CellUV(kNameCell));
+                    Sign(X(c, 4), Vector3Add(c, Vector3Scale(n, 0.02f)), Vector3Scale(fwdAt(s), p < 0.0f ? 1.0f : -1.0f), n, 10.6f, 1.3f, CellUV(kNameCell));
                 }
                 ++signs;
             }
@@ -948,6 +971,7 @@ void Circuit::Generate(Geometry* geo)
                 band(sG0 - 20.0f, sG1 + 30.0f, 6.0f, 0.02f, 0.1f, [&](float) { return p * w1; }, [&](float) { return p * (w1 + 44.0f); },
                      [&](float, int) { return Shade(kPitAsphalt, 1.08f); });
             Rng tr{0x7A11E5u};
+            int homes = 0;
             for (float s = sG0 + 6.0f; s < sG1 - 4.0f; s += 11.0f) {
                 const Color team = kTeam[tr.I(kTeams)];
                 const float yaw = yawAt(s) + mu::kPi * 0.5f;          // cruzados: la cola hacia los garajes
@@ -972,11 +996,15 @@ void Circuit::Generate(Geometry* geo)
                     solid({mc.x, mc.y + 1.8f, mc.z}, {1.3f, 1.8f, 6.0f}, myaw);
                     occupy(mc, 1.4f, 6.2f, myaw, 2.0f);
                     if (geo) {
+                        // Van cada 11 m y miden 12: los vecinos se solapan 1 m. La franja del equipo alterna 2 cm de
+                        // ancho y de alto entre uno y otro para que las de colores distintos no queden en el mismo plano.
+                        const float alt = 0.02f * (float)(homes % 2);
                         MeshBuilder& m = S(mc, 100);
                         YawBox(m, {mc.x, mc.y + 1.95f, mc.z}, {1.3f, 1.55f, 6.0f}, myaw, {226, 226, 222, 255}, 0.5f);
                         YawBox(m, {mc.x, mc.y + 2.3f, mc.z}, {1.32f, 0.35f, 5.4f}, myaw, kGlass, 0.9f);
-                        YawBox(m, {mc.x, mc.y + 1.2f, mc.z}, {1.33f, 0.12f, 6.02f}, myaw, team, 0.4f);
+                        YawBox(m, {mc.x, mc.y + 1.2f, mc.z}, {1.33f + alt, 0.12f + alt, 6.02f}, myaw, team, 0.4f);
                     }
+                    ++homes;
                 }
             }
             occupy(W(0.5f * (sG0 + sG1), p * (w1 + 22.0f)), 26.0f, 0.5f * (sG1 - sG0) + 30.0f, yawAt(0.5f * (sG0 + sG1)), 4.0f);
@@ -1010,7 +1038,9 @@ void Circuit::Generate(Geometry* geo)
         ++stands;
         if (!geo) return;
         MeshBuilder& m = S(mid, 600 + rows * 40);
-        YawBox(m, at(0.15f, h0 * 0.5f + 0.2f), {0.15f, h0 * 0.5f + 0.2f, len * 0.5f}, yaw, kPaint, 0.08f, kPlaster);
+        // Muro blanco del frente, 4 cm delante del primer escalón: con el frente en el mismo plano que el
+        // escalón (que es más alto y lo contiene), blanco y cemento se pisaban en toda la base de la tribuna.
+        YawBox(m, at(0.11f, h0 * 0.5f + 0.2f), {0.15f, h0 * 0.5f + 0.2f, len * 0.5f - 0.05f}, yaw, kPaint, 0.08f, kPlaster);
         for (int r = 0; r < rows; ++r) {
             const float w = depth * ((float)r + 0.5f), top = h0 + rise * (float)(r + 1);
             YawBox(m, at(w, top * 0.5f), {depth * 0.5f, top * 0.5f, len * 0.5f}, yaw, r % 2 ? kConcrete : Shade(kConcrete, 0.93f), 0.06f, kPlaster);
@@ -1041,8 +1071,10 @@ void Circuit::Generate(Geometry* geo)
                 const Vector3 c = Vector3Add(at(total + 0.5f, ry * 0.5f), Vector3Scale(along, e * len));
                 YawBox(m, c, {0.25f, ry * 0.5f, 0.25f}, yaw, kSteel, 0.4f);
             }
-            YawBox(m, at(total * 0.5f + 0.4f, ry), {total * 0.5f + 1.4f, 0.22f, len * 0.5f + 0.2f}, yaw, {176, 180, 188, 255}, 0.4f);
-            YawBox(m, at(-0.95f, ry - 0.3f), {0.06f, 0.5f, len * 0.5f + 0.2f}, yaw, kRed, 0.3f);
+            // Con la cara de abajo (se ve desde la pista; sin ella el techo era transparente desde abajo). La
+            // franja roja, 6 cm delante del techo y 3 cm más larga (antes 1 cm, y las puntas en su mismo plano).
+            Box(m, at(total * 0.5f + 0.4f, ry), {total * 0.5f + 1.4f, 0.22f, len * 0.5f + 0.2f}, YawFrame(yaw), {176, 180, 188, 255}, 0.4f, kPlain, true);
+            YawBox(m, at(-1.0f, ry - 0.3f), {0.06f, 0.5f, len * 0.5f + 0.23f}, yaw, kRed, 0.3f);
         }
     };
     // La principal, frente a los boxes (módulos de 20 m con pasillos de 1.5 m).
@@ -1118,7 +1150,7 @@ void Circuit::Generate(Geometry* geo)
         MeshBuilder& m = S(c, 120);
         YawBox(m, {c.x, c.y + 2.0f, c.z}, {0.08f, 1.05f, 4.1f}, yaw, {70, 72, 78, 255}, 0.2f);
         for (float e : {-3.2f, 3.2f}) YawBox(m, {c.x + along.x * e, c.y + 0.5f, c.z + along.z * e}, {0.06f, 0.5f, 0.06f}, yaw, kDarkSteel, 0.3f);
-        const Vector3 face = Vector3Add({c.x, c.y + 2.0f, c.z}, Vector3Scale(n, 0.09f));
+        const Vector3 face = Vector3Add({c.x, c.y + 2.0f, c.z}, Vector3Scale(n, 0.11f));   // 3 cm delante del tablero
         Sign(X(face, 4), face, Vector3Scale(along, -side), n, 4.0f, 1.0f, CellUV(cell));
         return true;
     };
@@ -1154,7 +1186,7 @@ void Circuit::Generate(Geometry* geo)
                 MeshBuilder& m = S(c0, 60);
                 Bar(m, c0, {c0.x, c0.y + 1.3f, c0.z}, 0.05f, kDarkSteel);
                 YawBox(m, {c0.x, c0.y + 1.95f, c0.z}, {0.8f, 0.8f, 0.05f}, yaw, kWhite, 0.2f);
-                const Vector3 face = Vector3Add({c0.x, c0.y + 1.95f, c0.z}, Vector3Scale(back, 0.06f));
+                const Vector3 face = Vector3Add({c0.x, c0.y + 1.95f, c0.z}, Vector3Scale(back, 0.08f));
                 Sign(X(face, 4), face, rightAt(s), back, 0.75f, 0.75f, CellUV(kDistanceCell + d));
             }
         }
@@ -1194,7 +1226,7 @@ void Circuit::Generate(Geometry* geo)
                     const Vector3 n = Vector3Scale(f, face);
                     for (int q = 0; q < 3; ++q) {
                         const float lat = ((float)q - 1.0f) * (span * 0.66f);
-                        const Vector3 at = {c.x + r.x * lat + n.x * 1.77f, deck + 1.55f, c.z + r.z * lat + n.z * 1.77f};
+                        const Vector3 at = {c.x + r.x * lat + n.x * 1.79f, deck + 1.55f, c.z + r.z * lat + n.z * 1.79f};
                         Sign(X(at, 4), at, Vector3Scale(r, -face), n, std::min(3.3f, span * 0.32f), 0.8f, CellUV((q + (face > 0 ? 3 : 0)) % (int)billboards.size()));
                     }
                 }
@@ -1521,6 +1553,48 @@ void Circuit::CreateMeshes()
     BuildAtlas();
     Geometry geo;
     Generate(&geo);
+    if (CoplanarCheck::Enabled()) {
+        // Diagnóstico (MOTOSIM_COPLANARES): caras que se pisan y calcos del piso que el terreno tapa.
+        CoplanarCheck cc;
+        const int ls = cc.AddLayer("solido", false, false), ld = cc.AddLayer("calco", false, false);
+        const int lt = cc.AddLayer("cartel", true, true), lp = cc.AddLayer("gente", false, false);
+        for (size_t i = 0; i < geo.solid.size(); ++i) {
+            for (const MeshBuilder& b : geo.solid[i].parts) cc.Add(b, ls);
+            for (const MeshBuilder& b : geo.decal[i].parts) cc.Add(b, ld);
+            for (const MeshBuilder& b : geo.textured[i].parts) cc.Add(b, lt);
+            for (const MeshBuilder& b : geo.detail[i].parts) cc.Add(b, lp);
+        }
+        cc.Report("circuito");
+        std::map<uint32_t, std::tuple<int, int, float, Vector3>> under;      // color: triángulos, tapados, peor, dónde
+        for (const CoplanarCheck::Tri& t : cc.tris) {
+            if (t.layer != ld || t.n.y < 0.5f) continue;
+            const float edge = std::max({Vector3Distance(t.p[0], t.p[1]), Vector3Distance(t.p[1], t.p[2]), Vector3Distance(t.p[2], t.p[0])});
+            const int n = std::clamp((int)std::ceil(edge / 0.25f), 1, 200);
+            float worst = 1e9f;
+            Vector3 at{};
+            for (int a = 0; a <= n; ++a)
+                for (int b = 0; a + b <= n; ++b) {
+                    const float u = (float)a / n, v = (float)b / n;
+                    const Vector3 p = Vector3Add(Vector3Add(Vector3Scale(t.p[0], 1.0f - u - v), Vector3Scale(t.p[1], u)), Vector3Scale(t.p[2], v));
+                    const float c = p.y - terrain->Height(p.x, p.z);
+                    if (c < worst) {
+                        worst = c;
+                        at = p;
+                    }
+                }
+            auto& g = under[(uint32_t)t.c.r << 16 | (uint32_t)t.c.g << 8 | t.c.b];
+            ++std::get<0>(g);
+            if (worst < 0.004f) ++std::get<1>(g);
+            if (std::get<0>(g) == 1 || worst < std::get<2>(g)) {
+                std::get<2>(g) = worst;
+                std::get<3>(g) = at;
+            }
+        }
+        for (const auto& [c, g] : under)
+            if (std::get<1>(g) > 0)
+                std::printf("  calco %u,%u,%u: %d de %d triángulos a menos de 4 mm del terreno (el peor %.1f mm en %.1f, %.1f, %.1f)\n", c >> 16, (c >> 8) & 255,
+                            c & 255, std::get<1>(g), std::get<0>(g), std::get<2>(g) * 1000.0f, std::get<3>(g).x, std::get<3>(g).y, std::get<3>(g).z);
+    }
     chunks.assign((size_t)chunkCount * chunkCount, Chunk{});
     auto upload = [](std::vector<Batch>& from, size_t i, std::vector<Mesh>& to) {
         for (MeshBuilder& b : from[i].parts)
