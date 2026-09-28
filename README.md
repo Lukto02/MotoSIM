@@ -3,6 +3,14 @@
 Prototipo de motocross simcade en C++17 con **raylib** (render, input, cámara, audio, ventana) y
 **Jolt Physics** (rigid body + colisiones). Prioridad absoluta: que manejar la moto sea divertido.
 
+## Descargar y jugar
+
+**[Bajá la última versión](https://github.com/Lukto02/MotoSIM/releases/latest)**: en *Assets*, el
+`MotoSim-vX.zip`. Descomprimí la carpeta entera y ejecutá `MotoSim.exe` (Windows 10 u 11 de 64 bits,
+OpenGL 3.3; no hace falta instalar nada). Las versiones anteriores están en
+[Releases](https://github.com/Lukto02/MotoSIM/releases). Adentro del zip, `LEEME.txt` tiene los
+controles y cómo jugar en red.
+
 ## Estado
 
 | Etapa | Contenido | Estado |

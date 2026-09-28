@@ -43,6 +43,9 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
    - **Revisá que no haya `preferencias.ini` justo antes del zip** (en la v0.2.6 apareció uno antes de las capturas con ventana y no se supo de dónde).
 6. **Zip**: `Compress-Archive -Path dist\MotoSim-vX -DestinationPath dist\MotoSim-vX.zip` (con `-Force` si rehacés). Revisá la lista de archivos del zip.
 7. **Historial**: actualizá en `docs/PRUEBAS.md` y en el README ("Versión para compartir") qué paquete es el último.
+8. **GitHub Releases**: después de que se mergee el PR, quien te lanzó etiqueta el commit (`vX`) y publica
+   la release con el zip. El procedimiento está en `docs/PRUEBAS.md` ("Paquete para compartir", paso 6).
+   Dejá lista en el informe la descripción de la release: "Cómo jugar" y las novedades del LEEME.
 
 ## Tu informe final
 - La versión.

@@ -231,6 +231,23 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    derrape lento no sale "a paso de hombre" (a ~11 km/h la cola sale 4-8°, salvo la 2T) sino a ~15 km/h,
    y la escadaria a 30-32 km/h termina en caída (ver [FISICA.md](FISICA.md)).
 5. `Compress-Archive` de la carpeta a `dist/MotoSim-vX.zip`.
+6. **Publicarlo en GitHub Releases** (la sección de descargas del repo; el README apunta a
+   `releases/latest`):
+   - después de mergear el PR de la versión, la etiqueta en el commit del paquete:
+     `git tag -a vX <commit> -m "MotoSim vX"` y `git push origin vX`;
+   - en `https://github.com/Lukto02/MotoSIM/releases/new?tag=vX`: título "MotoSim vX", descripción
+     con "Cómo jugar" (bajar el zip, descomprimir, ejecutar; requisitos; con qué versiones juega en red)
+     y las novedades del LEEME, y el zip adjunto;
+   - "Latest" sólo para la más nueva: al publicar una vieja, marcar "None" (GitHub trae "Latest"
+     marcado por defecto y se la sacaría a la nueva);
+   - con el navegador, el zip se sube con la herramienta de archivos al `<input type="file">` escondido,
+     no al botón (el botón abre el selector de Windows). Esa herramienta acepta hasta 10 MB: la v0.2.6
+     y las anteriores (~17 MB, con el modelo 2 del piloto) no se pudieron subir así; hay que
+     arrastrarlas a mano a la página de la release;
+   - al subir el archivo, la página pasa a ser un borrador (`releases/edit/untagged-...`): revisar que
+     el título, la etiqueta y la marca de "Latest" sigan bien antes de "Publish release";
+   - comprobar con `curl -s https://api.github.com/repos/Lukto02/MotoSIM/releases/latest`.
+   Publicadas: v0.2.7 y v0.2.8 (etiquetas v0.2.6, v0.2.7, v0.2.8).
 
 Paquetes: v0.2.5 (protocolo 7), v0.2.6 (protocolo 7, juega con la v0.2.5; carrera en tierra y
 frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara del selector),
