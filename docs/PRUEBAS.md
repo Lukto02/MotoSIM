@@ -248,6 +248,9 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
      el título, la etiqueta y la marca de "Latest" sigan bien antes de "Publish release";
    - comprobar con `curl -s https://api.github.com/repos/Lukto02/MotoSIM/releases/latest`.
    Publicadas: v0.2.7 y v0.2.8 (etiquetas v0.2.6, v0.2.7, v0.2.8).
+7. **Limpiar las ramas**: mergeado el PR, borrar su rama acá y en GitHub (`git push origin --delete <rama>`,
+   `git branch -d <rama>`), y las de los worktrees de los agentes. Lo normal es que quede sólo `main`: cada
+   versión sigue a mano por su etiqueta y su release.
 
 Paquetes: v0.2.5 (protocolo 7), v0.2.6 (protocolo 7, juega con la v0.2.5; carrera en tierra y
 frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara del selector),
