@@ -42,6 +42,11 @@ motocross.exe --headless --host --bot --bike base/trial --test netduel --telemet
 motocross.exe --headless --join CÓDIGO --bot --bike base/carrera --test netduel --telemetry --time 25
 ```
 
+O todo junto: `python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>` (sirve para probar dos
+versiones entre sí: el paquete nuevo contra el anterior). **Trampa**: si lo armás con un script, la
+salida del anfitrión va a un archivo; con un pipe que nadie lee mientras corre el cliente, se llena, el
+anfitrión se traba en el `printf` y el cliente ve crecer la "edad" de sus datos (parece un bug de red).
+
 La telemetría de cada uno imprime a los demás con `moto=id(estilo)`, distancia, ping y corrección.
 `netcrash` prueba el ragdoll remoto (con ventana). Sin ventana, en red, la simulación va a tiempo real.
 

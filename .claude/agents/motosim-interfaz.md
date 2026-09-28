@@ -14,6 +14,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 - **Antes de empezar** leé `docs/MENU.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/MENU.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (capturas).
 - **Compilar**: `tools\compilar.bat build-msvc-interfaz`. Después de tocar `Game.h`, tocá los `.cpp` (ninja no sigue bien los headers acá).
+- **También compila en Mac** (Apple clang; el workflow de GitHub lo prueba en cada push y PR, ver `docs/PRUEBAS.md`, "En Mac"). Nada sólo de Windows sin alternativa (rutas de fuentes, APIs): lo de un sistema va detrás de `if(APPLE)` / `if(MSVC)` en el CMake o probando las rutas de los dos. Trampas de clang: un struct anidado con inicializadores de miembros no sirve de argumento por defecto (`= {}`) dentro de su clase; y la generación de mapas depende de `-ffp-contract=off` (la favela tiene que dar 1052 casas en los dos).
 - **Editar con scripts**: nada de heredocs de bash con `\n` en strings; Python con la herramienta de archivos, en binario para conservar el fin de línea. Ojo: `Game.cpp` tiene varios `case Menu::X` parecidos (teclas y dibujo): reemplazá con contexto único.
 - No toques archivos de otras áreas sin decirlo. No hagas commits ni subas nada.
 

@@ -172,7 +172,7 @@ frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara 
     mide con `brakeslide2.5` a `brakeslide4.4` (9-16 km/h), mirando `beta` mientras `rb` > 0.5.
   - En `frenada280` el "SE CAYÓ" de `tools/frenada.py` es el muro: la recta de la prueba se termina a
     ~105 km/h, la moto sale al pasto con las lisas y pega a ~60 km/h. La frenada en sí: beta 0°, ~10 m/s².
-  - El par en red desde un script: la salida del anfitrión a un **archivo**. Con un pipe que nadie lee
+  - El par en red desde un script (`tools/red.py` ya lo hace bien): la salida del anfitrión a un **archivo**. Con un pipe que nadie lee
     mientras corre el cliente, se llena, el anfitrión se traba en el `printf` y el cliente ve la "edad"
     de los datos crecer (parece un bug de red y no lo es).
   - El id del parque es `sandbox/park`; con un id que no existe, `--map` cae en la pista de motocross
@@ -181,5 +181,6 @@ frenando, golpes fuertes, derrape lento, escaleras y cantos, parpadeos, cámara 
 ## Red en una sola PC
 
 Anfitrión y cliente sin ventana, cada uno con su bot; el cliente toma el código de invitación de la
-salida del anfitrión (ver la nota de memoria de pruebas de red). Con motos distintas por jugador, la
-telemetría imprime la moto y el estilo de cada remoto.
+salida del anfitrión. `python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>` hace todo y
+resume lo que ve cada uno (ver [RED.md](RED.md)). Con motos distintas por jugador, la telemetría
+imprime la moto y el estilo de cada remoto.

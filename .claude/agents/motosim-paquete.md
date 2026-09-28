@@ -23,6 +23,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 2. **Compilación de release**, con runtime estático:
    - tocá todos los `src/*.cpp` y corré `tools\compilar.bat build-release release`;
    - `dumpbin /dependents build-release\motocross.exe` tiene que listar sólo DLLs de Windows (KERNEL32, USER32, GDI32, SHELL32, WINMM, WS2_32).
+   - El paquete es de Windows; en Mac se compila desde el código (`./build.sh`). El workflow de GitHub compila los dos en cada push: si quien te lanzó puede verlo, que esté en verde.
 3. **Carpeta `dist/MotoSim-vX/`**:
    - `MotoSim.exe` (el `motocross.exe` renombrado) y `tuning.ini`;
    - `mods/` completa (**sin** `pruebas/`) y `MODDING.md`;
@@ -37,7 +38,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
    - `--headless --test bikestats` (mods sin errores; las advertencias de `rut_dig_rate` y `rut_max_depth` son de siempre: el terreno las lee, la moto no);
    - vueltas del bot en motocross, favela, circuito y parque;
    - una captura del menú con la versión (**después borrá el `preferencias.ini` que crea la corrida con ventana**);
-   - un par en red con motos distintas (ver `docs/RED.md`), y si el protocolo no cambió, también contra el paquete anterior en los dos sentidos.
+   - un par en red con motos distintas (`python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>`, ver `docs/RED.md`), y si el protocolo no cambió, también contra el paquete anterior en los dos sentidos.
    - **Cada cosa que diga el LEEME, volvé a medirla con este exe**: en la v0.2.5 la trial ya no subía el escalón de 0.5 m a fondo y hubo que cambiar el texto.
    - **Revisá que no haya `preferencias.ini` justo antes del zip** (en la v0.2.6 apareció uno antes de las capturas con ventana y no se supo de dónde).
 6. **Zip**: `Compress-Archive -Path dist\MotoSim-vX -DestinationPath dist\MotoSim-vX.zip` (con `-Force` si rehacés). Revisá la lista de archivos del zip.

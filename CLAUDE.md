@@ -12,6 +12,9 @@ Comentarios del código, textos del juego y documentación de desarrollo en cast
   red → `docs/RED.md`. Ahí están las trampas conocidas.
 - Compilar: `tools\compilar.bat [carpeta] [release]` (por defecto `build-msvc`, con VS 2022 Build Tools;
   reusa las dependencias de `build\_deps`). Después de tocar un `.h`, tocar los `.cpp` que lo incluyen.
+- También compila en Mac (`./build.sh`; el workflow `.github/workflows/build.yml` prueba Windows y
+  Mac en cada push y PR). Lo de un sistema va detrás de `if(APPLE)` / `if(MSVC)` o probando rutas de
+  los dos; trampas de clang y de la favela (`-ffp-contract=off`) en `docs/PRUEBAS.md` ("En Mac").
 
 ## Agentes
 

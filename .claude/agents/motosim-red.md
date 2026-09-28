@@ -15,6 +15,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 - **Antes de empezar** leé `docs/RED.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/RED.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (las dos instancias, qué imprimió cada una).
 - **Compilar**: `tools\compilar.bat build-msvc-red`. Después de tocar un `.h`, tocá los `.cpp` (ninja no sigue bien los headers acá).
+- **También compila en Mac** (Apple clang; el workflow de GitHub lo prueba en cada push y PR, ver `docs/PRUEBAS.md`, "En Mac"). Nada sólo de Windows sin alternativa (rutas de fuentes, APIs): lo de un sistema va detrás de `if(APPLE)` / `if(MSVC)` en el CMake o probando las rutas de los dos. Trampas de clang: un struct anidado con inicializadores de miembros no sirve de argumento por defecto (`= {}`) dentro de su clase; y la generación de mapas depende de `-ffp-contract=off` (la favela tiene que dar 1052 casas en los dos).
 - **Editar con scripts**: nada de heredocs de bash con `\n` en strings; Python con la herramienta de archivos, en binario para conservar el fin de línea.
 - No toques archivos de otras áreas sin decirlo. No hagas commits ni subas nada.
 
@@ -40,6 +41,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - el anfitrión en segundo plano: `--headless --host --bot --bike base/trial --test netduel --telemetry --time 30 > host.txt`;
   - tomar el código de invitación de su salida;
   - `--headless --join CÓDIGO --bot --bike base/carrera --test netduel --telemetry --time 25`.
+- O todo junto: `python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>` (también para probar una versión contra otra).
 - Cada una imprime a las demás: `moto=id(estilo)`, distancia, ping y corrección.
 - `--test netcrash` (con ventana) prueba el ragdoll remoto.
 - Con motos distintas, mapas distintos (el cliente se pasa solo al del anfitrión) y un cliente sin la moto del otro.
