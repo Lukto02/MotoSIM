@@ -1,0 +1,18 @@
+// Prueba (no se entrega): como plaza_asfalto pero de 400 m de ancho: un círculo de hasta 100 m de radio
+// (circleN a 20-30 m/s) entra al costado de la largada sin salirse del asfalto.
+{
+  "name": "Plaza de asfalto ancha (pruebas)",
+  "kind": "prueba · asfalto",
+  "bike": "base/carrera",
+  "markers": false,
+  "terrain": {"type": "flat", "size": 2048, "resolution": 2.0, "edge": 10},
+  "start": [0, -700],
+  "track": {
+    "style": "street", "width": 400, "banking": false,
+    "points": [
+      [0, -800, "asphalt"], [0, -400], [0, 0], [0, 400], [0, 800],
+      [150, 900], [300, 800], [300, 400], [300, 0], [300, -400], [300, -800], [150, -900]
+    ]
+  },
+  "look": {"preset": "day", "ground_textures": "circuit", "fog": 0.0008}
+}

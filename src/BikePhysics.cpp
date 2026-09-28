@@ -384,10 +384,11 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     // propio camino, así que no empuja de costado. Con el manubrio "fijo", en cuanto la moto giraba un poco la
     // delantera empujaba de costado y la hacía girar más (la trasera descargada no la sostiene): la moto se
     // cruzaba y se acostaba sola (inestable como un auto frenando con las de atrás trabadas).
-    const float brakeFree = (P->brakeAlign > 0.0f && !wasInAir && v > 5.0f)
-                                ? mu::Smoothstep(0.2f, 0.6f, in.frontBrake) * (1.0f - mu::Smoothstep(0.1f, 0.3f, std::fabs(in.steer))) *
-                                      (1.0f - mu::Smoothstep(0.05f, 0.3f, slideIntent))
-                                : 0.0f;
+    float brakeFree = (P->brakeAlign > 0.0f && !wasInAir && v > 5.0f)
+                          ? mu::Smoothstep(P->brakeAlignFrom, P->brakeAlignFull, in.frontBrake) * (1.0f - mu::Smoothstep(0.1f, 0.3f, std::fabs(in.steer))) *
+                                (1.0f - mu::Smoothstep(0.05f, 0.3f, slideIntent))
+                          : 0.0f;
+    if (P->brakeAlignFree != 1.0f) brakeFree *= P->brakeAlignFree;
     if (brakeFree > 0.0f) {
         const Vec3 frontAxle = com + rot * wheels[FRONT].AxleLocal();
         const Vec3 vf = linVel + angVel.Cross(frontAxle - com);
@@ -948,7 +949,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             // más rápido que su camino, la cola salía ~8° de golpe y la moto no doblaba (sólo iba cruzada). Sólo
             // frena el giro que sobra respecto del camino: el que acompaña la curva no lo toca.
             if (P->brakeAlign > 0.0f && wheels[FRONT].grounded && v > 5.0f) {
-                const float amount = mu::Smoothstep(0.2f, 0.6f, in.frontBrake) * (1.0f - mu::Smoothstep(0.05f, 0.3f, slideIntent));
+                const float amount = mu::Smoothstep(P->brakeAlignFrom, P->brakeAlignFull, in.frontBrake) * (1.0f - mu::Smoothstep(0.05f, 0.3f, slideIntent));
                 if (amount > 0.0f) {
                     const float wantYaw = pathRate - P->brakeAlign * slipBeta;
                     const float tq = mu::Clamp((wantYaw - angVel.GetY()) * P->brakeAlignTorque, -2000.0f, 2000.0f);

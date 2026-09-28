@@ -32,10 +32,14 @@ recalculan con F5):
 | `base/motocross` Motocross 450 | `mx` | 47 | 105 | 133 | 4.5 s | 0.97 | 310 mm | 1.8 m | la referencia: `tuning.ini`, más `motocross.ini` (la frenada con la S y la suspensión más viva al aterrizar) |
 | `base/carrera` Carrera 1000 | `race` | 245 | 160 | 329 | 3.7 s* | 1.33 | 125 mm | 2.8 m | 4 cilindros, rodilla al piso |
 | `base/trilheira` Trilheira 450 | `trail` | 64 | 120 | 121 | 4.3 s | 1.02 | 310 mm | 1.5 m | grau (ver README, Morro do Grau), escape aberto |
-| `base/trial` Trial 300 | `trial` | 28 | 70 | 91 | 5.8 s | 1.02 | 220 mm | 1.2 m | piloto de pie, 48° de manubrio |
-| `sandbox/dostiempos` Dos tiempos 250 | `mx2t` | 44 | 100 | 140 | 4.6 s | 0.97 | 310 mm | 1.8 m | la de ejemplo del mod |
+| `base/trial` Trial 300 | `trial` | 28 | 70 | 91 | - ** | 1.02 | 220 mm | 1.2 m | piloto de pie, 48° de manubrio |
+| `sandbox/dostiempos` Dos tiempos 250 | `mx2t` | 46 | 100 | 140 | 4.5 s | 0.97 | 310 mm | 1.8 m | la de ejemplo del mod; motor que gira arriba |
 
-\* La ficha limita el 0 a 100 a 0.8 g (wheelie); en la pista la de carreras hace 2.3-2.6 s (ver pendientes).
+\* La ficha limita el 0 a 100 a 0.8 g (wheelie); en la pista la de carreras hace 2.1-2.6 s (ver pendientes).
+\** No llega a 100 (91 km/h al corte en 5ª). Hasta la v0.2.7 la ficha decía 5.8 s: la cuenta seguía empujando en 5ª
+pasado el corte.
+
+Medido andando (no la ficha), cada una contra una moto real del mismo tipo: ver "Las motos contra las de verdad".
 
 Colores del jugador 1 (el que se ve solo): motocross roja 21, carreras roja, blanca y negra 27,
 trilheira verde y amarilla 22, trial roja 3, dos tiempos amarilla con asiento azul 92. **Elegir el esquema 0 de una moto nueva distinto de los que
@@ -144,7 +148,7 @@ suspensión, neumáticos, frenos, dirección y balance, aire, motor y caja. Las 
 - **Peso**: `mass` menos el piloto.
 - **Velocidad máxima**: la menor entre la de la 5ª al corte y la que deja el aire con esa potencia.
 - **0 a 100**: una cuenta en recta con cambios al 97% del corte, con el empuje limitado a
-  `min(0.8, 0.9·rear_tire_long_grip)·m·g` (agarre y wheelie).
+  `min(0.8, 0.9·rear_tire_long_grip)·m·g` (agarre y wheelie). En 5ª al corte no empuja: si no llega a 100, "-".
 - **Agarre en curva**: `max_lateral_accel / g`.
 - **Suspensión**: la suma de los recorridos.
 - **Giro**: `min_turn_radius`.
@@ -171,6 +175,11 @@ El grau y los giros cerrados son sólo suyos (`trilheira.ini`). El detalle está
 de favela"): relación corta (`engine_final_drive` 7.8), piloto bien atrás (`rider_shift` 0.30), embrague
 que patina a 5500 rpm, `grau_*` para sostener el punto de equilibrio con gas y freno trasero, y
 `grau_turn`/`grau_align` para que la trasera apunte hacia donde va doblando en una rueda.
+- Frenada con la S (después de la v0.2.7): `brake_align` 4 / 2000 como las demás de tierra, pero sólo frenando muy fuerte
+  (`brake_align_from` 0.55, `brake_align_full` 0.95) y sin soltar la delantera (`brake_align_free` 0); con los valores
+  de la motocross el bot de la favela se caía el doble. Ver [FISICA.md](FISICA.md).
+- La suspensión queda con la extensión de `tuning.ini` (3.0): más viva (1.7-2.0) rebota en la loma de la bajada de
+  la favela (s≈241) y el bot se cae el doble o el triple en la curva de abajo.
 
 ### Trial 300 (trial)
 - Motor: `engine_rpm_scale 0.75` + `engine_torque_scale 0.675` = ~28 hp con el pico de torque a 5250 rpm
@@ -187,6 +196,8 @@ que patina a 5500 rpm, `grau_*` para sostener el punto de equilibrio con gas y f
   eje, como con una moto de verdad. **0.75 y 1 m no se pueden** (ver pendientes).
 - El corte está en 9500 rpm (no 9000): antes la caja subía a 9400 fijos. Ahora los umbrales se escalan
   con `engine_rpm_scale` (0.75: sube a ~7050) y las vueltas dan igual (~37.4 s).
+- La ficha decía 0-100 en 5.8 s, pero al corte en 5ª llega a 91 km/h: la cuenta de `Game::ComputeStats` seguía
+  empujando pasado el corte. Ahora en 5ª al corte no empuja y el menú muestra "-" (`bikestats`: 99.0).
 
 ### Carrera 1000 (race)
 Lo hizo un agente con su propia copia; su informe tiene todos los números (motor de 245 hp a 15300 rpm,
@@ -223,15 +234,171 @@ corte a 16500, 330 km/h, frenos, geometría). Lo que más importó:
   `rear_lift_mitigation` 0.25 (1-1.16 g en recta; S + D dobla), `brake_transition_release` 0.6 (soltando la
   curva para frenar se iba para el otro lado), y `brake_yaw_comp` 1 con `brake_align` 8 / `brake_align_torque`
   2000 (frenando inclinada sin soltar, se abría). Ver [FISICA.md](FISICA.md).
+- En el aire (después de la v0.2.7): giraba igual que la motocross (un mortal atrás entero, whips de 31°). Con `air_pitch_rate`
+  1.2, `air_pitch_torque` 250 y `air_body_tilt_deg` 15 el mortal se queda en ~160°, frenar un giro tarda 0.6 s y el
+  whip es de 13°. El bot del autódromo no vuela: mismas vueltas.
 
 ### Dos tiempos 250 (mx2t)
 - Física: `dostiempos.ini` (liviana, menos torque abajo, corte a 11500, relación corta, casi sin freno
   motor). El estilo sólo cambia el dibujo.
+- Motor (después de la v0.2.7): con la curva de la 450 y 0.8 de torque era una 450 floja, no una 2T. `engine_rpm_scale` 1.15 y
+  `engine_torque_scale` 0.72 la estiran en vueltas: 17% menos abajo, 24% más arriba, ~46 hp, cambia a ~10 800 rpm.
 - Qué hace que se lea como dos tiempos: el **caño de expansión** (sale del frente del cilindro, baja por
   delante del motor, la panza y el cono que sube por el costado hasta un silenciador corto y fino), la
   **tapa de cilindro chata** con la bujía arriba en vez de la tapa de válvulas alta, el carburador atrás
   del cilindro, y colores de los 90 con el **asiento del color de la franja** (amarilla con azul).
 - Sonido de dos tiempos (`engine_two_stroke = 1`): ver [SONIDO.md](SONIDO.md).
+
+## Las motos contra las de verdad
+
+Revisión de la física de las cinco contra una moto real genérica de su tipo (después de la v0.2.7). Los valores reales
+son rangos conocidos de fichas de fábrica y pruebas de revistas, de memoria (no se buscó en internet): sirven de
+orden de magnitud. El juego es arcade: un número lejos de lo real está bien si lo pide la jugabilidad; lo que se
+corrigió fue lo que se sentía raro, lo que estaba lejos sin razón o lo que no distinguía a una moto de otra.
+
+**Cómo se midió** (sin ventana, desde `pruebas/`; `plaza_tierra` y `plaza_asfalto_ancha` son llanas y de 400 m de
+ancho, ver [PRUEBAS.md](PRUEBAS.md)):
+- arrancada: `--test arranquea` (parado, W en rampa a 1 s, piloto adelante, caja automática); final: `--test
+  frenada999` en `plaza_asfalto_ancha` (1.5 km derechos);
+- frenada con la S: `frenada60` / `frenada100` en las dos plazas, y los casos de teclado (`frenacurva...`, ver [FISICA.md](FISICA.md));
+- curvas: `circle12` / `circle20` / `circle30` (dirección a fondo sostenida), con la guiñada del mundo = `wy` /
+  cos(inclinación);
+- giro mínimo: `circle2`; sag: quieta 3 s en `--flat`; aterrizajes: `--flat --drop H` (1, 2.5 y 5 m);
+- wheelie: `wheelie` (1ª a fondo tirado atrás) y `launch` (caja automática, piloto neutro: cabeceo en cada marcha);
+- aire: `--drop 1 --test flip`, `--drop 3 --test airrot` (tiempo para frenar un giro de nariz de 2 rad/s), `whip`;
+- derrapes: `brakeslide` (32 km/h) y `brakeslide4` (14 km/h) con el trasero, `slide` con gas;
+- freno motor: `frenacurva80x0n` y `frenacurva40x0n` (llega y suelta todo), restando el aire y la rodadura.
+
+### Motocross 450 (contra una CRF450R, KX450, YZ450F o 450 SX-F)
+
+| Qué | Real | En el juego | |
+|---|---|---|---|
+| Potencia | 53-60 hp de fábrica (~50 en la rueda) | 47 hp | algo baja |
+| Peso (sin piloto) | 102-112 kg | 105 kg | ok |
+| Peso/potencia | 1.9-2.1 kg/hp | 2.2 kg/hp | ok |
+| 0-50 / 0-100 | ~3.5-4.5 s a 100 (en tierra lo limitan el agarre y el wheelie) | 1.8 / 4.4 s | ok |
+| Final | 140-150 km/h con la relación de fábrica | 132 km/h | algo baja |
+| Frenada (S) | 0.6-0.8 g en tierra dura, la trasera liviana pero apoyada | 0.68-0.71 g **en stoppie a -21°, con la cola en el aire el 79-93% de la frenada** | ver pendientes |
+| Lateral e inclinación | 0.6-0.8 g en tierra plana, 35-45° (más en los peraltes) | 0.87 g a 44 km/h y 0.80 a 72, 47° | generosa, arcade |
+| Giro mínimo | ~2 m (42° de manubrio, 1.48 m entre ejes) | 1.8 m | ok |
+| Suspensión y sag | 305-310 / 310-315 mm; sag de carrera ~100-105 mm atrás (33%) | 300 / 320 mm; sag 87 / 118 mm (29% / 37%) | ok |
+| Wheelie | fácil en 1ª y 2ª; en 3ª con embrague o el cuerpo atrás | piloto neutro: 18° en 1ª y 2ª, 5-7° en 3ª a 5ª (limitador); tirado atrás en 1ª, 42° | ok |
+| Aire | muy manejable: whips y scrubs, mortales | mortal atrás de 325° en 2.5 s (2.5 rad/s), frena un giro en 0.41 s, whip de 26° | ok |
+| Caídas y aterrizajes | de 2-3 m al plano hace tope | de 1 m 90% adelante; de 2.5 m tope y vuelve en 0.24 s; de 5 m tope sin caerse; a plomo a más de 11 m/s (~6 m) el piloto sale despedido | ok |
+| Derrapes | con el trasero y con gas, todo el tiempo | trasero: 32° a 32 km/h, 39° a 14 km/h; con gas ~6° (control de tracción) | ok |
+| Freno motor | fuerte (monocilíndrico grande) | 0.07 g del motor de 80 a 48 km/h (0.16 en total), 0.10 de 40 a 24 (0.15) | ok |
+| Caja | 5 marchas: 1ª ~60-70, 5ª ~145 km/h | 5 marchas: 52 / 71 / 89 / 108 / 133 km/h (cambia a 9400) | 1ª corta, ok |
+
+No se tocó (a pedido: se siente bien). Lo único claramente raro es la frenada en stoppie: ver pendientes.
+
+### Dos tiempos 250 (contra una YZ250, KTM 250 SX o TC 250)
+
+| Qué | Real | En el juego | |
+|---|---|---|---|
+| Potencia | 45-50 hp de fábrica, pico a ~8500-9500 rpm | 46 hp (antes 44), pico de potencia a ~10300 | **ajustado** |
+| Peso | 95-103 kg | 100 kg | ok |
+| Peso/potencia | 2.0-2.2 kg/hp | 2.2 kg/hp | ok |
+| 0-50 / 0-100 | como una 450, apenas más lenta | 1.7 / 4.5 s (antes 4.6) | ok |
+| Final | 135-145 km/h | 139 km/h | ok |
+| Frenada, lateral, giro, suspensión | como la 450 | como la motocross (0.67-0.72 g en stoppie; 0.88 g; 1.8 m; sag 31% / 38%, resortes más blandos) | ok |
+| Wheelie | levanta de golpe cuando "entra en la pipa" | 18° en 1ª y 2ª con el piloto neutro, 5-6° después | ok |
+| Aire y aterrizajes | la más fácil de revolear (liviana) | como la motocross (mortal de 328°, whip de 28°; de 2.5 m vuelve en 0.27 s) | ok |
+| Derrapes | como la 450 | 31° / 39° con el trasero, 7° con gas | ok |
+| Freno motor | casi nada: la gran diferencia con una 4T | 0.03 g del motor de 80 a 48 (un tercio de la 450), 0.05 de 40 a 24 (la mitad) | ok |
+| Caja | 5 marchas, 1ª ~50-55 km/h, se estira hasta ~11 000 rpm | 55 / 75 / 94 / 113 / 140 km/h, cambia a ~10 800 (antes a 9400: 1ª hasta 52) | **ajustado** |
+
+**Se ajustó el motor**: tenía la misma curva que la 450 con 20% menos de torque, o sea una 450 floja, no una 2T que
+"se despierta arriba" (como dice su descripción). Con `engine_rpm_scale` 1.15 y `engine_torque_scale` 0.72 tiene un
+17% menos de torque a 4000 rpm, lo mismo en el medio y un 24% más a 11 000; la caja automática cambia a ~10 800.
+Medido: 0-100 4.6 → 4.5 s, el bot del parque 0:50.9 → 0:51.1 sin caídas.
+
+### Trilheira 450 (contra una trail de calle brasileña, XRE 300 / Lander 250 / XR 250, y una enduro 450)
+
+| Qué | Real | En el juego | |
+|---|---|---|---|
+| Potencia | trail de calle 21-26 hp; enduro 450 (CRF450X, 450 EXC) 45-55 hp | 64 hp | muy arriba, se deja |
+| Peso | 135-150 kg / 110-125 kg | 120 kg | ok (enduro) |
+| Peso/potencia | ~6 / 2.2-2.5 kg/hp | 1.9 kg/hp | la más brava de tierra |
+| 0-50 / 0-100 | 8-10 s a 100 / ~4 s | 1.6 / 3.7 s en asfalto (la delantera apenas despegada el 36% del tiempo), 2.2 / 4.2 en tierra | rápida |
+| Final | 130-140 / 150 km/h | 121 km/h (relación corta del grau) | se deja |
+| Frenada (S) | 0.8-0.9 g en asfalto con ABS | 0.69-0.75 g en stoppie, como la motocross; **ya no hace trompo** | **ajustado** |
+| Lateral | con mixtas en asfalto ~0.8-0.9 g | 0.91 g a 44 km/h, 0.81 a 72, 49° | ok |
+| Giro mínimo | ~2.2-2.5 m | 1.55 m (45° de manubrio: zerinho, vueltas en U) | arcade, se deja |
+| Suspensión y sag | trail 220-245 mm, blanda; enduro ~300 | 300 / 320 mm, sag 87 / 115 mm (29% / 36%) | ok |
+| Wheelie | el grau | sin limitador; el grau se sostiene 8 s a 8-20 km/h; neutra, 8-10° en todas las marchas | es la gracia |
+| Aire | más pesada, peor | como la motocross (mortal de 320°) | se deja |
+| Aterrizajes | suspensión de trail, menos controlada | de 1 y 2.5 m vuelve en 0.6 s (extensión amortiguada 3 veces: "muerta"); de 5 m, 0.22 s | se deja (ver abajo) |
+| Derrapes | de calle: la cola sale | 43° a 32 km/h, 47° a 14 km/h (cavalo de pau hasta 85°), con gas 5° | ok |
+| Freno motor | monocilíndrico: como la 450 | 0.08 g del motor de 80 a 48, 0.10 de 40 a 24 | ok |
+| Caja | 5-6 marchas, más largas | 50 / 68 / 86 / 103 / 121 km/h | corta a propósito |
+
+**La potencia** (64 hp, +35% de torque que la motocross) se deja: el grau necesita fuerza en 1ª a 8-20 km/h y el
+usuario pidió más en primera ("En primera le falta potencia", ver [FISICA.md](FISICA.md)). **La frenada**: con la S
+a fondo desde 60-90 km/h la cola se cruzaba 47-151° (un trompo); ahora 0-29° en todos los casos de teclado. Detalle
+y por qué el alineado va sólo frenando muy fuerte: [FISICA.md](FISICA.md), "La Trilheira: frenando fuerte hacía un
+trompo". **La suspensión** queda "muerta" (3.0): con 1.7 o 2.0 rebota en la loma de la bajada de la favela y el bot
+se cae el doble o el triple.
+
+### Trial 300 (contra una TXT 300, Cota 301RR, TRRS One o ST 300)
+
+| Qué | Real | En el juego | |
+|---|---|---|---|
+| Potencia | 20-30 hp | 28 hp | ok |
+| Peso | 66-75 kg en seco | 70 kg | ok |
+| Peso/potencia | 2.5-3 kg/hp | 2.5 kg/hp | ok |
+| 0-50 / 0-100 | no importa | 1.9 s; no llega a 100 (la ficha decía 5.8 s: **corregida**, ahora "-") | ok |
+| Final | 80-100 km/h en 6ª | 91 km/h | ok |
+| Frenada | frenos fortísimos, corta y alta: el stoppie ("nose wheelie") es técnica | 0.64-0.68 g en stoppie | ok |
+| Lateral | no importa | 0.86 / 0.78 g, 47° | ok |
+| Giro mínimo | ~1.3-1.5 m | 1.2 m (48°) | ok |
+| Suspensión y sag | 170-180 / 165-175 mm | 230 / 210 mm, sag 67 / 80 mm (29% / 38%) | +30%, por los cajones |
+| Wheelie | levanta la delantera cuando quiere | 17° en 1ª y 2ª con el piloto neutro, 42° tirado atrás; sube el escalón de 0.5 m levantando la rueda | ok |
+| Aire | no es para saltar, pero es liviana | como la motocross (mortal de 336°) | ok |
+| Caídas y aterrizajes | cae de 2-3 m sobre la trasera | de 1 m casi hace tope adelante (98%) y vuelve en 0.19 s | ok |
+| Derrapes | agarra todo | 29° / 36° con el trasero; con gas casi no patina (1.40 de agarre atrás) | ok |
+| Freno motor | 2T con relación cortísima | 0.05 g del motor de 80 a 48, 0.07 de 40 a 24 | ok |
+| Caja | 6 marchas: 1ª ~10-15 km/h, 6ª ~85-95 | 5 marchas: 24 / 32 / 43 / 55 / 91 km/h (cambia a 7050) | 1ª larga: el embrague patina hasta 3000 rpm |
+
+No se tocó su física (sólo la ficha). La suspensión larga se deja: con la real (175 mm) las bajadas de un metro del
+circuito de obstáculos harían tope.
+
+### Carrera 1000 (contra una R1, ZX-10R, S1000RR o Panigale V4)
+
+| Qué | Real | En el juego | |
+|---|---|---|---|
+| Potencia | de calle 200-215 hp; Superbike 230-240 | 245 hp | es la de carrera |
+| Peso | 170-180 kg en seco (190-205 lleno); Superbike 168 mínimo | 160 kg | liviana, ok |
+| Peso/potencia | ~0.85 / ~0.7 kg/hp | 0.65 kg/hp | ok |
+| 0-100 / 0-200 | 2.6-3.1 s (limita el wheelie) / ~5.2-6 s | 2.1 s (la delantera apenas despegada el 71% del tiempo) / 4.75 s | rápida, arcade |
+| Final | 299 limitada, ~310 libre; 320-330 en Superbike | 328 km/h | ok |
+| Frenada | 1.1-1.3 g (limita el stoppie) | 0.96 g de 60, 1.01 de 100, 1.08 de 200, derecha, sin levantar la cola | ok |
+| Lateral e inclinación | 1.3-1.5 g con lisas, 55-60° (MotoGP hasta 64°) | 1.25-1.30 g de 45 a 110 km/h, 52° | ok |
+| Giro mínimo | 3.2-3.6 m (26-30° de manubrio) | 2.8 m (28°) | ok |
+| Suspensión y sag | 120 / 120-130 mm, sag 30-35 mm | 120 / 130 mm, sag 36 / 38 mm | ok |
+| Wheelie | antiwheelie | tirado atrás en 1ª, 1° | ok |
+| Aire | pesada y corta: no es para saltar | mortal de 159° (se cae), frena un giro en 0.61 s, whip de 13° (antes 333°, 0.38 s y 31°: como la motocross) | **ajustado** |
+| Caídas y aterrizajes | de un metro hace tope | de 1 m hace tope y las ruedas despegan 0.14 s | ok |
+| Derrapes | entra cruzada con el embrague antirrebote | en tierra con lisas se cruza (con gas 160°); en asfalto el control de tracción no la deja | ok |
+| Freno motor | controlado por la electrónica; en 1ª a 40 km/h se siente (~0.1 g) | 0.04 g del motor de 80 a 48, ~0 de 40 a 28 (1ª hasta 153 km/h) | bajo, se deja |
+| Caja | 6 marchas, 1ª ~150-170 km/h | 5: 153 / 188 / 230 / 282 / 329 km/h | ok |
+
+**Se ajustó el aire**: giraba y hacía whips igual que la motocross (hasta un mortal atrás completo); una de pista
+de 235 kg con el piloto casi no se puede girar. `air_pitch_rate` 1.2, `air_pitch_torque` 250 y `air_body_tilt_deg`
+15 (en `carrera.ini`). El bot del autódromo no vuela (0.2 s en 300 s, al aparecer): 2:11.65 / 2:09.83 sin caídas,
+igual que antes.
+
+### Lecciones de la revisión
+- **Medir con la moto apoyada**: en `frenadaN` y `accel` la moto aparece en el aire con el gas a fondo; la rueda se
+  pasa de vueltas y al tocar el piso la caja automática sube a 2ª a 4-5 km/h (la 2T y la Trilheira "arrancaban en
+  2ª"). La arrancada se mide con `arranquea`, que espera 1 s.
+- **`wy` de la telemetría es la guiñada en el eje de la moto**: acostada 47°, la del mundo es `wy / cos(47°)`. Sin
+  eso, la motocross parecía doblar a 0.59 g con 47° de inclinación.
+- **Los círculos rápidos se salen de las plazas de 120 m** (un radio de 30 m ya no entra al costado de la largada) y
+  con lisas en el pasto la de carreras "no doblaba". Para eso están las de 400 m.
+- **La `recta` de la de carreras no sirve para la final**: la largada está en la curva del óvalo y, sin tocar la
+  dirección, la moto sale de la calle de 16 m al pasto. En `plaza_asfalto_ancha` llega a 328 km/h.
+- **El `whip` de la Trial "se da vuelta"** (179°, caída): `--drop` la deja en 1ª a 50 km/h (su 1ª llega a 31 al corte), el
+  freno motor pasado de vueltas frena la rueda en el aire y la reacción baja la trompa 40°. Es la prueba, no la moto.
 
 ## Pendientes conocidos
 
@@ -239,9 +406,25 @@ corte a 16500, 330 km/h, frenos, geometría). Lo que más importó:
   de masa respecto de la rueda trasera): la de carreras aguanta más.
 - **El control de tracción no mira la inclinación**: a fondo acostada la trasera se va (el bot se abre
   hasta 20 m a la salida de algunas curvas). Un corte que dependa de la inclinación lo arreglaría.
-- **La motocross frenando a fondo con la S** de 90-120 km/h todavía gira: la de carreras se arregló con
-  `brake_align` (la delantera libre, ver [FISICA.md](FISICA.md)); en la motocross está en 0 para no
-  cambiar su física.
+- **Con la S a fondo las de tierra frenan en stoppie**: la motocross, la 2T, la Trilheira y la trial van toda la
+  frenada con la trompa a -20°/-21° y la cola en el aire el 77-93% del tiempo, a 0.64-0.75 g. El freno de adelante
+  (950 Nm en una rueda de 0.35 m) da ~1.5 g, más que el límite de stoppie (~0.9 g con el centro de masa a 0.83 m), y
+  lo que la sostiene es el anti-endo del ABS. Frenan *menos* que si no levantaran la cola, y la cola en el aire es lo
+  que las hacía inestables (el trompo que arregla `brake_align`). Para la trial es técnica (nose wheelie); para las
+  otras no. **Propuesta (no aplicada: la motocross no se toca sin pedido)**: en `motocross.ini` (y lo mismo en
+  `dostiempos.ini`) `rear_lift_load = 700` y `rear_lift_mitigation = 0.6`. Medido en una copia: 0% de stoppie,
+  0.81-0.85 g derecho (antes 0.68-0.72), la cola ≤17° en todos los casos de teclado, y los bots sin caídas
+  (motocross 1:08.55 / 1:08.36, el valle 0:41.1-0:41.2, Los Médanos 1:26.7-1:26.9). En la Trilheira no sirve: en la
+  bajada de la favela afloja el freno (la trasera va liviana por la pendiente) y el bot se cae más.
+- **La curva de s≈253 de la favela**: el bot llega a ~43 km/h después de la loma de s≈241 (con la delantera sola en
+  el piso, sin poder doblar) y pega contra la pared de afuera a ~28 km/h en casi todas las vueltas, con cualquier moto
+  rápida (la motocross y la 2T también se caen ahí; la trial, que llega más despacio, no). Que cuente como caída
+  depende de si el golpe pasa de 7 m/s. Es del bot o del mapa (ver [MAPAS.md](MAPAS.md)); mientras tanto, las caídas
+  de la Trilheira en la favela se comparan con varias muestras largas (ver [PRUEBAS.md](PRUEBAS.md)).
+- **La Trilheira es más potente que cualquier trail real** (64 hp contra 21-26 de una XRE 300 o 45-55 de una enduro
+  450) y su final corta (121 km/h): se dejó por el grau. Si alguna vez se baja, que no pierda fuerza en 1ª.
+- **El freno motor de la Carrera casi no existe abajo** (~0 a 40 km/h: su 1ª llega a 153): `engine_brake` es lineal
+  con las rpm y vale 10 Nm al corte. Una de verdad en 1ª a 40 km/h frena ~0.1 g.
 - **Piloto agachado**: los codos van a una distancia fija y los antebrazos se ven cortos.
 - **Carenado y semimanubrios con rake fijo** (24°, `kRaceRake`): con otra geometría no coinciden.
 - **Escalones verticales**: la rueda es un solo rayo por el eje de la suspensión; una pared vertical es

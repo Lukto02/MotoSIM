@@ -158,6 +158,9 @@ void BikeParams::Register(Tuning& t)
     t.Add("brake_align", &brakeAlign);
     t.Add("slide_pivot", &slidePivot);
     t.Add("brake_align_torque", &brakeAlignTorque);
+    t.Add("brake_align_from", &brakeAlignFrom);
+    t.Add("brake_align_full", &brakeAlignFull);
+    t.Add("brake_align_free", &brakeAlignFree);
     t.Add("rear_lift_load", &rearLiftLoad);
     t.Add("rear_lift_mitigation", &rearLiftMitigation);
     t.Add("brake_yaw_comp", &brakeYawComp);
