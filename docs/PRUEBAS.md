@@ -2,14 +2,16 @@
 
 ## Compilar
 
-- `build.bat` / `build/` son de otra PC (MinGW). En esta PC se compila con VS 2022 BuildTools en una
-  carpeta aparte (vcvars64 + CMake + Ninja, reusando las fuentes de raylib y Jolt ya bajadas en
-  `build/_deps`); ver la configuración en el `.bat` de desarrollo de la sesión.
+- `build.bat` / `build/` son de otra PC (MinGW). En esta PC: `tools\compilar.bat [carpeta] [release]`
+  (VS 2022 Build Tools: vcvars64 + CMake + Ninja, reusando las fuentes de raylib y Jolt ya bajadas en
+  `build/_deps`, sin internet). Por defecto compila en `build-msvc`; los agentes que trabajan a la vez,
+  cada uno en `build-msvc-<área>`. El exe queda en `<carpeta>\motocross.exe` con `tuning.ini` y `mods\`.
 - **Ninja no sigue bien los headers acá** (el MSVC en castellano imprime "Nota: inclusión del archivo"
   y ninja no lo entiende). Después de tocar un `.h` que cambia el tamaño de una estructura (un enum con
   `Count`, un miembro nuevo), tocar los `.cpp` que lo incluyen o recompilar todo. Si no, se linkean
   objetos viejos y el juego se cierra sin avisar en el primer cuadro.
-- El paquete para compartir es otra compilación (runtime estático); ver la nota de memoria del paquete.
+- El paquete para compartir es otra compilación, con runtime estático: `tools\compilar.bat build-release release`
+  (ver "Paquete para compartir").
 - **Scripts con saltos de línea**: los scripts de Python que editan C++ se escriben con la herramienta
   de archivos, no en un heredoc de bash. En un heredoc, un `\n` dentro de un string de C++ terminó
   convertido en un salto de línea real (tres veces).
@@ -61,7 +63,7 @@ Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los
 dos ejecutables y compara la telemetría (md5). La referencia es el último paquete
-(`dist/MotoSim-v0.2.4/MotoSim.exe`). El juego nuevo agrega ` scr=` al final de cada línea; el script
+(`dist/MotoSim-v0.2.5/MotoSim.exe`). El juego nuevo agrega ` scr=` al final de cada línea; el script
 lo saca.
 
 ```
@@ -133,8 +135,8 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
 
 1. El nombre de la versión lo elige el usuario (si dice "dale" sin nombre, la siguiente sub-versión, y se
    le avisa). `src/Version.h`; el protocolo de red sube sólo si cambió el formato de los paquetes.
-2. Compilación aparte con `-DMOTOSIM_STATIC_RUNTIME=ON` (recompilar todo); `dumpbin /dependents` tiene
-   que listar sólo DLLs de Windows.
+2. Compilación aparte con `tools\compilar.bat build-release release` (`-DMOTOSIM_STATIC_RUNTIME=ON`;
+   recompilar todo); `dumpbin /dependents` tiene que listar sólo DLLs de Windows.
 3. Carpeta `dist/MotoSim-vX/`:
    - `MotoSim.exe` y `tuning.ini`;
    - `mods/`, sin `pruebas/`;

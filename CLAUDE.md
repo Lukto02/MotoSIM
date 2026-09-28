@@ -8,8 +8,23 @@ Comentarios del código, textos del juego y documentación de desarrollo en cast
 
 - Leer el documento de `docs/` que corresponde a lo que se va a tocar (índice en `docs/README.md`):
   motos → `docs/MOTOS.md`, física → `docs/FISICA.md`, piloto/ragdoll → `docs/PILOTO.md`, mapas →
-  `docs/MAPAS.md`, pruebas → `docs/PRUEBAS.md`, menú → `docs/MENU.md`, sonido → `docs/SONIDO.md`, gráficos → `docs/RENDER.md`. Ahí
-  están las trampas conocidas.
+  `docs/MAPAS.md`, pruebas → `docs/PRUEBAS.md`, menú → `docs/MENU.md`, sonido → `docs/SONIDO.md`, gráficos → `docs/RENDER.md`,
+  red → `docs/RED.md`. Ahí están las trampas conocidas.
+- Compilar: `tools\compilar.bat [carpeta] [release]` (por defecto `build-msvc`, con VS 2022 Build Tools;
+  reusa las dependencias de `build\_deps`). Después de tocar un `.h`, tocar los `.cpp` que lo incluyen.
+
+## Agentes
+
+En `.claude/agents/` hay un agente experto por área: `motosim-motos`, `motosim-mapas`,
+`motosim-graficos`, `motosim-fisica`, `motosim-piloto`, `motosim-sonido`, `motosim-interfaz`,
+`motosim-red` y `motosim-paquete` (armar y verificar una versión). Traen el contexto, las reglas y cómo
+probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Detalle en `docs/README.md`.
+- Cada uno compila en `build-msvc-<área>`, así pueden trabajar a la vez; si dos tocan los mismos
+  archivos, de a uno o cada uno en su worktree.
+- No hacen commits; al terminar informan con una sección **Lecciones**. Quien los lanzó revisa que
+  estén anotadas en `docs/` antes de commitear.
+- Lo aprendido va a `docs/`; el archivo del agente se toca sólo si cambia algo de fondo (herramienta,
+  regla, archivo movido).
 
 ## Reglas
 
@@ -30,4 +45,5 @@ Comentarios del código, textos del juego y documentación de desarrollo en cast
 - Motos: `mods/<mod>/bikes/*.json` + `.ini`; estilos en `src/BikeStyles.*` y piezas en
   `src/BikeMeshes.cpp` (una sección por estilo).
 - Mapas: `mods/<mod>/maps/*.json`; los de prueba en `pruebas/mods/prueba/` (no se empaquetan).
-- Herramientas: `tools/` (regresión, grilla de capturas).
+- Herramientas: `tools/` (compilar, regresión, grilla de capturas, análisis de telemetría, sonido,
+  frenadas y escaleras).
