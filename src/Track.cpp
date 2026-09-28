@@ -204,11 +204,14 @@ void Track::Build(const MapDef& def)
     BoxBlurWrapped(pavement, 8, 2);
     BoxBlurWrapped(asphalt, 8, 2);
 
-    // 6) Obstáculos y largada: a mano, con un plan por recta o ninguno.
+    // 6) Obstáculos y largada: a mano, con un plan por recta o ninguno. Una vuelta guía no toca el
+    // terreno: no lleva obstáculos (si no, el bot frenaría y el reaparecer retrocedería por saltos que
+    // no están).
     std::printf("track: %s, longitud %.0f m\n", def.id.c_str(), length);
     startLine = 14.0f;
-    PlaceFeatures(def.features.empty() ? def.autoFeatures : std::vector<std::vector<FeatureKind>>{}, !def.hasStart);
-    if (!def.features.empty()) PlaceFeatures(def.features);
+    const bool guide = def.roadStyle == "guide";
+    PlaceFeatures(def.features.empty() && !guide ? def.autoFeatures : std::vector<std::vector<FeatureKind>>{}, !def.hasStart);
+    if (!def.features.empty() && !guide) PlaceFeatures(def.features);
     if (def.hasStart) startLine = NearestS(def.startX, def.startZ);
     BakeProfile();
 }

@@ -34,3 +34,14 @@ mapas se arman por código (`Favela.cpp`, `Circuit.cpp`, `BikeMeshes.cpp`).
   vecino a la misma altura (desde la pista se ve la cara de abajo).
 - **Qué se hizo**: las cajas de cada garaje son 3 cm más cortas de cada lado; los techos de tribunas
   vecinas alternan 4 cm de altura.
+
+### Arena (`ground_textures: "sand"`, Los Médanos)
+- **Qué se hizo**: una textura más, `GenSandTexture` (512², neutra clara con grano y ondas de viento que
+  serpentean; en A la altura de las ondas, para el relieve de cerca). Con `sand` va en las dos capas del
+  terreno (la de tierra y la de pasto) y `pavedTint` = 1: el color del vértice tiñe las dos. El tono lo
+  pone `Terrain::CreateMeshes` (arena dorada con manchones de ~80 m). No se tocó ningún shader.
+- **Trampas**: con el preset `sunset` las caras a la sombra salen violetas (el rebote del suelo es
+  marrón rojizo y el cenit azul): en arena conviene `ground` color arena. El polvo de las ruedas (color
+  de `Game.cpp`) es más oscuro que la arena y se ve como humo.
+- **Se comprobó**: capturas en Los Médanos (58-60 fps con el mapa de 1032² muestras); los demás mapas
+  no cambian (la textura sólo se usa con `sand`; regresión idéntica).

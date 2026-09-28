@@ -110,7 +110,7 @@ void ChaseCamera::Update(float dt, Vector3 bikePos, Vector3 bikeForward, Vector3
         return 0.6f * std::sin(shakeTime * freq + phase) + 0.4f * std::sin(shakeTime * freq * 2.3f + phase * 1.7f);
     };
     const float k = trauma * trauma;
-    const float buzz = mu::Smoothstep(14.0f, 30.0f, speed) * 0.004f;
+    const float buzz = shakeEnabled ? mu::Smoothstep(14.0f, 30.0f, speed) * 0.004f : 0.0f;
     const Vector3 shake = {k * 0.12f * wobble(31.0f, 0.0f) + buzz * wobble(71.0f, 0.3f),
                            k * 0.12f * wobble(37.0f, 1.3f) + buzz * wobble(83.0f, 1.1f),
                            k * 0.12f * wobble(29.0f, 2.1f) + buzz * wobble(67.0f, 2.9f)};
@@ -165,6 +165,7 @@ void ChaseCamera::Zoom(float steps) { zoom = mu::Clamp(zoom * (1.0f - 0.1f * ste
 
 void ChaseCamera::AddShake(float amount)
 {
+    if (!shakeEnabled) return;
     trauma = std::min(1.0f, trauma + amount);
     fovKick -= amount * 7.0f;          // golpe de zoom hacia adentro que se relaja solo
     vel.y -= amount * 2.5f;            // la cámara acompaña el golpe hacia abajo y vuelve con su resorte

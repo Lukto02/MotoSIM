@@ -1,0 +1,18 @@
+// Prueba (no se entrega): una "calle" de asfalto de 120 m de ancho y 1.6 km de largo, para frenar
+// doblando con la de carreras sin salirse del asfalto (frenacurvaN; fuera de la pista la lisa patina).
+{
+  "name": "Plaza de asfalto (carrera)",
+  "kind": "prueba · asfalto",
+  "bike": "base/carrera",
+  "markers": false,
+  "terrain": {"type": "flat", "size": 2048, "resolution": 2.0, "edge": 10},
+  "start": [0, -350],
+  "track": {
+    "style": "street", "width": 120, "banking": false,
+    "points": [
+      [0, -800, "asphalt"], [0, -400], [0, 0], [0, 400], [0, 800],
+      [150, 900], [300, 800], [300, 400], [300, 0], [300, -400], [300, -800], [150, -900]
+    ]
+  },
+  "look": {"preset": "day", "ground_textures": "circuit", "fog": 0.0008}
+}

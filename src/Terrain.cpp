@@ -72,8 +72,143 @@ float FavelaHill(float x, float z)
 }
 
 constexpr float kFavelaShoulder = 2.5f;     // m desde el borde de la calle hasta la ladera natural
+constexpr float kShapeStep = 0.1f;          // m entre muestras de la tabla del perfil de cada forma
+
+// Dirección de un rumbo en grados (0 = norte, +z; 90 = este, +x). Los múltiplos de 90° salen exactos: así
+// las formas y los médanos alineados con los ejes no dependen del sin/cos de cada sistema (Mac/Windows).
+void Heading(float deg, float& x, float& z)
+{
+    const float q = deg / 90.0f;
+    if (q == std::floor(q)) {
+        const int k = (((int)q % 4) + 4) % 4;
+        x = k == 1 ? 1.0f : (k == 3 ? -1.0f : 0.0f);
+        z = k == 0 ? 1.0f : (k == 2 ? -1.0f : 0.0f);
+        return;
+    }
+    x = std::sin(mu::Rad(deg));
+    z = std::cos(mu::Rad(deg));
+}
 
 } // namespace
+
+// Médanos transversales: crestas perpendiculares al viento que serpentean, con la subida suave de
+// barlovento (72% del largo de onda, cada vez más empinada: la cresta es un labio) y la cara de
+// sotavento más empinada, que arranca plana en la cresta (se cae sobre ella en bajada). La altura
+// crece y se achica de a zonas (entre 35% y 100%) y hacia el borde del mapa los médanos crecen
+// ("border": un mar de médanos que tapa la pared del borde). Sin trigonometría (sale igual en todas
+// las PCs).
+float Terrain::Dunes(float x, float z) const
+{
+    const float lambda = def.wavelength;
+    const float along = x * duneDirX + z * duneDirZ, across = x * duneDirZ - z * duneDirX;
+    const float phase = along / lambda + def.meander * 2.0f * (Fbm(across * 0.8f / lambda + duneSeedX, along * 0.3f / lambda + duneSeedZ, 2) - 0.5f);
+    const float row = std::floor(phase), f = phase - row;
+    float amp = 0.35f + 0.65f * mu::Smoothstep(0.3f, 0.7f, Fbm(x * 0.45f / lambda + duneSeedZ + 7.3f, z * 0.45f / lambda + duneSeedX - 1.9f, 2));
+    // Cada fila de médanos se corta en tramos (crestas que suben y bajan a lo largo, como barjanes
+    // pegados). Entre filas (f = 0) la altura es 0, así que cambiar de fila no deja escalones.
+    amp *= 0.3f + 0.7f * mu::Smoothstep(0.25f, 0.65f, Fbm(across / (1.3f * lambda) + row * 7.31f, row * 3.17f + duneSeedX, 2));
+    const float half = Size() * 0.5f, d = std::max(std::fabs(x), std::fabs(z));
+    const float border = mu::Smoothstep(half - 110.0f, half - 25.0f, d);
+    amp = mu::Lerp(amp, 1.0f + def.border, border);
+    constexpr float kStoss = 0.72f;
+    float y;
+    if (f < kStoss) {
+        const float t = f / kStoss;
+        y = t * t * (1.2f - 0.2f * t);                          // pendiente 0 abajo, 1.8/kStoss en la cresta
+    } else {
+        y = 1.0f - mu::Smoothstep(0.0f, 1.0f, (f - kStoss) / (1.0f - kStoss));
+    }
+    return def.height * amp * y + (ValueNoise(x * 0.09f + 17.0f + duneSeedX, z * 0.09f - 9.0f + duneSeedZ) - 0.5f) * def.detail;
+}
+
+// Formas esculpidas: cada perfil (tramos rectos) se pasa a una tabla cada kShapeStep m y se redondea
+// con dos pasadas de promedio móvil de "smooth" m (un quiebre queda como una curva de ~2·smooth).
+void Terrain::PrepareShapes()
+{
+    shapes.clear();
+    for (const MapShape& ms : def.shapes) {
+        Shape s;
+        s.def = ms;
+        Heading(ms.yaw, s.dirX, s.dirZ);
+        s.first = ms.profile.front().first;
+        s.last = ms.profile.back().first;
+        const float pad = ms.smooth * 1.5f + 2.0f * kShapeStep;
+        s.u0 = ms.round ? -pad : s.first - pad;
+        const int n = std::max(2, (int)std::ceil((s.last + pad - s.u0) / kShapeStep) + 1);
+        auto linear = [&](float u) {
+            const auto& p = ms.profile;
+            if (ms.round) u = std::fabs(u);                      // espejado en el centro: la cima queda redonda
+            if (u <= p.front().first) return p.front().second;
+            for (size_t k = 1; k < p.size(); ++k)
+                if (u <= p[k].first) return mu::Lerp(p[k - 1].second, p[k].second, (u - p[k - 1].first) / (p[k].first - p[k - 1].first));
+            return p.back().second;
+        };
+        s.table.resize(n);
+        for (int i = 0; i < n; ++i) s.table[i] = linear(s.u0 + (float)i * kShapeStep);
+        const int r = (int)std::lround(ms.smooth * 0.5f / kShapeStep);
+        if (r > 0) {
+            std::vector<float> tmp(n);
+            for (int pass = 0; pass < 2; ++pass) {
+                for (int i = 0; i < n; ++i) {
+                    const int a = std::max(0, i - r), b = std::min(n - 1, i + r);
+                    float sum = 0.0f;
+                    for (int k = a; k <= b; ++k) sum += s.table[k];
+                    tmp[i] = sum / (float)(b - a + 1);
+                }
+                s.table.swap(tmp);
+            }
+        }
+        // Hasta dónde llega (caja en el mundo, con el borde que se desvanece).
+        if (ms.round) {
+            const float reach = (s.last + ms.edge) * std::max(ms.stretch[0], ms.stretch[1]);
+            s.minX = ms.x - reach; s.maxX = ms.x + reach;
+            s.minZ = ms.z - reach; s.maxZ = ms.z + reach;
+        } else {
+            s.minX = s.minZ = 1e9f;
+            s.maxX = s.maxZ = -1e9f;
+            const float side = ms.width * 0.5f + ms.edge;
+            for (float u : {s.first - ms.edge + std::min(0.0f, ms.bend), s.last + ms.edge + std::max(0.0f, ms.bend)})
+                for (float v : {-side, side}) {
+                    const float wx = ms.x + u * s.dirX + v * s.dirZ, wz = ms.z + u * s.dirZ - v * s.dirX;
+                    s.minX = std::min(s.minX, wx); s.maxX = std::max(s.maxX, wx);
+                    s.minZ = std::min(s.minZ, wz); s.maxZ = std::max(s.maxZ, wz);
+                }
+        }
+        // Nivelar: a la altura dada o a la del suelo en "at" (con las formas anteriores).
+        s.base = ms.hasBase ? ms.base : ApplyShapes(ms.x, ms.z, Natural(ms.x, ms.z), shapes.size());
+        shapes.push_back(s);
+    }
+}
+
+float Terrain::ApplyShapes(float x, float z, float h, size_t count) const
+{
+    for (size_t i = 0; i < count; ++i) {
+        const Shape& s = shapes[i];
+        if (x < s.minX || x > s.maxX || z < s.minZ || z > s.maxZ) continue;
+        const MapShape& d = s.def;
+        const float dx = x - d.x, dz = z - d.z;
+        const float along = dx * s.dirX + dz * s.dirZ, across = dx * s.dirZ - dz * s.dirX;
+        float u, out;                                            // coordenada del perfil y cuánto queda afuera
+        if (d.round) {
+            const float a = across / d.stretch[0], b = along / d.stretch[1];
+            u = std::sqrt(a * a + b * b);
+            out = std::max(0.0f, u - s.last);
+        } else {
+            // bend: las puntas se corren a lo largo (medialuna, como un barján: cuernos hacia donde crece u).
+            const float q = std::min(1.0f, std::fabs(across) / std::max(d.width * 0.5f + d.edge, 0.1f));
+            u = along - d.bend * q * q;
+            const float du = std::max({0.0f, s.first - u, u - s.last}), dv = std::max(0.0f, std::fabs(across) - d.width * 0.5f);
+            out = std::sqrt(du * du + dv * dv);
+        }
+        const float w = d.edge > 0.0f ? 1.0f - mu::Smoothstep(0.0f, d.edge, out) : (out > 0.0f ? 0.0f : 1.0f);
+        if (w <= 0.0f) continue;
+        const float f = mu::Clamp((u - s.u0) / kShapeStep, 0.0f, (float)(s.table.size() - 1) - 0.001f);
+        const int k = (int)f;
+        const float p = mu::Lerp(s.table[k], s.table[k + 1], f - (float)k);
+        h = d.level ? mu::Lerp(h, s.base + p, w) : h + p * w;
+    }
+    return h;
+}
 
 float Terrain::ImageHeight(float x, float z) const
 {
@@ -89,7 +224,7 @@ float Terrain::ImageHeight(float x, float z) const
     return mu::Lerp(a, b, ty);
 }
 
-float Terrain::Ground(float x, float z) const
+float Terrain::Natural(float x, float z) const
 {
     float h = 0.0f;
     if (def.type == "favela") {
@@ -99,7 +234,15 @@ float Terrain::Ground(float x, float z) const
     } else if (def.type == "hills") {
         h = (Fbm(x * def.scale + 3.1f, z * def.scale - 7.7f, 3) - 0.5f) * def.height;   // lomas grandes
         h += (ValueNoise(x * 0.09f + 17.0f, z * 0.09f - 9.0f) - 0.5f) * def.detail;     // irregularidad
+    } else if (def.type == "dunes") {
+        h = Dunes(x, z);
     }
+    return h;
+}
+
+float Terrain::Ground(float x, float z) const
+{
+    const float h = shapes.empty() ? Natural(x, z) : ApplyShapes(x, z, Natural(x, z), shapes.size());
     // Terreno que sube en los bordes del mapa para contener al piloto.
     const float edge = Size() * 0.5f;
     const float d = std::max(std::fabs(x), std::fabs(z));
@@ -112,7 +255,12 @@ void Terrain::Build(const Track& track, const MapDef& map, bool flat)
     def = map.terrain;
     terraces = map.terraces;
     streets = map.roadStyle == "street" && !flat;
+    guide = map.roadStyle == "guide";
     grassOffRoad = map.look.groundTextures == "circuit";
+    sand = map.look.groundTextures == "sand";
+    Heading(def.wind, duneDirX, duneDirZ);
+    duneSeedX = (float)def.seed * 37.13f;
+    duneSeedZ = (float)def.seed * -23.71f;
     // Tamaño del mapa: muestras por lado múltiplo de 8 (bloques del heightfield de Jolt).
     Cell = def.resolution;
     N = std::clamp(((int)std::ceil(def.size / Cell) + 1 + 7) / 8 * 8, 64, 2048);
@@ -139,13 +287,14 @@ void Terrain::Build(const Track& track, const MapDef& map, bool flat)
             std::printf("terrain: no se pudo leer %s (queda plano)\n", def.image.c_str());
         }
     }
+    PrepareShapes();
 
     for (int z = 0; z < N; ++z)
         for (int x = 0; x < N; ++x)
             heights[z * N + x] = flat ? 0.0f : Ground(origin + x * Cell, origin + z * Cell);
     if (!flat) {
         if (streets) StampStreets(track);
-        else StampTrack(track);
+        else if (!guide) StampTrack(track);                  // la guía no toca el terreno
     }
     original = heights;
 }
@@ -364,6 +513,9 @@ float Terrain::RoadDistance(float x, float z) const { return Sample(roadDist, x,
 float Terrain::Dustiness(float x, float z) const
 {
     const float m = TrackMask(x, z);
+    // Arena: poco, como el pasto (el color del polvo lo pone Game.cpp y es de tierra, más oscuro que la
+    // arena: con más polvo la moto deja una estela de humo gris).
+    if (sand) return 0.25f;
     return streets ? mu::Lerp(1.0f, 0.12f, m) : mu::Lerp(0.3f, 1.0f, m);   // calles: el pavimento casi no levanta tierra
 }
 
@@ -428,10 +580,15 @@ void Terrain::GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& 
             const float dist = std::sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz));
             if (dist > radius || x < lo || x > hi || z < lo || z > hi) continue;
             const float patches = mu::Smoothstep(0.3f, 0.7f, ValueNoise(x * 0.18f + 3.0f, z * 0.18f - 7.0f));
-            const float density = streets && !grassOffRoad ? (1.0f - Sample(streetMask, x, z)) * 0.35f * patches
-                                         : (1.0f - TrackMask(x, z)) * (0.25f + 0.75f * patches);
             const float pick = Hash(i * 7 + 1, j * 13 + 5);
-            if (pick > density) continue;
+            if (sand) {                                   // arena: alguna mata seca suelta, sólo en lo plano
+                if (pick > 0.04f * patches) continue;
+                if (TrackMask(x, z) > 0.3f || Normal(x, z).GetY() < 0.96f) continue;
+            } else {
+                const float density = streets && !grassOffRoad ? (1.0f - Sample(streetMask, x, z)) * 0.35f * patches
+                                             : (1.0f - TrackMask(x, z)) * (0.25f + 0.75f * patches);
+                if (pick > density) continue;
+            }
             const float s = (0.7f + 0.6f * Hash(i + 911, j - 177)) * (1.0f - mu::Smoothstep(radius * 0.65f, radius, dist));
             if (s < 0.05f) continue;
             Matrix m = MatrixMultiply(MatrixMultiply(MatrixScale(s, s * (0.75f + 0.6f * pick), s), MatrixRotateY(Hash(i - 5, j + 9) * 6.2832f)),
@@ -439,9 +596,10 @@ void Terrain::GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& 
             // Mismo tono que el color de vértice del terreno en ese lugar (va en la fila de abajo).
             const float t = mu::Clamp(ValueNoise(x * 0.15f, z * 0.15f) * 1.2f - 0.2f, 0.0f, 1.0f);
             const float shade = 0.92f + ValueNoise(x * 1.3f + 5.0f, z * 1.3f - 3.0f) * 0.16f;
-            m.m3 = mu::Lerp(grass.r, grassDry.r, t) * shade / 255.0f;
-            m.m7 = mu::Lerp(grass.g, grassDry.g, t) * shade / 255.0f;
-            m.m11 = mu::Lerp(grass.b, grassDry.b, t) * shade / 255.0f;
+            const Color a = sand ? Color{150, 138, 84, 255} : grass, b = sand ? Color{188, 166, 112, 255} : grassDry;   // arena: paja seca
+            m.m3 = mu::Lerp(a.r, b.r, t) * shade / 255.0f;
+            m.m7 = mu::Lerp(a.g, b.g, t) * shade / 255.0f;
+            m.m11 = mu::Lerp(a.b, b.b, t) * shade / 255.0f;
             out.push_back(m);
         }
     }
@@ -513,7 +671,15 @@ void Terrain::CreateMeshes()
                     float noise = ValueNoise(wx * 0.15f, wz * 0.15f);
                     float fine = ValueNoise(wx * 1.3f + 5.0f, wz * 1.3f - 3.0f);
                     Color g = mixc(grass, grassDry, noise * 1.2f - 0.2f);
-                    if (streets) {
+                    if (sand) {
+                        // Arena: dorada, más clara u ocre en manchones grandes (~80 m) y apenas manchada de
+                        // cerca; la huella de una pista, apisonada y más oscura.
+                        const float band = ValueNoise(wx * 0.012f + 3.7f, wz * 0.012f - 8.1f);
+                        const Color dune = mixc({234, 204, 158, 255}, {212, 170, 118, 255}, band * 1.5f - 0.25f);
+                        const float spot = 0.955f + 0.09f * noise;
+                        g = mixc({(unsigned char)(dune.r * spot), (unsigned char)(dune.g * spot), (unsigned char)(dune.b * spot), 255},
+                                 {170, 138, 100, 255}, trackMask[z * N + x] * 0.85f);
+                    } else if (streets) {
                         const Color soil = grassOffRoad ? g : mixc({150, 88, 58, 255}, {126, 96, 70, 255}, noise * 1.3f - 0.15f);
                         const Color paved = mixc({186, 170, 150, 255}, {78, 76, 78, 255}, streetTone[z * N + x]);
                         g = mixc(soil, paved, trackMask[z * N + x] * 1.4f);

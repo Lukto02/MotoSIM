@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <thread>
 
 using JPH::Mat44;
@@ -26,7 +27,7 @@ using JPH::Vec3;
 
 namespace {
 
-// Boca del silenciador y su eje, en el espacio de la moto (ver BikeMeshes: escape), por estilo.
+// Colores de la interfaz.
 const Color kAccent = {236, 96, 40, 255};
 const Color kPanel = {12, 14, 18, 150};
 const Color kText = {236, 238, 240, 255};
@@ -38,6 +39,13 @@ float StickCurve(float v, float deadzone)
     if (a < deadzone) return 0.0f;
     a = (a - deadzone) / (1.0f - deadzone);
     return mu::Sign(v) * std::pow(std::min(a, 1.0f), 1.4f);
+}
+
+// Segundos caído hasta reaparecer solo, o < 0 si el jugador reaparece con R (ver GameOptions::respawnAfter).
+float AutoRespawnAfter(const GameOptions& opt)
+{
+    if (opt.respawnAfterSet) return opt.respawnAfter;
+    return opt.headless || opt.bot || !opt.test.empty() ? opt.respawnAfter : -1.0f;
 }
 
 std::string FormatTime(float t)
@@ -145,9 +153,10 @@ void Game::Init()
         renderer.Init();
         particles.Init(3000);
         sound.Init();
-        // Modelo del piloto: el primero que se encuentre (carpeta actual, junto al ejecutable o arriba).
+        // Modelo del piloto: el primero que se encuentre (carpeta actual, junto al ejecutable o arriba). El 3
+        // (con dedos, riggeado con tools/riggear_piloto.py) es el principal; los otros, de respaldo.
         riderPaths.clear();
-        for (const char* file : {"Low_Poly_Motorcyclist_2_rigged.gltf", "Low_Poly_Motorcycle_Racer_rigged.gltf"})
+        for (const char* file : {"Low_Poly_Motorcyclist_3_rigged.gltf", "Low_Poly_Motorcyclist_2_rigged.gltf", "Low_Poly_Motorcycle_Racer_rigged.gltf"})
             for (const std::string& dir : {std::string(), std::string(GetApplicationDirectory()), std::string("../")})
                 riderPaths.push_back(dir + file);
         riderModel.Load(riderPaths);
@@ -255,6 +264,8 @@ void Game::Init()
     if (playerName.empty()) playerName = "Piloto";
     if (playerName.size() > 16) playerName.resize(16);
     mp.SetRiderModel(riderPaths, !opt.headless);
+    mp.lag = opt.netLag / 1000.0f;
+    mp.jitter = opt.netJitter / 1000.0f;
     if (opt.host) StartHost();
     else if (!opt.join.empty()) StartJoin(opt.join);
     else if (!opt.headless && opt.test.empty() && !opt.bot) menu = Menu::Main;   // al abrir: jugar solo o en red
@@ -564,6 +575,53 @@ void Game::Frame(float frameDt)
     messageTime = std::max(0.0f, messageTime - frameDt);
 }
 
+// Choque con la moto de otro jugador: ¿se cae el piloto propio? Cada PC decide sólo el suyo, con lo que
+// ya recibe (el protocolo no cambia). Ver docs/RED.md, "Choques entre motos".
+namespace {
+constexpr float kBikeHitFall = 4.0f;     // m/s en la normal: te pegan de costado, de atrás o de arriba
+constexpr float kBikeHitFront = 0.75f;   // coseno: el otro está delante (a menos de ~41° de la trompa)
+constexpr float kBikeHitEcho = 0.5f;     // s tras un golpe fuerte con el mismo jugador: es el eco (ida y vuelta)
+constexpr float kBikeRamFactor = 1.5f;   // embestiste vos con la trompa: te caés pasado 1.5 × crash_impact_speed
+struct RemoteHitJudge {
+    float closing = 0.0f, fromOther = 0.0f, frontMe = 0.0f, frontOther = 0.0f, limit = 0.0f;
+    bool headOn = false, fall = false;
+    const char* Kind() const
+    {
+        if (headOn) return "de frente";
+        if (frontMe > kBikeHitFront) return "con la trompa";
+        if (frontMe < -kBikeHitFront) return "de atras";
+        return "de costado";
+    }
+};
+// frontalLimit: el de un golpe contra algo fijo (crash_impact_speed): de trompa contra la otra moto es
+// como un muro que viene.
+RemoteHitJudge JudgeRemoteHit(const PhysicsWorld::BikeHit& hit, const Multiplayer::Remote& other, Vec3 myForward, float frontalLimit)
+{
+    RemoteHitJudge j;
+    const Vec3 n = hit.normal;               // de la moto propia hacia la otra
+    // Con la velocidad que mandó el otro, no la del cuerpo cinemático: ésa suma las correcciones de la
+    // predicción (una foto atrasada lo hace correr para alcanzar la nueva) y daba choques que no hubo.
+    const float vo = other.PointVelocity(hit.point).Dot(n);
+    j.closing = hit.mineAlongNormal - vo;
+    j.fromOther = std::max(0.0f, -vo);
+    j.frontMe = n.Dot(myForward);
+    j.frontOther = -n.Dot(other.DisplayRot() * Vec3::sAxisZ());
+    j.headOn = j.frontMe > kBikeHitFront && j.frontOther > kBikeHitFront;
+    const bool withFront = j.frontMe > kBikeHitFront;
+    // De costado, de atrás o de arriba te caés pasado el umbral, lo haya traído quien lo haya traído: en un
+    // roce fuerte de costado caen los dos (se llevan el mismo golpe), y "quién lo trajo" medido contra el
+    // suelo no sirve ahí (con las dos motos yendo para el mismo lado, cada PC se veía como la que lo trajo
+    // y no caía ninguna). Con la trompa, de frente (los dos) o si te lo trajo el otro, como contra un muro
+    // (crash_impact_speed). Si embestiste vos, la otra moto cede (te frenás más o menos la mitad del
+    // cierre), así que recién a kBikeRamFactor veces eso: ~38 km/h de diferencia con la Motocross (el usuario:
+    // si el golpe es fuerte, también se tiene que caer el que choca).
+    const bool rammed = withFront && !j.headOn && j.fromOther <= 0.45f * j.closing;
+    j.limit = !withFront ? kBikeHitFall : (rammed ? frontalLimit * kBikeRamFactor : frontalLimit);
+    j.fall = j.limit > 0.0f && j.closing > j.limit;
+    return j;
+}
+} // namespace
+
 void Game::Step(BikeInput in)
 {
     in.shiftUp = pendingShiftUp;
@@ -575,15 +633,18 @@ void Game::Step(BikeInput in)
     if (mp.Active()) mp.Step(kDt, LocalState(), playerName, *physics, bikeParams);
     // Pruebas de red: cuando entra otro, todos a la largada juntos (netduel); en netcrash, además, el
     // anfitrión se cae a propósito 1 s después (el invitado, quieto, mira su ragdoll).
-    if (opt.test == "netduel" || opt.test == "netcrash") {
+    // netchoque: en vez de la largada, cada uno a su lugar para el choque (NetChoqueStep).
+    const bool netChoque = opt.test.rfind("netchoque", 0) == 0;
+    if (opt.test == "netduel" || opt.test == "netcrash" || netChoque) {
         int others = 0;
         for (int id = 0; id < Multiplayer::kMaxPlayers; ++id) others += mp.Remotes()[id].active ? 1 : 0;
         if (others > duelOthers) {
-            Respawn(track.startLine - 6.0f);
+            if (!netChoque) Respawn(track.startLine - 6.0f);
             lapStart = -1.0f;
             duelStart = simTime;
         }
         duelOthers = others;
+        if (netChoque) NetChoqueStep();
         if (opt.test == "netcrash" && mp.GetMode() == Multiplayer::Mode::Host && duelStart >= 0.0f && simTime - duelStart > 1.0f &&
             bike.RiderOnBike()) {
             bike.crashed = true;
@@ -600,18 +661,50 @@ void Game::Step(BikeInput in)
     ragdoll.PostPhysics(bike.BodyID());
     simTime += kDt;
 
-    // Choque con otra moto: sacude la cámara y, si te la pusieron fuerte (el golpe lo trajo sobre
-    // todo el otro: de costado o de atrás), te caés. Cada jugador resuelve su parte en su PC.
+    // Choque con otra moto: sacude la cámara y, si te la pusieron fuerte, te caés: de costado, de atrás o
+    // de arriba a más de 4 m/s; con la trompa, de frente (los dos) o si te lo trajo el otro, a más de
+    // crash_impact_speed, y si embestiste vos, a 1.5 veces eso. Cada jugador resuelve su parte en su PC (JudgeRemoteHit).
     if (mp.Active() && bike.RiderOnBike() && !bike.crashed) {
         const PhysicsWorld::BikeHit hit = physics->LastBikeHit();
-        if (hit.closing > 1.5f) camera.AddShake(std::min(0.45f, hit.closing * 0.04f));
-        if (hit.closing > 0.3f && opt.telemetry)
-            std::printf("CHOQUE t=%.2f con %d: se acercaban a %.2f m/s (el otro traía %.2f)\n", simTime, hit.player, hit.closing, hit.fromOther);
-        if (hit.closing > 6.0f && hit.fromOther > 0.45f * hit.closing) {   // de frente parejo: se caen los dos
-            bike.crashed = true;
-            const Multiplayer::Remote* other = hit.player >= 0 && hit.player < Multiplayer::kMaxPlayers ? &mp.Remotes()[hit.player] : nullptr;
-            ShowMessage((other && !other->name.empty() ? other->name : std::string("Otro piloto")) + " te tiró", 3.0f);
+        const Multiplayer::Remote* other =
+            hit.player >= 0 && hit.player < Multiplayer::kMaxPlayers && mp.Remotes()[hit.player].hasState ? &mp.Remotes()[hit.player] : nullptr;
+        const RemoteHitJudge j =
+            other ? JudgeRemoteHit(hit, *other, bike.Rotation() * Vec3::sAxisZ(), bikeParams.crashImpactSpeed) : RemoteHitJudge{};
+        if (other && j.headOn) headOnAt[hit.player] = simTime;   // aunque apenas se toquen (ver abajo)
+        if (hit.closing > 0.3f && other) {
+            // El primer golpe fuerte decide: lo que llega en el medio segundo siguiente es el eco.
+            const bool echo = simTime - bikeHitAt[hit.player] < kBikeHitEcho;
+            const bool fall = j.fall && !echo;
+            if (j.closing > kBikeHitFall && !echo) bikeHitAt[hit.player] = simTime;
+            if (j.closing > 1.5f) camera.AddShake(std::min(0.45f, j.closing * 0.04f));
+            if (opt.telemetry)
+                std::printf("CHOQUE t=%.2f con %d: se acercaban a %.2f m/s (el otro traía %.2f), %s (trompa %.2f, la suya %.2f), umbral %.1f%s"
+                            " [cuerpo %.2f/%.2f]\n",
+                            simTime, hit.player, j.closing, j.fromOther, j.Kind(), j.frontMe, j.frontOther, j.limit,
+                            fall ? ": SE CAE" : (j.fall ? ": eco, no cuenta" : ""), hit.closing, hit.fromOther);
+            if (j.closing > 0.3f && choqueHitSpeed < 0.0f) choqueHitSpeed = velBeforeStep.Length();   // prueba netchoque
+            if (j.closing > choqueClosing) {         // prueba netchoque: el más fuerte
+                choqueClosing = j.closing;
+                choqueFromOther = j.fromOther;
+            }
+            if (fall) {
+                bike.crashed = true;
+                ShowMessage((!other->name.empty() ? other->name : std::string("Otro piloto")) + " te tiró", 3.0f);
+            }
         }
+    }
+    // De frente caen los dos: cada PC ve su versión del choque y la que lo vio primero empuja a su moto
+    // para atrás; a la otra le llega retrocediendo y apenas la toca. Si el otro se cae justo después de un
+    // contacto trompa contra trompa con nosotros, su PC vio el golpe entero: caemos también.
+    for (int id = 0; id < Multiplayer::kMaxPlayers; ++id) {
+        const Multiplayer::Remote& r = mp.Remotes()[id];
+        const bool down = mp.Active() && r.active && r.hasState && (r.state.flags & BikeState::kCrashed);
+        if (down && !remoteDown[id] && simTime - headOnAt[id] < kBikeHitEcho && bike.RiderOnBike() && !bike.crashed) {
+            bike.crashed = true;
+            if (opt.telemetry) std::printf("CHOQUE t=%.2f con %d: se cayó tras chocarnos de frente: SE CAE\n", simTime, id);
+            ShowMessage("Chocaste de frente con " + (!r.name.empty() ? r.name : std::string("otro piloto")), 3.0f);
+        }
+        remoteDown[id] = down;
     }
 
     // Golpe fuerte contra algo fijo (un muro, una casa, una barrera, un escalón alto): el piloto sale
@@ -666,7 +759,8 @@ void Game::Step(BikeInput in)
             deformation.DigRut(terrain, rw.contactPoint.GetX(), rw.contactPoint.GetZ(), rw.omega * rw.radius - rw.longVel, std::fabs(rw.latVel));
         deformation.CommitRuts(terrain, *physics, kDt);
     }
-    if (bike.crashed && bike.crashedTime > opt.respawnAfter) RespawnNearest();
+    const float respawnAfter = AutoRespawnAfter(opt);
+    if (bike.crashed && respawnAfter >= 0.0f && bike.crashedTime > respawnAfter) RespawnNearest();
     // El bot (pruebas) no sabe salir de reversa: si queda trabado contra una pared, reaparece.
     stuckTime = (opt.bot && bike.speed < 0.6f && !bike.crashed) ? stuckTime + kDt : 0.0f;
     if (stuckTime > 4.0f) {
@@ -679,6 +773,132 @@ void Game::Step(BikeInput in)
         PrintTelemetry();
         lastTelemetry = simTime;
     }
+}
+
+// Prueba netchoque-TIPO-KMH[-KMH] (en red, con --flat y sin --bot): el anfitrión recibe el golpe y el
+// invitado embiste. TIPO: lado (a 90°, contra el costado), atras, frente, roce (se le cierra 15°) o angN
+// (N grados). El primer número es la velocidad del que embiste; el segundo, la del que recibe (si no se
+// da: quieto, salvo frente y roce, que van a la misma). Los dos pasarían por el centro del mapa a los 3 s
+// de ubicarse; a los 5 s cada uno imprime si se cayó y el choque más fuerte que midió.
+namespace {
+struct NetChoqueSpec {
+    bool ok = false;
+    std::string kind;
+    float angle = 0.0f;                  // rumbo del que embiste respecto del que recibe (grados)
+    float vHit = 0.0f, vRecv = 0.0f;     // m/s
+};
+NetChoqueSpec ParseNetChoque(const std::string& test)
+{
+    NetChoqueSpec s;
+    const size_t a = test.find('-'), b = a == std::string::npos ? a : test.find('-', a + 1);
+    if (b == std::string::npos) return s;
+    s.kind = test.substr(a + 1, b - a - 1);
+    char* end = nullptr;
+    const float kmh = std::strtof(test.c_str() + b + 1, &end);
+    const bool recvGiven = end && *end == '-';
+    if (s.kind == "lado") s.angle = 90.0f;
+    else if (s.kind == "atras") s.angle = 0.0f;
+    else if (s.kind == "frente") s.angle = 180.0f;
+    else if (s.kind == "roce") s.angle = 15.0f;
+    else if (s.kind.rfind("ang", 0) == 0) s.angle = (float)std::atof(s.kind.c_str() + 3);
+    else return s;
+    const bool together = s.kind == "frente" || s.kind == "roce";
+    s.vHit = kmh / 3.6f;
+    s.vRecv = (recvGiven ? std::strtof(end + 1, nullptr) : (together ? kmh : 0.0f)) / 3.6f;
+    s.ok = true;
+    return s;
+}
+constexpr float kChoqueSetup = 1.0f;     // s desde que se ven hasta ubicarse
+constexpr float kChoqueMeet = 3.0f;      // s hasta el cruce
+constexpr float kChoqueEnd = 5.0f;       // s hasta el resumen (antes de reaparecer, 3 s después de caerse)
+} // namespace
+
+void Game::NetChoqueStep()
+{
+    const NetChoqueSpec spec = ParseNetChoque(opt.test);
+    if (!spec.ok || duelStart < 0.0f) return;
+    const bool receives = mp.LocalId() == 0;
+    const float tau = simTime - duelStart - kChoqueSetup;
+    if (tau < 0.0f) return;
+    if (!choquePlaced) {
+        // El cruce es en el centro del mapa, lejos de la largada: el salto hasta ahí es de más de 4 m y la
+        // otra PC lo toma como una reaparición (no empuja nada en el camino). El que recibe va por el eje
+        // Z hacia el origen; si se mueve, el que embiste espera a verlo en su recta y se ubica para llegar
+        // al cruce cuando llega él (así no importa cuándo empezó cada PC). Quieto, el cruce es donde esté
+        // y con su rumbo: así sirve contra otra versión que no tiene esta prueba (quieta en la largada).
+        float meet = kChoqueMeet, baseYaw = 0.0f;
+        Vec3 cross = Vec3::sZero();
+        if (!receives) {
+            const Multiplayer::Remote& r = mp.Remotes()[0];
+            if (!r.active || !r.hasState || tau < 0.5f) return;   // medio segundo: que llegue dónde se ubicó
+            const Vec3 p = r.DisplayPos();
+            if (spec.vRecv > 0.0f) {
+                meet = -p.GetZ() / spec.vRecv;
+                if (std::fabs(p.GetX()) > 2.0f || meet < 1.5f || meet > kChoqueMeet + 0.5f) return;
+            } else {
+                const Vec3 f = r.DisplayRot() * Vec3::sAxisZ();
+                baseYaw = std::atan2(f.GetX(), f.GetZ());
+                cross = Vec3(p.GetX(), 0.0f, p.GetZ());
+            }
+        }
+        const float yaw = receives ? 0.0f : baseYaw + mu::Rad(spec.angle), v = receives ? spec.vRecv : spec.vHit;
+        choqueDir = Vec3(std::sin(yaw), 0.0f, std::cos(yaw));
+        choqueFrom = cross - choqueDir * (v * meet);
+        choqueMeetAt = tau + meet;
+        ragdoll.Remove();
+        bike.Reset(*physics, choqueFrom + Vec3(0.0f, terrain.Height(choqueFrom.GetX(), choqueFrom.GetZ()) + 0.88f, 0.0f), yaw);
+        bike.SetVelocity(*physics, choqueDir * v);
+        for (Wheel& w : bike.wheels) w.omega = v / w.radius;
+        // La marcha en la que va a esa velocidad (a menos de 3/4 del corte).
+        const float omega = bike.wheels[Bike::REAR].omega;
+        while (bike.engine.gear < 5 && omega * bike.engine.TotalRatio() * 9.5493f > 0.75f * bikeParams.engine.revLimit) ++bike.engine.gear;
+        camera.Reset(ToRl(bike.Position()), ToRl(choqueDir));
+        choquePlaced = true;
+        choqueCrashAt = choqueHitSpeed = -1.0f;
+        choqueClosing = choqueFromOther = 0.0f;
+        choqueOtherFell = false;
+        std::printf("NETCHOQUE %s: %s a %.0f km/h, rumbo %.0f, desde (%.1f, %.1f)\n", receives ? "recibe" : "embiste", spec.kind.c_str(), v * 3.6f,
+                    receives ? 0.0f : spec.angle, choqueFrom.GetX(), choqueFrom.GetZ());
+        return;
+    }
+    if (tau > kChoqueEnd) {
+        if (!choqueReported) {
+            choqueReported = true;
+            std::printf("NETCHOQUE %s %s %.0f km/h contra %.0f: %s", receives ? "recibe" : "embiste", spec.kind.c_str(),
+                        (receives ? spec.vRecv : spec.vHit) * 3.6f, (receives ? spec.vHit : spec.vRecv) * 3.6f, choqueCrashAt >= 0.0f ? "SE CAYO" : "no se cayo");
+            if (choqueCrashAt >= 0.0f) std::printf(" a los %.2f s", choqueCrashAt);
+            std::printf("; choque mas fuerte: cierre %.2f m/s (el otro traia %.2f), iba a %.1f km/h al tocarse; el otro %s\n", choqueClosing,
+                        choqueFromOther, std::max(0.0f, choqueHitSpeed) * 3.6f, choqueOtherFell ? "se cayo" : "no se cayo");
+        }
+        return;
+    }
+    if (bike.crashed && choqueCrashAt < 0.0f) choqueCrashAt = tau;
+    for (int id = 0; id < Multiplayer::kMaxPlayers; ++id) {
+        const Multiplayer::Remote& r = mp.Remotes()[id];
+        if (r.active && r.hasState && (r.state.flags & BikeState::kCrashed)) choqueOtherFell = true;
+    }
+}
+
+BikeInput Game::NetChoqueInput()
+{
+    BikeInput in;
+    const NetChoqueSpec spec = ParseNetChoque(opt.test);
+    if (!spec.ok || !choquePlaced || bike.crashed) return in;
+    bike.engine.autoShift = true;
+    const bool receives = mp.LocalId() == 0;
+    const float vt = receives ? spec.vRecv : spec.vHit, v = bike.forwardSpeed;
+    // El que embiste suelta el gas al tocar al otro (o pasado el cruce); el que recibe sigue igual.
+    if (vt <= 0.0f || (!receives && (choqueClosing > 0.3f || simTime - duelStart - kChoqueSetup > choqueMeetAt + 0.5f))) return in;
+    // Sigue su recta (como el bot: apunta a un punto por delante) a velocidad constante.
+    const Vec3 pos = bike.Position(), fwd = bike.Rotation() * Vec3::sAxisZ();
+    const Vec3 fwdFlat = Vec3(fwd.GetX(), 0.0f, fwd.GetZ()).NormalizedOr(choqueDir), rightFlat = fwdFlat.Cross(Vec3::sAxisY());
+    const Vec3 target = choqueFrom + choqueDir * ((pos - choqueFrom).Dot(choqueDir) + 4.0f + v * 0.55f);
+    const Vec3 to(target.GetX() - pos.GetX(), 0.0f, target.GetZ() - pos.GetZ());
+    in.steer = mu::Clamp(std::atan2(to.Dot(rightFlat), to.Dot(fwdFlat)) * 2.2f, -1.0f, 1.0f);
+    in.throttle = mu::Clamp((vt - v) * 0.4f + 0.25f, 0.0f, 1.0f);
+    in.frontBrake = v > vt + 1.0f ? 0.3f : 0.0f;
+    in.lean = 0.3f;
+    return in;
 }
 
 // ======================================================================================= input
@@ -889,6 +1109,7 @@ BikeInput Game::BotInput()
 
 BikeInput Game::TestInput()
 {
+    if (opt.test.rfind("netchoque", 0) == 0) return NetChoqueInput();
     BikeInput in;
     const float t = simTime;
     if (opt.test == "accel") {                   // aceleración a fondo y frenada fuerte
@@ -926,6 +1147,39 @@ BikeInput Game::TestInput()
         // soltar para aterrizar derecho; whiphold lo mantiene hasta el suelo.
         const float dir = opt.test == "whipL" ? -1.0f : 1.0f;
         if (t > 0.15f && (t < 0.75f || opt.test == "whiphold") && bike.airTime > 0.0f) in.steer = dir;
+    } else if (opt.test.rfind("frenacurva", 0) == 0) {
+        // frenacurvaN[xS][dD][aA][n]: como frenadaN, pero doblando como con la D (la rampa del teclado, hasta S;
+        // sin xS, a fondo; S < 0, a la izquierda). Por defecto dobla desde que empieza a frenar y no suelta. dD:
+        // la dirección empieza D s después de frenar (D < 0: antes, viniendo inclinado con un poco de gas); aA:
+        // la suelta a los A s (un toque, o la curva que se suelta para frenar). n: no frena, para comparar.
+        bike.engine.autoShift = true;
+        const char* arg = opt.test.c_str() + 10;
+        const float vt = (float)std::atof(arg) / 3.6f;
+        const char* x = std::strchr(arg, 'x');
+        const char* d = std::strchr(arg, 'd');
+        const char* a = std::strchr(arg, 'a');
+        const float steer = x ? (float)std::atof(x + 1) : 1.0f;
+        const float delay = d ? (float)std::atof(d + 1) : 0.0f;
+        const float steerFor = a ? (float)std::atof(a + 1) : 1e9f;
+        const float brakeAmount = std::strchr(arg, 'n') ? 0.0f : 1.0f;
+        if (!testBraking && bike.forwardSpeed >= vt) {
+            testBraking = true;
+            testT0 = simTime;
+        }
+        if (!testBraking) {
+            in.throttle = 1.0f;
+            in.lean = 1.0f;
+        } else {
+            const float brakeAt = testT0 + std::max(0.0f, -delay), steerAt = brakeAt + delay, now = simTime;
+            const bool braking = now >= brakeAt;
+            const float steerTarget = now >= steerAt && now < steerAt + steerFor ? steer : 0.0f;
+            testBrake = braking ? std::min(brakeAmount, testBrake + 5.0f * kDt) : 0.0f;
+            testSteer = mu::MoveTowards(testSteer, steerTarget, (std::fabs(steerTarget) > std::fabs(testSteer) ? 3.5f : 6.0f) * kDt);
+            if (!braking) in.throttle = mu::Clamp((vt - bike.forwardSpeed) * 0.4f + 0.3f, 0.0f, 1.0f);
+            in.frontBrake = testBrake;
+            in.rearBrake = testBrake * 0.5f;
+            in.steer = testSteer;
+        }
     } else if (opt.test.rfind("frenada", 0) == 0) {
         // frenadaN: a fondo con el piloto adelante hasta N km/h y después frena como la S (la delantera sube
         // en 0.2 s, la trasera a la mitad), sin tocar la dirección. Para medir cuánto se cruza y cuánto frena.
@@ -1239,17 +1493,21 @@ static std::string PrefsPath() { return std::string(GetApplicationDirectory()) +
 
 void Game::LoadPrefs()
 {
-    // "clave = valor" como tuning.ini (por ahora sólo la pantalla completa).
+    // "clave = valor" como tuning.ini: pantalla completa, sacudón de cámara, motion blur y la moto.
     if (!FileExists(PrefsPath().c_str())) return;
     char* text = LoadFileText(PrefsPath().c_str());
     if (!text) return;
     const std::string s(text);
     UnloadFileText(text);
-    const size_t at = s.find("pantalla_completa");
-    if (at != std::string::npos) {
+    auto flag = [&s](const char* key, bool& value) {        // si falta la clave (preferencias viejas), queda el default
+        const size_t at = s.find(key);
+        if (at == std::string::npos) return;
         const size_t eq = s.find('=', at);
-        if (eq != std::string::npos) fullscreen = std::atoi(s.c_str() + eq + 1) != 0;
-    }
+        if (eq != std::string::npos) value = std::atoi(s.c_str() + eq + 1) != 0;
+    };
+    flag("pantalla_completa", fullscreen);
+    flag("sacudon_camara", camera.shakeEnabled);
+    flag("motion_blur", motionBlur);
     const size_t mb = s.find("\nmoto");
     if (mb != std::string::npos) {                   // "moto = mod/archivo" (vacío = la de cada mapa)
         const size_t eq = s.find('=', mb), end = s.find('\n', mb + 1);
@@ -1257,15 +1515,16 @@ void Game::LoadPrefs()
             std::string v = s.substr(eq + 1, end == std::string::npos ? std::string::npos : end - eq - 1);
             v.erase(0, v.find_first_not_of(" \t\r"));
             v.erase(v.find_last_not_of(" \t\r") + 1);
-            chosenBike = v;
+            chosenBike = savedBike = v;
         }
     }
 }
 
 void Game::SavePrefs() const
 {
-    const std::string text = std::string("# Preferencias de MotoSim (las guarda el juego)\npantalla_completa = ") + (fullscreen ? "1" : "0") + "\nmoto = " +
-                             chosenBike + "\n";
+    const std::string text = std::string("# Preferencias de MotoSim (las guarda el juego)\npantalla_completa = ") + (fullscreen ? "1" : "0") +
+                             "\nsacudon_camara = " + (camera.shakeEnabled ? "1" : "0") + "\nmotion_blur = " + (motionBlur ? "1" : "0") +
+                             "\nmoto = " + savedBike + "\n";
     SaveFileText(PrefsPath().c_str(), const_cast<char*>(text.c_str()));
 }
 
@@ -1550,7 +1809,9 @@ void Game::EmitWheelEffects(int bikeSlot, int wheel, const WheelFx& w, Vec3 fwd,
     // Aterrizaje fuerte: nube de polvo, terrones y (la moto propia) sacudón de cámara.
     if (landed && w.load > 3500.0f) {
         const float impact = std::min(1.0f, (w.load - 3000.0f) / 9000.0f) * (0.3f + 0.7f * dirty);   // en el pavimento, poco polvo
-        if (bikeSlot == 0) camera.AddShake(0.12f + 0.45f * impact);
+        // 70% de lo que era (0.12 + 0.45·impacto): el usuario lo quería más suave. La vibración va con el cuadrado
+        // (queda a la mitad); el zoom hacia adentro y la caída de la cámara, al 70%. Los choques no cambian.
+        if (bikeSlot == 0) camera.AddShake(0.084f + 0.315f * impact);
         for (int k = 0; k < (int)(8 + 16 * impact); ++k) {
             Vec3 v = f * Rand(-1.5f, 1.5f) + side * Rand(-2.5f, 2.5f) + n * Rand(0.5f, 2.5f);
             unsigned char r = (unsigned char)Rand(80.0f, 115.0f);
@@ -1728,7 +1989,7 @@ void Game::Draw()
         const Vector2 onScreen = GetWorldToScreen(Vector3Add(ToRl(subject), {0.0f, 0.4f, 0.0f}), camera.cam);
         fx.focus = {mu::Clamp(onScreen.x / (float)GetScreenWidth(), 0.2f, 0.8f), mu::Clamp(onScreen.y / (float)GetScreenHeight(), 0.2f, 0.8f)};
         const float speed = ragdoll.Active() ? ragdoll.Velocity().Length() : bike.speed;
-        fx.speedBlur = mu::Smoothstep(11.0f, 28.0f, speed) * 0.035f;
+        fx.speedBlur = motionBlur ? mu::Smoothstep(11.0f, 28.0f, speed) * 0.035f : 0.0f;
         fx.aberration = 0.0015f + mu::Smoothstep(14.0f, 30.0f, speed) * 0.0035f;
     } else {
         fx.vignette = fx.grain = 0.0f;                  // sólo queda el FXAA
@@ -1867,9 +2128,25 @@ void Game::DrawHUD()
         if (bestGrau > 0.0f) textCenter(font, buf, cx, (float)H * 0.2f + 62.0f, 22.0f, Color{kTextDim.r, kTextDim.g, kTextDim.b, a});
     }
 
+    // Caída: el título enseguida. El jugador no reaparece solo (mira la caída): de a poco aparece el
+    // cartel de la R. El bot y las pruebas reaparecen solos (AutoRespawnAfter) y queda la línea de siempre.
     if (bike.crashed) {
         textCenter(font, "Caída", cx, (float)H * 0.36f, 64.0f, kText);
-        textCenter(font, "R / Y para reaparecer", cx, (float)H * 0.36f + 70.0f, 24.0f, kTextDim);
+        if (AutoRespawnAfter(opt) >= 0.0f) {
+            textCenter(font, "R / Y para reaparecer", cx, (float)H * 0.36f + 70.0f, 24.0f, kTextDim);
+        } else if (bike.crashedTime > 0.8f) {
+            const float fade = mu::Clamp((bike.crashedTime - 0.8f) * 2.5f, 0.0f, 1.0f);
+            auto alpha = [fade](Color c) { return Color{c.r, c.g, c.b, (unsigned char)(c.a * fade)}; };
+            const char* hint = "Tocá R para reaparecer";
+            const char* pad = IsGamepadAvailable(0) ? "o Y en el joystick" : "";
+            const float size = 34.0f, y = (float)H * 0.36f + 84.0f;
+            const float w = MeasureTextEx(font, hint, size, 0.0f).x + 56.0f;
+            const float h = *pad ? 84.0f : 60.0f;
+            DrawRectangle((int)(cx - w * 0.5f), (int)y, (int)w, (int)h, alpha(kPanel));
+            DrawRectangle((int)(cx - 22.0f), (int)y, 44, 2, alpha(kAccent));
+            textCenter(font, hint, cx, y + 12.0f, size, alpha(kText));
+            if (*pad) textCenter(font, pad, cx, y + 52.0f, 20.0f, alpha(kTextDim));
+        }
     }
     if (paused) textCenter(font, "Pausa", cx, (float)H * 0.45f, 56.0f, kText);
 
@@ -2122,7 +2399,7 @@ void Game::OpenBikeMenu()
 void Game::ChooseBike(const std::string& id)
 {
     const std::string before = bikeId;
-    chosenBike = id;
+    chosenBike = savedBike = id;
     if (!opt.headless) SavePrefs();
     const std::string after = !chosenBike.empty() && mods.Bike(chosenBike) ? chosenBike : current.bike;
     if (after == before) return;
@@ -2157,6 +2434,16 @@ std::vector<Game::MenuItem> Game::MenuItems()
                          [this] { OpenBikeMenu(); }});
         items.push_back({std::string("Pantalla completa: ") + (fullscreen ? "Sí" : "No"), "F11 o Alt+Enter en cualquier momento.",
                          [this] { SetFullscreen(!fullscreen); }});
+        items.push_back({std::string("Sacudón de cámara: ") + (camera.shakeEnabled ? "Sí" : "No"), "La cámara se sacude al aterrizar y al chocar.",
+                         [this] {
+                             camera.shakeEnabled = !camera.shakeEnabled;
+                             SavePrefs();
+                         }});
+        items.push_back({std::string("Motion blur: ") + (motionBlur ? "Sí" : "No"), "Los bordes de la pantalla se desenfocan cuando vas rápido.",
+                         [this] {
+                             motionBlur = !motionBlur;
+                             SavePrefs();
+                         }});
         items.push_back({"Nombre: " + playerName, "Cómo te ven los demás en la carrera.", [this] {
                              nameInput = playerName;
                              OpenMenu(Menu::Name);
@@ -2173,6 +2460,16 @@ std::vector<Game::MenuItem> Game::MenuItems()
                          [this] { OpenBikeMenu(); }});
         items.push_back({std::string("Pantalla completa: ") + (fullscreen ? "Sí" : "No"), "F11 o Alt+Enter en cualquier momento.",
                          [this] { SetFullscreen(!fullscreen); }});
+        items.push_back({std::string("Sacudón de cámara: ") + (camera.shakeEnabled ? "Sí" : "No"), "La cámara se sacude al aterrizar y al chocar.",
+                         [this] {
+                             camera.shakeEnabled = !camera.shakeEnabled;
+                             SavePrefs();
+                         }});
+        items.push_back({std::string("Motion blur: ") + (motionBlur ? "Sí" : "No"), "Los bordes de la pantalla se desenfocan cuando vas rápido.",
+                         [this] {
+                             motionBlur = !motionBlur;
+                             SavePrefs();
+                         }});
         items.push_back({"Salir de la partida", "Seguís corriendo solo.", [this] { LeaveSession(); }});
     }
     items.push_back({"Salir del juego", "", [this] { quitRequested = true; }});

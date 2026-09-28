@@ -698,6 +698,12 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                                            mu::Smoothstep(0.05f, 0.25f, std::fabs(in.steer)));
             const float mitigation = mu::Lerp(P->rearLiftMitigation, 0.8f, turning);
             brake *= 1.0f - mitigation * (1.0f - mu::Smoothstep(0.0f, P->rearLiftLoad, rearLoad));
+            // Mientras la moto cambia mucho de inclinación (se endereza al soltar la curva, o se tira a una), el
+            // piloto afloja: primero la levanta y después frena a fondo. La inclinación la cambia un torque en el
+            // centro de masa y las cubiertas tienen que acompañar de costado: frenando fuerte, la trasera casi sin
+            // peso no acompaña, la cola salía ~16° y la moto quedaba clavada inclinada, yéndose para el otro lado.
+            if (P->brakeTransitionRelease > 0.0f)
+                brake *= 1.0f - P->brakeTransitionRelease * mu::Smoothstep(mu::Rad(4.0f), mu::Rad(20.0f), std::fabs(leanTarget - roll));
         }
         const float resist = brake + (contact ? P->rollingResistance * w.normalForce * w.radius : 0.0f) + 0.4f;
         const bool held = std::fabs(omega) <= resist / I * dt;
@@ -805,8 +811,22 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             w.longForce = to.longForce;
             w.latForce = to.latForce;
             w.gripUsage = to.usage;
+            if (wheelLog)
+                std::printf("  freno %c omegaR=%.2f v=%.2f slip=%.3f retenida=%d freno=%.0f uso=%.2f long=%.0f max=%.0f "
+                            "latV=%.2f deriva=%.1f latPedida=%.0f lat=%.0f carga=%.0f\n",
+                            i == FRONT ? 'D' : 'T', omega * R, w.longVel, w.slipRatio, held ? 1 : 0, brake, to.usage,
+                            to.longForce, suspensionForce * ti.surfaceGrip * tp.longGrip * LongitudinalGripCurve(ti.slipRatio),
+                            w.latVel, mu::Deg(slipAngle), ti.desiredLat, to.latForce, suspensionForce);
 
             const Vec3 tireF = fwdG * to.longForce + latG * to.latForce;
+            // Frenando inclinada, el contacto queda hacia afuera del centro de masa y la fuerza de frenado hace
+            // girar la moto hacia afuera de la curva (~800 Nm a 1 g y 36°). En una de verdad eso la endereza y el
+            // piloto lo compensa con el manubrio; acá el balance sostiene la inclinación, así que la moto se
+            // quedaba inclinada, cangrejeando para afuera sin doblar. brake_yaw_comp cancela esa parte del giro.
+            // Vale para toda fuerza que frena (también el freno motor). Probado limitarlo al freno de adelante: el bot del
+            // autódromo pasó de 0 a 2 caídas en 300 s. La motocross no lo usa (con su geometría empeoraba, ver FISICA.md).
+            if (P->brakeYawComp > 0.0f && to.longForce * w.longVel < 0.0f)
+                totalTorque -= Vec3::sAxisY() * (P->brakeYawComp * (contactPoint - com).Cross(fwdG * to.longForce).GetY());
             w.suspForce = suspF;
             w.tireForce = tireF;
             applyAt(suspF + tireF, contactPoint);
@@ -921,12 +941,14 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                     totalTorque += Vec3::sAxisY() * (tq * amount);
                 }
             }
-            // Frenando fuerte y derecho (brake_align): la moto vuelve a apuntar hacia donde va. Sin esto, con la
-            // trasera descargada, un poco de inclinación hacía girar la moto, la delantera se alineaba sola con el
-            // camino y la moto seguía cangrejeando ~9° (a 250 km/h, con la cola saltando, un wobble).
+            // Frenando fuerte (brake_align): la moto vuelve a apuntar hacia donde va. Sin esto, con la trasera
+            // descargada, un poco de inclinación hacía girar la moto, la delantera se alineaba sola con el camino
+            // y la moto seguía cangrejeando ~9° (a 250 km/h, con la cola saltando, un wobble). Vale también
+            // doblando: con la delantera cargada y la trasera casi sin peso, al tirarse a la curva la moto giraba
+            // más rápido que su camino, la cola salía ~8° de golpe y la moto no doblaba (sólo iba cruzada). Sólo
+            // frena el giro que sobra respecto del camino: el que acompaña la curva no lo toca.
             if (P->brakeAlign > 0.0f && wheels[FRONT].grounded && v > 5.0f) {
-                const float amount = mu::Smoothstep(0.2f, 0.6f, in.frontBrake) * (1.0f - mu::Smoothstep(0.1f, 0.3f, std::fabs(in.steer))) *
-                                     (1.0f - mu::Smoothstep(0.05f, 0.3f, slideIntent));
+                const float amount = mu::Smoothstep(0.2f, 0.6f, in.frontBrake) * (1.0f - mu::Smoothstep(0.05f, 0.3f, slideIntent));
                 if (amount > 0.0f) {
                     const float wantYaw = pathRate - P->brakeAlign * slipBeta;
                     const float tq = mu::Clamp((wantYaw - angVel.GetY()) * P->brakeAlignTorque, -2000.0f, 2000.0f);

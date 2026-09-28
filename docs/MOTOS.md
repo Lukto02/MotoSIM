@@ -29,7 +29,7 @@ recalculan con F5):
 
 | Moto | Estilo | hp | kg | km/h | 0-100 | g lat. | susp. | giro | Notas |
 |---|---|---|---|---|---|---|---|---|---|
-| `base/motocross` Motocross 450 | `mx` | 47 | 105 | 133 | 4.5 s | 0.97 | 310 mm | 1.8 m | la referencia: `tuning.ini` tal cual |
+| `base/motocross` Motocross 450 | `mx` | 47 | 105 | 133 | 4.5 s | 0.97 | 310 mm | 1.8 m | la referencia: `tuning.ini`, más `motocross.ini` (la frenada con la S y la suspensión más viva al aterrizar) |
 | `base/carrera` Carrera 1000 | `race` | 245 | 160 | 329 | 3.7 s* | 1.33 | 125 mm | 2.8 m | 4 cilindros, rodilla al piso |
 | `base/trilheira` Trilheira 450 | `trail` | 64 | 120 | 121 | 4.3 s | 1.02 | 310 mm | 1.5 m | grau (ver README, Morro do Grau), escape aberto |
 | `base/trial` Trial 300 | `trial` | 28 | 70 | 91 | 5.8 s | 1.02 | 220 mm | 1.2 m | piloto de pie, 48° de manubrio |
@@ -114,9 +114,15 @@ suspensión, neumáticos, frenos, dirección y balance, aire, motor y caja. Las 
   corte, para que cambie donde corresponde.
 - **Cubiertas por superficie**: `*_tire_loose_grip` (tierra y pasto) y `*_tire_paved_grip` (asfalto,
   cemento, objetos). Una lisa de carreras: 0.35 en la tierra.
-- **Frenada**: `brake_align` (frenando fuerte y derecho la delantera sigue su camino y la moto vuelve a
-  apuntar hacia donde va; para motos que descargan mucho la trasera), `rear_lift_load` y
-  `rear_lift_mitigation` (anti-levantamiento de la cola del ABS).
+- **Frenada**: `brake_align` (frenando fuerte, derecho o doblando, la moto apunta hacia donde va; derecho,
+  además, la delantera sigue su camino; para motos que descargan mucho la trasera), `rear_lift_load` y
+  `rear_lift_mitigation` (anti-levantamiento de la cola del ABS: más bajos, frena más cerca del stoppie).
+  `brake_stand_up` (0.6 en `tuning.ini`) es cuánto se endereza frenando inclinada: para una moto de calle o
+  de pista, bajo (la de carreras 0.2); si no, frenando no dobla. `brake_transition_release`: afloja la
+  delantera mientras la moto cambia mucho de inclinación (para motos que descargan mucho la trasera).
+  `brake_yaw_comp`: frenando inclinada, cancela el giro hacia afuera del freno en el contacto (si no, se abre).
+  Probar las frenadas como con teclado (viniendo inclinada y soltando, tocando la dirección), no sólo derecho:
+  ver `frenacurva` en [PRUEBAS.md](PRUEBAS.md).
 - **Derrape lento**: `slide_pivot` (freno trasero doblando debajo de ~13 km/h: el piloto empuja la cola).
 - **Golpes**: `crash_impact_speed` y `crash_impact_vertical` (m/s contra algo fijo para salir despedido).
 - **Wheelie**: `wheelie_turn`/`wheelie_align` (doblando en una rueda la moto gira a la par de su
@@ -212,8 +218,11 @@ corte a 16500, 330 km/h, frenos, geometría). Lo que más importó:
 - Las cubiertas lisas se dibujan con el radio de la banda igual al `roundness` de la física: el contacto
   en pantalla coincide con el de la física a cualquier inclinación.
 - Después: lisas que patinan en la tierra (`*_tire_loose_grip` 0.35), frenada derecha a cualquier
-  velocidad (`brake_align` 4, `rear_lift_load` 450, `rear_lift_mitigation` 0.35) y sin derrape lento
-  (`slide_pivot` 0). Ver [FISICA.md](FISICA.md).
+  velocidad (`brake_align` 4) y sin derrape lento (`slide_pivot` 0). Y más tarde, porque frenaba poco y no
+  doblaba frenando: `brake_stand_up` 0.2, `front_brake_torque` 720, `rear_lift_load` 300 y
+  `rear_lift_mitigation` 0.25 (1-1.16 g en recta; S + D dobla), `brake_transition_release` 0.6 (soltando la
+  curva para frenar se iba para el otro lado), y `brake_yaw_comp` 1 con `brake_align` 8 / `brake_align_torque`
+  2000 (frenando inclinada sin soltar, se abría). Ver [FISICA.md](FISICA.md).
 
 ### Dos tiempos 250 (mx2t)
 - Física: `dostiempos.ini` (liviana, menos torque abajo, corte a 11500, relación corta, casi sin freno

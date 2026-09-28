@@ -140,6 +140,169 @@ su propio documento: [PILOTO.md](PILOTO.md).
   0.85-1 g (`tools/frenada.py`). La motocross, idéntica.
 - **Pendiente**: la motocross (con `brake_align` 0) todavía gira frenando a fondo con la S de 90-120 km/h.
 
+### La de carreras: frenaba poco y no doblaba frenando
+- **Pasaba** (el usuario: "frena lento" y "aunque esté con ABS no puedo doblar ni un poco mientras freno"):
+  - en recta frenaba 0.92 g a 120 km/h, 0.97 desde 200 y 1.05 desde 280 (una superbike con ABS: 1.1-1.2 g);
+  - con S + D a 120 km/h la moto se inclinaba 26° (53° sin frenar), la cola salía ~8° de golpe y el
+    camino giraba 9° en 1 s (sin frenar, 12°): durante casi un segundo iba cruzada sin doblar.
+- **Por qué**:
+  - **en recta el límite era el anti-levantamiento del ABS, no el agarre**: la delantera usaba el 55% de
+    su agarre; con `rear_lift_load` 450 / `rear_lift_mitigation` 0.35 el ABS aflojaba mucho antes del
+    stoppie. El límite de la geometría (centro de masa a 0.62 m, 0.68 m detrás del contacto de adelante) es
+    ~1.1 g;
+  - **doblando**, la Carrera heredaba de `tuning.ini` `brake_stand_up` 0.6: con la S a fondo la inclinación
+    pedida quedaba en el 40%, y arriba de ~30 km/h se dobla inclinando;
+  - **la cola**: con la delantera cargada y la trasera casi sin peso (~300 N), al tirarse a la curva la moto
+    giraba más rápido que su camino y la trasera se iba de costado (no estaba trabada: patinaje -0.02, pero
+    demanda lateral 4-6 veces su agarre). `brake_align`, que endereza frenando, se apagaba apenas se tocaba
+    la dirección.
+- **Qué se hizo** (sólo la Carrera: la motocross tiene `brake_align` 0 y sus claves no cambiaron):
+  - `brake_align` sigue actuando doblando: frena sólo el giro que sobra respecto del camino (`pathRate`),
+    así que no le quita curva; la delantera "libre" (`brakeFree`) sigue apagándose con la dirección;
+  - `carrera.ini`: `brake_stand_up` 0.2, `front_brake_torque` 620 → 720, `rear_lift_load` 450 → 300 y
+    `rear_lift_mitigation` 0.35 → 0.25.
+- **Probado y descartado**:
+  - alinear más fuerte (`brake_align` 8 o `brake_align_torque` 3000): oscila, a veces el camino vuelve para
+    atrás;
+  - aflojar la delantera según la inclinación (un "ABS de curva"): sólo le saca frenada, la cola sale igual;
+  - menos freno trasero o menos freno motor: tampoco endereza (no era la trasera frenando), sólo frena menos.
+- **Se comprobó** (`--map prueba/plaza_asfalto --bike base/carrera`, `tools/frenada.py` y `tools/frenacurva.py`):
+  - en recta: 0.98 g desde 80, 1.01 desde 120, 1.09 desde 200 y 1.16 desde 280, sin cruzarse (beta 0°) ni
+    levantar la cola (0-2% del tiempo);
+  - S + D desde 120: 1.16 g, el camino gira 21° en 1 s y 56° en 2 s (antes 9° y 27°), inclinada 40°, la cola
+    afuera ~6° (como entrar "cruzado" en una moto de carrera), sin caídas; desde 60: 45° en 1 s;
+  - el bot del autódromo: 2:15 / 2:14 y 2 caídas en 300 s (antes 2:22 / 2:20 y 4);
+  - la motocross, la favela, la trial y la 2T: idénticas; el bot de motocross 1:08.37 / 1:08.51.
+- **Trampa de la prueba**: la primera plaza de asfalto tenía la largada donde la curva de la vuelta todavía
+  torcía la línea (8.6°): yendo derecho 450 m la moto se corría 68 m y salía del asfalto. Parecía que el
+  freno "se iba" a 95 km/h (uso de agarre de la delantera 5.3); el `--wheel-log` (que ahora imprime también
+  una línea `freno` por rueda: vueltas, patinaje, si está retenida, freno, uso y agarre máximo) mostró que
+  el agarre disponible caía con la misma carga: era la superficie. Las pruebas de frenada, en una recta
+  larga y derecha; revisar con `--test profile` dónde es asfalto. Lo mismo pasa en el autódromo en
+  `frenada280`: al final la recta de la prueba se termina y sale al pasto.
+
+### La de carreras: soltando la curva para frenar se iba para el otro lado
+- **Pasaba** (el usuario, con teclado: "cuando clavo los frenos se dobla la moto sola para la derecha o la
+  izquierda, se pierde demasiado el control"). Las pruebas de frenada eran siempre con la moto derecha; con
+  teclado se frena viniendo inclinado y soltando la A/D. `frenacurva150x0.6d-1.5a1.5` (doblando a 36°, suelta
+  la D y frena): la moto quedaba clavada a 13° de inclinación, la cola salía 16° y hasta parar el camino
+  giraba 93° para el **otro** lado (a 250 km/h, 119°). Sin freno, soltando igual, se endereza en 0.5 s con la
+  cola a 2°.
+- **Por qué**: la inclinación la cambia un torque de balance en el centro de masa (`balanceK*`), y al
+  enderezarse rápido (36° → 16° en 0.3 s) las cubiertas tienen que acompañar de costado. Frenando fuerte la
+  trasera tiene ~300 N: no acompaña, se va de costado y la moto queda deslizando con las dos cubiertas
+  saturadas (uso 3-7), sin poder enderezarse ni doblar.
+- **Qué se hizo**: `brake_transition_release` (0 en `tuning.ini`, 0.6 en la de carreras): mientras lo que
+  pide el piloto y la inclinación que tiene difieren mucho (de 4° a 20°), el ABS afloja la delantera hasta
+  esa fracción, como el piloto que primero levanta la moto y después frena a fondo.
+- **Probado y descartado**:
+  - aflojar según la inclinación (`brake_lean_release`): la moto se endereza en 0.3 s y a 13° ya frenaba a
+    fondo otra vez; no cambió nada;
+  - un ABS "combinado" que afloja la rueda cuando su uso de agarre pasa de 1: doblando la trasera siempre
+    está pasada (de costado), así que mataba la frenada (0.3 g).
+  Se sacaron del código.
+- **Se comprobó** (`--map prueba/plaza_asfalto --bike base/carrera`, desde 150 km/h):
+  - soltando la curva para frenar, cola 4.9° y camino 8° hasta parar (antes 16° y 93°); a 80 km/h, 2.5° y
+    11°; a 250, 3.7° y 5°;
+  - tocando la D un instante frenando, 2.4°;
+  - frenando derecho, igual (1.04 g);
+  - frenando y doblando desde el principio, sigue doblando: 128° hasta parar, 1.04 g;
+  - el bot del autódromo, 2:15 / 2:14 con 2 caídas en 300 s;
+  - la motocross, idéntica.
+- **Pendiente**: la motocross (abajo).
+
+### La de carreras: frenando inclinada sin soltar la curva se abría
+- **Pasaba** (el usuario: "anda bien si primero frenás y luego doblás, pero sigue pasando cuando estás doblando
+  y frenás"). `frenacurva150x0.6d-1.5` (doblando a 38° y frenando sin soltar la D): la moto seguía inclinada
+  pero el camino giraba 1° en 1 s y -14° hasta parar. Se abría de la curva, cangrejeando con la cola 6° afuera;
+  con la D a 0.4, hasta se iba para el otro lado.
+- **Por qué** (con las líneas `freno` del `--wheel-log`, que ahora traen también la velocidad de costado,
+  la deriva, la fuerza lateral pedida y la que da, y la carga):
+  - la trasera pasaba de ~1100 N a 245 N y se deslizaba de costado a 5 m/s;
+  - la delantera, alineada con su camino por el contravolante automático, empujaba -110 N de costado (sin
+    frenar, -1179 N);
+  - la causa de fondo: inclinada, el contacto de las cubiertas queda hacia afuera del centro de masa
+    (0.62 m × sen 36° ≈ 0.36 m), y la fuerza de frenado ahí hace girar la moto **hacia afuera** (~800 Nm a
+    1 g). En una de verdad eso la endereza y la abre, y el piloto lo compensa con el manubrio; acá el
+    balance sostiene la inclinación, así que la moto giraba para afuera sin enderezarse.
+- **Qué se hizo**: `brake_yaw_comp` (0 en `tuning.ini`, 1 en la de carreras) cancela el giro que hacen las
+  fuerzas de frenado en el contacto: el giro de la fuerza en `contactPoint` respecto del centro de masa, sólo
+  cuando la fuerza frena. Derecha no hace nada (el contacto está en el eje). Con eso, `brake_align` 8 y
+  `brake_align_torque` 2000 (antes 4 y 1500) sostienen la cola.
+- **Probado y descartado**: que el ABS le exija más carga a la trasera según la inclinación
+  (`rear_lift_lean_load`): frenaba la mitad y seguía sin doblar. Sacarle el freno trasero y el freno motor, peor
+  (con la D a 0.4 se iba para el otro lado): eso mostró que había un empuje hacia afuera.
+- **Se comprobó** (desde 150 km/h, `tools/frenacurva.py` y el resumen de situaciones de teclado):
+  - doblando y frenando sin soltar: 125° hasta parar a 1.07 g, cola 6.7° (con la D a 0.3, 119°; desde
+    100 km/h, 96°);
+  - soltando para frenar: 1.5° y 6°;
+  - tocando la D: 1.2°;
+  - derecho, 1.04 g;
+  - frenando y doblando desde el principio: 144°, cola 4.8°;
+  - a 80 km/h, parecido; a 250, doblando y frenando sin soltar dobla (-34°) pero frena ~0.6 g (el ABS
+    afloja con la trasera sin carga): a 250 no se puede frenar a fondo y doblar fuerte a la vez;
+  - el bot del autódromo: 2:11.6 / 2:09.8 y **0 caídas** en 300 s (antes 2:15 con 2; con la v0.2.6, 2:21
+    con 4);
+  - la motocross y las demás, idénticas.
+### La motocross: frenando fuerte hacía un trompo
+- **Pasaba**: con la S a fondo desde ~100 km/h se cruzaba 140-167° (un trompo) en tierra plana y en asfalto,
+  derecha, tocando la dirección, soltando la curva o doblando (`frenada100` y `frenacurva100...` con `--flat`).
+  El usuario lo pidió ("dale aplicalo, pero intentá que no afecte el resto, esa moto se siente bastante bien").
+- **Por qué**: lo mismo que la de carreras: con la trasera casi sin carga, frenar es inestable de guiñada.
+- **Qué se hizo**: la motocross tiene ahora su `.ini` (`mods/base/bikes/motocross.ini`, que el `.json` nombra),
+  con sólo `brake_align` 4 y `brake_align_torque` 2000. `tuning.ini` no se tocó, porque es la base de las
+  demás motos (la 2T, la Trilheira y la Trial lo heredan). `brake_yaw_comp` ahora sólo actúa con el freno de
+  adelante (antes también con el freno motor al soltar el gas inclinado, lo que habría cambiado cómo dobla).
+- **Probado y descartado para la motocross**:
+  - `brake_yaw_comp` 1: con esta geometría (y en tierra) doblando y frenando la cola salía 41-56°;
+  - `brake_transition_release` 0.6: no mejora;
+  - `brake_align` 8: igual o peor.
+  `brake_stand_up` queda en 0.6: se endereza frenando como siempre.
+- **Se comprobó** (con `--bike base/motocross`):
+  - frenando derecho desde 60, 100 y 125 km/h, cola 0°, a ~0.66 g en tierra;
+  - tocando la dirección, 3°; soltando la curva, 5° (asfalto 5°); doblando sin soltar, 6° (desde 60 km/h,
+    12.5°); frenando y doblando, 4°;
+  - las regresiones contra la v0.2.6 idénticas (`brakeslide`, `brakeslide2`, `brakeslide3.5`, `cuerpo`, `flip`,
+    `whip`, `wheelie`, `bot`, `accel`, la favela, la trial y la 2T): nada de eso frena fuerte con la S;
+  - el bot, 1:08.37 / 1:08.51.
+  Las frenadas fuertes con la S de la motocross (`frenadaN`, `frenacurvaN` con `--flat`) difieren de la v0.2.6
+  a propósito.
+- **Trampa**: `--flat --test frenada125` con la motocross tarda ~11 s en llegar y en la frenada se termina el
+  mapa plano: cae por el borde (inclinación 180°, cabeceo -89°, las dos ruedas en el aire). No es la moto.
+- **Después, a pedido, las otras de tierra**:
+  - **Dos tiempos** (`dostiempos.ini`): `brake_align` 4 / `brake_align_torque` 2000 y `*_rebound_ratio` 1.7.
+    Frenando desde 90 km/h se cruzaba 104-165° y ahora 3-22°; aterrizando vuelve en 0.27-0.30 s (antes
+    0.70-0.77). El bot del parque, igual (0:50.9) y sin caídas.
+  - **Trial** (`trial.ini`): sólo la frenada (se cruzaba hasta 58° desde 60 km/h; ahora ~15-17°). Su
+    suspensión ya era viva (vuelve en 0.19 s: amortiguación de base 650/700 con 3.2) y con 1.8 rebotaba de
+    más y despegaba las ruedas 0.07 s. El circuito de obstáculos, igual (37.4 s) y sin caídas.
+  - **Trilheira**: no se tocó. Se cruzaba 110-151° frenando desde 90, y la frenada nueva lo arreglaba, pero en
+    la favela (15 min de bot) las caídas pasaban de 2 a 4 (bajada de -25% que entra en curva, s≈255: el
+    alineado frena el giro de entrada). Con `brake_transition_release` esas desaparecían, pero aparecían en
+    s≈1217 (subida de 24% con curva que termina en una loma). La suspensión (2.0 o 2.5) también sumaba
+    caídas en esa loma: se estira, la moto queda liviana en plena curva. Pendiente: mirar esas dos curvas
+    con cuidado antes de tocarla.
+
+### La motocross: la suspensión se sentía muerta al aterrizar
+- **Pasaba** (el usuario: "la suspensión debería sentirse un poco más springy al aterrizar"). Cayendo de
+  2.5 m en plano se comprimía casi a tope (0.98) y volvía a su altura de reposo (33%) en 0.74 s, arrastrándose y
+  sin pasarse nada.
+- **Por qué**: `*_rebound_ratio` 3.0 en `tuning.ini`: la extensión amortiguada tres veces más que la compresión.
+  Con el resorte de adelante (6800 N/m, ~90 kg por rueda) eso es ~1.9 veces la amortiguación crítica al
+  extenderse: sobreamortiguada.
+- **Qué se hizo**: en `motocross.ini` (no en `tuning.ini`, que es la base de las otras motos),
+  `front_rebound_ratio` y `rear_rebound_ratio` 1.7.
+- **Se comprobó** con un resumen de aterrizajes (`--flat --drop H --test idle`):
+  - desde 1 y 2.5 m, vuelve en 0.28 y 0.24 s (antes 0.65 y 0.74), casi sin pasarse;
+  - desde 5 m se estira casi del todo y las ruedas se despegan 0.02 s;
+  - con 1.5, desde 5 m se estiraba del todo y se despegaba 0.07 s (patada); con 2.0, parecido a 1.7 pero más
+    lento (0.37 s);
+  - el bot: motocross 1:08.73 / 1:08.42 y Los Médanos 1:26.9 / 1:26.7, sin caídas; los mortales (`flip`,
+    `frontflip` desde 5 m, el Gigante de Los Médanos) giran y caen igual;
+  - las otras motos, idénticas.
+- **Consecuencia**: contra la v0.2.6 la motocross da distinta en todas las pruebas; ver [PRUEBAS.md](PRUEBAS.md).
+- **Pendiente**: la 2T, la Trilheira y la Trial tienen el mismo 3.0 heredado.
+
 ### Golpe fuerte: el piloto sale despedido
 - **Pasaba**: sólo había caída por inclinación. Contra un muro, el piloto salía recién cuando la moto se
   daba vuelta, y con la velocidad de después del golpe (casi quieto).
@@ -197,7 +360,15 @@ su propio documento: [PILOTO.md](PILOTO.md).
   El giro alrededor de **Z** (el eje "plane") lo limita `mNormalHalfConeAngle`, y el giro alrededor de
   **Y** lo limita `mPlaneHalfConeAngle`. Los nombres confunden: se leen al revés de lo que parece.
   Los límites son simétricos; para un rango asimétrico, el eje twist del padre se centra a mitad del
-  rango. `GetRotationInConstraintSpace()` + `Quat::GetSwingTwist` da lo mismo que usa Jolt para medir.
+  rango. `GetRotationInConstraintSpace()` + `Quat::GetSwingTwist` da lo mismo que usa Jolt para medir,
+  **con el signo normalizado** (si w < 0, negar: si no, un giro de 0° se lee 360°).
+- **SwingTwist al crearlo en una pose que no es la de referencia**: el eje "plane" del cuerpo 2 tiene
+  que ser el del cuerpo 1 llevado por el arco más corto de un eje twist al otro
+  (`Quat::sFromTo(t1, t2) * plane1`). Proyectarlo (`plane1` perpendicular a `t2`) deja un giro sobre el
+  hueso que no está en la pose, y con arcos grandes pasa del límite: el solver lo corrige de un tirón
+  (80° de giro en los hombros del ragdoll, ver [PILOTO.md](PILOTO.md)). El cono es una elipse en
+  `(sin(swingY/2), sin(swingZ/2))` con semiejes `sin(mPlaneHalfConeAngle/2)` y `sin(mNormalHalfConeAngle/2)`:
+  para que la pose de partida entre, se chequea ahí, no cada ángulo por separado.
 - **HingeConstraint**: rango asimétrico real (`mLimitsMin` en [-π, 0], `mLimitsMax` en [0, π]). El
   ángulo 0 es cuando `mNormalAxis1` y `mNormalAxis2` coinciden; crece con la mano derecha alrededor de
   `mHingeAxis1`. Para que el ángulo actual sea el de la pose, `mNormalAxis2` es la dirección actual.

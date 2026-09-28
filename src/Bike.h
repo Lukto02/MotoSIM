@@ -162,6 +162,12 @@ struct BikeParams {
     // (derecha, hasta rearLiftMitigation; inclinada, más).
     float rearLiftLoad = 300.0f;
     float rearLiftMitigation = 0.25f;
+    // Frenando inclinada, cuánto se cancela el giro hacia afuera que hace la fuerza de frenado en el contacto
+    // (que queda afuera del centro de masa): 1 = todo, como el piloto que sostiene la línea. 0 = no.
+    float brakeYawComp = 0.0f;
+    // Mientras la moto cambia mucho de inclinación (lo que pide el piloto contra la que tiene), afloja la
+    // delantera hasta esta fracción: frenando fuerte, la trasera descargada no acompaña el cambio y la cola sale.
+    float brakeTransitionRelease = 0.0f;
     float tcSlip = 0.35f;            // slip trasero tolerado por el control de tracción
     float crashAngleDeg = 72.0f;
     // Golpe fuerte contra algo fijo: el piloto sale despedido (m/s con que se acercaban). De frente o de

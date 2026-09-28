@@ -66,7 +66,23 @@ private:
         int x0, z0, w, h;                  // rango de muestras que cubre
     };
 
-    float Ground(float x, float z) const;
+    // Forma esculpida lista para evaluar: el perfil ya suavizado en una tabla cada kShapeStep m.
+    struct Shape {
+        MapShape def;
+        float dirX = 0.0f, dirZ = 1.0f;    // hacia dónde crece u (line) / eje del estirado (round)
+        float u0 = 0.0f;                   // u de la primera muestra de la tabla
+        std::vector<float> table;
+        float first = 0.0f, last = 0.0f;   // u del primer y último punto del perfil
+        float base = 0.0f;                 // level: altura a la que nivela
+        float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;   // hasta dónde llega (con el borde)
+    };
+
+    float Ground(float x, float z) const;  // Natural + formas + la subida del borde
+    float Natural(float x, float z) const; // el terreno del tipo (lomas, imagen, morro, médanos), sin formas
+    float Dunes(float x, float z) const;
+    // El suelo con las formas [0, count) aplicadas en orden sobre la altura natural h.
+    float ApplyShapes(float x, float z, float h, size_t count) const;
+    void PrepareShapes();
     float Sample(const std::vector<float>& a, float x, float z) const;   // bilineal sobre la grilla
     void StampTrack(const Track& track);
     void StampStreets(const Track& track);
@@ -84,6 +100,10 @@ private:
     std::vector<Chunk> chunks;
     bool streets = false;
     bool grassOffRoad = false;             // calles de asfalto entre pasto (circuito), no tierra roja
+    bool guide = false;                    // la pista es sólo una vuelta guía: no se estampa en el terreno
+    bool sand = false;                     // arena (ground_textures "sand"): tono, polvo y pocas matas secas
+    std::vector<Shape> shapes;             // terrain.shapes, listas para evaluar
+    float duneDirX = 0.0f, duneDirZ = 1.0f, duneSeedX = 0.0f, duneSeedZ = 0.0f;
     MapTerrain def;                        // qué terreno natural es
     MapTerraces terraces;
     std::vector<float> image;              // heightmap: 0..1

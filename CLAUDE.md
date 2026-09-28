@@ -31,9 +31,11 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
 
 ## Reglas
 
-- **La física de la Motocross 450 no cambia.** Lo nuevo va en el `.ini` de cada moto o detrás de una
-  clave cuyo default reproduce lo de antes; comprobar con `tools/regresion.sh` contra el último paquete
-  (`dist/`) que la telemetría da idéntica (ver `docs/PRUEBAS.md`).
+- **La física de la Motocross 450 no cambia** salvo pedido del usuario. Lo nuevo va en el `.ini` de cada moto
+  o detrás de una clave cuyo default reproduce lo de antes; comprobar con `tools/regresion.sh` contra el
+  último paquete (`dist/`) que la telemetría da idéntica (ver `docs/PRUEBAS.md`). `tuning.ini` es la base de
+  todas las motos; lo que sea sólo de la Motocross va en `mods/base/bikes/motocross.ini` (hoy, a pedido, sólo
+  su frenada con la S y la suspensión más viva; ver `docs/FISICA.md`).
 - **Documentar lo aprendido en el mismo cambio**: todo problema no obvio resuelto (física, tuning,
   diseño de una moto o un mapa, trampas de Jolt/raylib, criterios de interfaz) va al documento de
   `docs/` que corresponde, con qué pasaba → por qué → qué se hizo → cómo se comprobó. Los agentes
@@ -51,4 +53,5 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
   `src/BikeMeshes.cpp` (una sección por estilo).
 - Mapas: `mods/<mod>/maps/*.json`; los de prueba en `pruebas/mods/prueba/` (no se empaquetan).
 - Herramientas: `tools/` (compilar, regresión, grilla de capturas, análisis de telemetría, sonido,
-  frenadas y escaleras).
+  frenadas y frenar doblando, escaleras, saltos, par en red y choques en red, el generador de Los Médanos y
+  `riggear_piloto.py` para riggear un piloto nuevo con Blender).

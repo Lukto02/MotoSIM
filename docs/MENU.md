@@ -41,3 +41,31 @@
 - Tarjeta "AHORA": mapa (con su color), la moto y sus números, y los pilotos en red.
 - Probar con una captura: el principal aparece al arrancar (`--size 1280 720 --screenshot 3 archivo.png`) y el
   selector con `--menu bikes`.
+
+## Opciones de la cámara y la imagen
+
+- En el menú principal y en el de la partida en red, debajo de "Pantalla completa":
+  - **Sacudón de cámara** (`camera.shakeEnabled`): apaga los golpes de aterrizajes y choques (`AddShake`: el
+    sacudón, el zoom hacia adentro y la caída de la cámara) y la vibración fina a alta velocidad;
+  - **Motion blur** (`motionBlur`): apaga sólo el desenfoque con la velocidad; la aberración, la viñeta y el
+    grano siguen. F7 sigue apagando todo el post-proceso.
+- El sacudón al aterrizar (`EmitEffects`, cada rueda que aterriza fuerte) quedó al 70% de lo que era, a pedido
+  ("que se sienta más smooth"): `AddShake(0.084 + 0.315·impacto)`. Como la vibración va con trauma², queda a
+  la mitad; el zoom hacia adentro y la caída de la cámara, al 70%. Los choques no cambiaron.
+- Los dos prendidos por defecto. Se guardan en `preferencias.ini` (`sacudon_camara`, `motion_blur`); si faltan
+  las claves (preferencias de una versión anterior), queda el default.
+- Con dos opciones más, el menú principal sigue entrando a 1280×720 (el alto de cada línea se ajusta solo).
+
+## Caído
+
+- El jugador no reaparece solo: mira la caída y sale con R (Y en el joystick). "Caída" enseguida y, a los
+  0.8 s, un panel "Tocá R para reaparecer" (con "o Y en el joystick" si hay uno) que aparece de a poco.
+- El bot, las pruebas (`--test`) y sin ventana reaparecen solos a los 3 s (las vueltas y las regresiones
+  cuentan con eso) y ahí queda la línea chica de siempre. `--respawn-after S` fija los segundos para
+  todos; `-1`, sólo con R (para capturar el cartel: `--test crashloop --respawn-after -1`). Ver
+  `AutoRespawnAfter` en `Game.cpp`.
+- **La moto elegida se guarda sólo desde el menú**: `--bike` (pruebas) cambia la moto por esa vez. Antes se
+  guardaba en `preferencias.ini` y la moto de una prueba (`--bike base/carrera`) quedaba para todos los mapas,
+  hasta en la pista de motocross. `savedBike` es la de preferencias; `chosenBike`, la de ahora.
+- Ya existía un "Caída / R / Y para reaparecer" chico en `DrawHUD`: el cartel nuevo lo reemplaza (no dos
+  textos uno arriba del otro). Buscar antes lo que ya dibuja el HUD.

@@ -247,6 +247,7 @@ void Multiplayer::Leave(PhysicsWorld& physics)
     code.clear();
     otherCodes.clear();
     pendingPops.clear();
+    inbox.clear();
 }
 
 // ------------------------------------------------------------------------------------ jugadores
@@ -313,6 +314,12 @@ Quat Multiplayer::Remote::DisplayRot() const
     Quat q = state.rot;
     if (w > 1e-4f) q = (Quat::sRotation(state.angVel / w, w * a) * state.rot).Normalized();
     return (rotError * q).Normalized();
+}
+
+Vec3 Multiplayer::Remote::PointVelocity(Vec3 point) const
+{
+    if (age >= kMaxExtrapolation) return Vec3::sZero();
+    return state.vel + state.angVel.Cross(point - DisplayPos());
 }
 
 void Multiplayer::ReceiveState(int id, net::Reader& r, float latency, PhysicsWorld& physics, BikeParams& params)
@@ -523,7 +530,22 @@ void Multiplayer::Step(float dt, const BikeState& local, const std::string& loca
     const double now = Now();
     uint8_t buf[1500];
     net::Address from;
-    for (int n; mode != Mode::Off && (n = socket.Receive(from, buf, (int)sizeof(buf))) >= 0;) HandlePacket(from, buf, n, physics, params);
+    for (int n; mode != Mode::Off && (n = socket.Receive(from, buf, (int)sizeof(buf))) >= 0;) {
+        if (lag > 0.0f || jitter > 0.0f) {
+            // Demora fija más una al azar de hasta jitter, sin pasar al anterior (llegan en tandas, como por internet).
+            jitterSeed = jitterSeed * 1664525u + 1013904223u;
+            double at = now + lag + jitter * (double)(jitterSeed >> 8) / 16777216.0;
+            if (!inbox.empty()) at = std::max(at, inbox.back().at);
+            inbox.push_back({at, from, std::vector<uint8_t>(buf, buf + n)});
+        } else {
+            HandlePacket(from, buf, n, physics, params);
+        }
+    }
+    while (mode != Mode::Off && !inbox.empty() && inbox.front().at <= now) {
+        const Delayed d = std::move(inbox.front());
+        inbox.pop_front();
+        HandlePacket(d.from, d.data.data(), (int)d.data.size(), physics, params);
+    }
     if (mode == Mode::Off) return;
 
     if (mode == Mode::Client) {

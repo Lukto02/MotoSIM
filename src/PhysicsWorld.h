@@ -36,10 +36,15 @@ public:
     bool AnyContact() const;
     // Choque de la moto con la de otro jugador en el último Step: velocidad con que se acercaban
     // (m/s, a lo largo de la normal), qué parte de ella traía el otro, y su número de jugador
-    // (el user data del cuerpo remoto). 0 si no hubo.
+    // (el user data del cuerpo remoto). 0 si no hubo. closing y fromOther salen de la velocidad del
+    // cuerpo cinemático, que incluye las correcciones de la predicción; para decidir una caída, Game
+    // los rehace con la velocidad que mandó el otro: para eso, la normal (de la moto propia hacia la
+    // otra), el punto de contacto y la velocidad propia en ese punto a lo largo de la normal.
     struct BikeHit {
         float closing = 0.0f, fromOther = 0.0f;
         int player = -1;
+        JPH::Vec3 normal = JPH::Vec3::sZero(), point = JPH::Vec3::sZero();
+        float mineAlongNormal = 0.0f;
     };
     BikeHit LastBikeHit() const;
     // El golpe más fuerte de la moto (con su piloto) contra algo fijo en el último Step: la velocidad con

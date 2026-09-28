@@ -20,7 +20,10 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--flat")) opt.flat = true;
         else if (!std::strcmp(argv[i], "--norider")) opt.hideRider = true;
         else if (!std::strcmp(argv[i], "--nohud")) opt.hideHud = true;
-        else if (!std::strcmp(argv[i], "--respawn-after")) opt.respawnAfter = (float)std::atof(next());
+        else if (!std::strcmp(argv[i], "--respawn-after")) {
+            opt.respawnAfter = (float)std::atof(next());
+            opt.respawnAfterSet = true;
+        }
         else if (!std::strcmp(argv[i], "--wheel-log")) {
             opt.wheelLogFrom = (float)std::atof(next());
             opt.wheelLogTo = (float)std::atof(next());
@@ -30,6 +33,8 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--join")) opt.join = next();               // se une con el código
         else if (!std::strcmp(argv[i], "--name")) opt.name = next();
         else if (!std::strcmp(argv[i], "--port")) opt.port = std::atoi(next());
+        else if (!std::strcmp(argv[i], "--net-lag")) opt.netLag = (float)std::atof(next());   // ms (pruebas de red)
+        else if (!std::strcmp(argv[i], "--net-jitter")) opt.netJitter = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--menu")) opt.menuScreen = next();          // pruebas: join, name, lobby, maps
         else if (!std::strcmp(argv[i], "--bike")) opt.bike = next();                // mod/moto
         else if (!std::strcmp(argv[i], "--map")) opt.map = next();                  // motocross | favela | mod/mapa

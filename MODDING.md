@@ -10,9 +10,10 @@ mods/
     maps/favela.json
     bikes/motocross.json
     bikes/trilheira.json + trilheira.ini
-  sandbox/               example mod: a physics park, a heightmap valley and a custom bike
+  sandbox/               example mod: a physics park, a heightmap valley, a free-roam dune map and a custom bike
     maps/park.json
     maps/valle.json + valle.png
+    maps/medanos.json    dunes and sculpted jumps, no track (terrain "dunes", "shapes", track "guide")
     bikes/dostiempos.json + dostiempos.ini
   your_mod/              <- yours: any folder name
     maps/*.json
@@ -85,8 +86,8 @@ Only `track.points` is required; every other field has a default.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `type` | `"hills"` | `hills`, `flat`, `heightmap` or `favela` |
-| `height` | 10 | hills: how tall the big hills are (m). heightmap: the height of pure white (m) |
+| `type` | `"hills"` | `hills`, `flat`, `heightmap`, `favela` or `dunes` |
+| `height` | 10 | hills: how tall the big hills are (m). heightmap: the height of pure white (m). dunes: the tallest dunes (m) |
 | `scale` | 0.011 | hills: hill frequency (smaller = wider hills) |
 | `detail` | 0.5 | hills: small bumps (m) |
 | `image` | | heightmap: a grayscale PNG next to the .json. It is stretched over the whole map: the top of the image is north and white is high |
@@ -96,6 +97,64 @@ Only `track.points` is required; every other field has a default.
 | `resolution` | 0.5 | meters between terrain samples, 0.25 to 4. At most 2048 samples per side: a big map needs a coarser grid (e.g. `"size": 1000, "resolution": 1`) |
 
 `favela` is the Morro do Grau hillside, a slope of about 20% rising to the north.
+
+`dunes` is a field of transverse sand dunes: rows of crests across the wind, a gentle windward side
+that gets steeper up to the crest (a natural lip) and a steep lee face that starts flat at the crest
+(land on it going down). The crests wander and break up into pieces, some areas have tall dunes and
+others low ones (35% to 100% of `height`), and near the map border the dunes grow (a dune sea that
+hides the border wall). It is always the same (no randomness).
+
+| Field (dunes) | Default | Meaning |
+|---|---|---|
+| `wavelength` | 70 | m from crest to crest |
+| `wind` | 0 | degrees, where the wind blows to (0 = north, 90 = east): the steep faces look that way |
+| `meander` | 0.35 | how much the crests wander (in wavelengths) |
+| `border` | 1.2 | how much taller the dunes get near the border (1.2 = 2.2 times as tall; 0 = the same) |
+| `seed` | 0 | another number gives another dune field |
+| `detail` | 0.5 | small bumps (m); sand is smooth, 0.1 is plenty |
+
+#### `terrain.shapes`: sculpted ground
+
+Hand-made jumps, hills, bowls and walls sculpted into the ground itself (any terrain type). They are
+smooth ground, not objects: the wheels roll on them like on any hill, and the track (a `track` or
+`street` style track) is stamped on top of them.
+
+Each shape is a **profile**: a side view, a list of `[u, height]` points joined by straight lines
+(`u` in meters, increasing). The corners are rounded over `smooth` meters. Then the profile is
+stretched sideways (`"shape": "line"`) or spun around a center (`"shape": "round"`).
+
+```jsonc
+"terrain": {
+  "type": "dunes", "height": 8,
+  "shapes": [
+    // a kicker ridden north: flat, 25° face up to 1.5 m, a 5 m table, a long landing back to 0
+    { "shape": "line", "at": [0, -40], "yaw": 0, "width": 12, "edge": 8,
+      "profile": [[-30, 0], [0, 0], [3.2, 1.5], [8.2, 1.5], [16, 0]] },
+    // a bowl 20 m across: floor 2 m below the ground, 45° walls, rim at 3 m
+    { "shape": "round", "at": [60, 20], "mode": "level", "base": 0,
+      "profile": [[0, -2], [6, -2], [11, 3], [12, 3], [20, 0]] }
+  ]
+}
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `shape` | `"line"` | `line`: the profile runs along `yaw` (u = 0 at `at`) and is `width` m wide. `round`: u is the distance from `at` (the profile is spun around it; u starts at 0) |
+| `at` | | `[x, z]` |
+| `profile` | | at least 2 points `[u, height]`, u increasing |
+| `yaw` | 0 | line: the direction u grows (0 = north, 90 = east): the direction you ride it. round: the axis of `stretch` |
+| `width` | 10 | line: meters at full height, across |
+| `edge` | 6 | meters over which the shape fades into the ground around it (sides and ends) |
+| `smooth` | 1 | meters over which the corners of the profile are rounded (0 = sharp) |
+| `bend` | 0 | line: the ends move this many meters along u (a crescent, like a barchan dune: horns downwind) |
+| `stretch` | `[1, 1]` | round: stretches the circle across and along `yaw` (an ellipse) |
+| `mode` | `"add"` | `add`: the profile is added to the ground. `level`: the ground becomes `base` + profile (the dunes under it disappear; use it to carve flat corridors, run-ups and landings) |
+| `base` | ground at `at` | level: the height it levels to |
+
+Shapes are applied in order: a later one sits on top of (or levels) the earlier ones. How to make
+jumps that land well (the landing slope has to follow the arc, and how far you fly grows with the
+square of the speed) is in `mods/sandbox/maps/medanos.json` and in `tools/medanos.py`, which
+generated it.
 
 ### `track`: the lap
 
@@ -120,6 +179,10 @@ Only `track.points` is required; every other field has a default.
 - **style `street`**: streets cut level into a hillside. Where two streets cross they blend (the
   flatter one wins), and each point's surface is used (paved streets grip more and throw no dirt).
   Pair it with `"look": {"ground_textures": "street"}`.
+- **style `guide`**: for free-roam maps. The lap is only a guide: it doesn't change the ground (no
+  smoothing, no dirt strip, no berms) and there are no stakes or start gate (`markers` defaults to
+  false). The bot, the respawn (R) and the lap timer still follow it, so make it a long loop over the
+  flat corridors and the best jumps. Obstacles (`features`) are not built on a guide.
 
 ### `start`
 
@@ -199,10 +262,16 @@ fit in their straight are dropped.
   "ground": [92, 80, 64],           // light bounced from the ground
   "fog": 0.0042,                    // fog density
   "exposure": 1.0,
-  "ground_textures": "dirt"         // "dirt" (motocross dirt and grass), "street" (pavement and red soil)
-                                    // or "circuit" (asphalt on the track, cut grass everywhere else)
+  "ground_textures": "dirt"         // "dirt" (motocross dirt and grass), "street" (pavement and red soil),
+                                    // "circuit" (asphalt on the track, cut grass everywhere else)
+                                    // or "sand" (golden sand with wind ripples, a few dry tufts)
 }
 ```
+
+The `sunset` preset also switches the ground to `street`; set `ground_textures` after it to change
+that (for example `"preset": "sunset", "ground_textures": "sand"`). On sand the light bounced from
+the ground is bright: a sand-colored `ground` (like `[214, 164, 112]`) keeps the shaded dune faces
+warm instead of purple.
 
 ### Advanced
 
@@ -276,7 +345,9 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 |---|---|---|
 | `front_tire_loose_grip`, `rear_tire_loose_grip` | 1 | grip multiplier on dirt and grass (a racing slick: 0.35) |
 | `front_tire_paved_grip`, `rear_tire_paved_grip` | 1 | grip multiplier on asphalt, concrete and objects |
-| `brake_align` | 0 | braking hard in a straight line, the front wheel follows its own path and the bike lines up with where it goes (1/s; the race bike uses 4) |
+| `brake_align` | 0 | braking hard, the bike lines up with where it goes, also while turning (in a straight line the front wheel also follows its own path) (1/s; the race bike uses 4) |
+| `brake_yaw_comp` | 0 | braking while leaned, how much of the outward yaw from the brake force at the contact patch is cancelled (1 = all; the race bike uses 1). Without it the bike stays leaned but runs wide |
+| `brake_transition_release` | 0 | while the bike is changing lean a lot (what the rider asks vs what it has), the ABS eases the front brake by up to this much: stand it up first, then brake (the race bike uses 0.6) |
 | `rear_lift_load`, `rear_lift_mitigation` | 300, 0.25 | the ABS eases the front brake when the rear carries less than this many N (straight up, by this much) |
 | `slide_pivot` | 800 | below ~13 km/h, rear brake while turning: the rider pushes the tail out (Nm per rad; 0 = off) |
 | `crash_impact_speed`, `crash_impact_vertical` | 7, 11 | m/s against something fixed (front/side, or falling flat) that throws the rider off |

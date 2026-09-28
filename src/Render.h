@@ -71,7 +71,7 @@ const BikeLivery& TrailLivery(int i);        // trilheira: colores de la calle (
 struct Renderer {
     Shader lit{}, terrainShader{}, skyShader{}, depthShader{}, grassShader{};
     Material material{}, terrainMaterial{}, skyMaterial{}, depthMaterial{}, grassMaterial{};
-    Texture2D detail{}, dirtTex{}, grassTex{}, bladeTex{}, pavedTex{}, soilTex{};
+    Texture2D detail{}, dirtTex{}, grassTex{}, bladeTex{}, pavedTex{}, soilTex{}, sandTex{};
     Mesh box{}, cylinder{}, sphere{}, tire{}, rim{}, tuft{};
     Mesh disc{};                                    // cilindro de muchas caras (plataformas grandes)
     Mesh rider[RiderMesh::Count]{};

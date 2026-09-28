@@ -37,10 +37,13 @@ struct GameOptions {
     float quitAfter = -1.0f;         // segundos de simulación
     float screenshotAt = -1.0f;
     std::string screenshotFile = "screenshot.png";
-    float screenshotEvery = 0.0f;
+    float screenshotEvery = 0.0f;    // --shots-every DT: desde screenshotAt, una captura cada DT s (archivo_000.png...)
     bool hideHud = false, generatedRider = false;
+    // --respawn-after S: segundos caído hasta reaparecer solo; S < 0, sólo con R. Sin la opción, el jugador
+    // reaparece con R y el bot, las pruebas y sin ventana, solos a los 3 s (las vueltas y las regresiones lo usan).
     float respawnAfter = 3.0f;
-    float wheelLogFrom = -1.0f, wheelLogTo = -1.0f;   // --wheel-log T0 T1       // --respawn-after S: segundos caído hasta reaparecer solo    // --shots-every DT: desde screenshotAt, una captura cada DT s (archivo_000.png...)
+    bool respawnAfterSet = false;
+    float wheelLogFrom = -1.0f, wheelLogTo = -1.0f;   // --wheel-log T0 T1
     float spawnS = -1.0f;            // distancia sobre la pista donde aparecer
     int width = 1600, height = 900;
     bool debugVectors = false;       // --debug: arranca con los vectores físicos (F1)
@@ -56,6 +59,8 @@ struct GameOptions {
     std::string join;                // --join CÓDIGO: se une a una partida al arrancar
     std::string name;                // --name: nombre del jugador (si no, el usuario de Windows)
     int port = 27015;                // --port: puerto UDP del anfitrión
+    float netLag = 0.0f;             // --net-lag MS: demora lo que llega de la red (pruebas: como por internet)
+    float netJitter = 0.0f;          // --net-jitter MS: más una demora al azar de hasta MS (llega en tandas)
     std::string menuScreen;          // --menu join|name|lobby|maps: abre esa pantalla (pruebas)
     std::string map;                 // --map motocross|favela|mod/mapa: mapa con que arranca (id, archivo o nombre)
     std::string bike;                // --bike mod/moto: corre con esa moto en cualquier mapa (si no, la del mapa o la elegida en el menú)
@@ -79,6 +84,9 @@ private:
     BikeInput ReadPlayerInput(float dt);
     BikeInput BotInput();
     BikeInput TestInput();
+    // Prueba netchoque (en red): ubica a cada uno, le da la velocidad y al final dice quién se cayó.
+    void NetChoqueStep();
+    BikeInput NetChoqueInput();
 
     // Arma el mapa (pista, terreno, objetos, favela, luz y moto). Rehace la física: las motos de los
     // demás se vuelven a crear solas con su próximo estado. keepPlace: la moto sigue donde estaba
@@ -111,6 +119,9 @@ private:
     // Motos: la elegida en el menú ("" = la de cada mapa; se guarda en preferencias.ini) y los números de
     // cada una (tuning.ini + su .ini), para las estadísticas del menú y las motos de los demás jugadores.
     std::string chosenBike, bikeId;                 // bikeId: con la que se corre ahora
+    // La que se guarda en preferencias.ini: la elegida en el menú. --bike cambia chosenBike sólo por esa vez
+    // (si se guardaba, la moto de una prueba quedaba para todos los mapas en las siguientes partidas).
+    std::string savedBike;
     std::string baseTuningPath;                     // dónde se encontró tuning.ini
     struct BikeStats {
         float hp, kg, topKmh, zeroTo100, latG, travelMm, turnRadius;
@@ -200,6 +211,9 @@ private:
     bool pendingShiftUp = false, pendingShiftDown = false;
     bool debugVectors = false, showHud = true, slowMotion = false, paused = false;
     bool postEffects = true;                       // motion blur, aberración, viñeta y grano (F7)
+    // Menú (se guardan en preferencias.ini): el motion blur con la velocidad y el sacudón de cámara
+    // (camera.shakeEnabled). Los dos, prendidos por defecto.
+    bool motionBlur = true;
 
     // Input de teclado suavizado + gatillos del gamepad
     float kbThrottle = 0.0f, kbFront = 0.0f, kbRear = 0.0f, kbSteer = 0.0f, kbLean = 0.0f, kbSide = 0.0f;
@@ -257,8 +271,20 @@ private:
     Vector2 lastMouse{};
     std::string codeInput, nameInput, lastStatus;
     bool wasConnected = false, quitRequested = false;
-    int duelOthers = 0;              // tests netduel / netcrash
+    int duelOthers = 0;              // tests netduel / netcrash / netchoque
     float duelStart = -1.0f;
+    // netchoque: ya ubicado, cuándo se cayó (s desde la largada de la prueba), el choque más fuerte
+    // (cierre y lo que traía el otro) y si ya imprimió el resumen.
+    bool choquePlaced = false, choqueReported = false, choqueOtherFell = false;
+    float choqueCrashAt = -1.0f, choqueClosing = 0.0f, choqueFromOther = 0.0f, choqueHitSpeed = -1.0f, choqueMeetAt = 0.0f;
+    JPH::Vec3 choqueFrom = JPH::Vec3::sZero(), choqueDir = JPH::Vec3::sAxisZ();
+    // Último golpe fuerte con cada jugador (simTime): los contactos con él justo después son el eco del
+    // mismo choque (la moto que empujó su PC vuelve por la red) y no tiran a nadie.
+    float bikeHitAt[Multiplayer::kMaxPlayers] = {-100.0f, -100.0f, -100.0f, -100.0f};
+    // Último contacto trompa contra trompa con cada uno y si ya estaba caído: si se cae justo después, de
+    // frente caen los dos aunque esta PC lo haya visto retroceder (su PC vio el golpe entero).
+    float headOnAt[Multiplayer::kMaxPlayers] = {-100.0f, -100.0f, -100.0f, -100.0f};
+    bool remoteDown[Multiplayer::kMaxPlayers] = {};
     float copiedTime = 0.0f;         // "¡Copiado!" en la sala
     unsigned rngState = 0x12345u;
     float Rand(float a, float b);
@@ -271,8 +297,10 @@ private:
     float lastTelemetry = -1.0f;
     bool screenshotTaken = false;
     int screenshotCount = 0;
-    bool testBraking = false;        // prueba frenadaN
+    bool testBraking = false;        // pruebas frenadaN y frenacurvaN
     float testBrake = 0.0f;
+    float testSteer = 0.0f;
+    float testT0 = 0.0f;             // cuando llegó a la velocidad de la prueba
     std::string message;
     float messageTime = 0.0f;
 };

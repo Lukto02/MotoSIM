@@ -247,8 +247,61 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
             std::error_code ec;
             if (!fs::is_regular_file(m.terrain.image, ec)) warn("no está la imagen del terreno \"" + t.Str("image", "") + "\" (va junto al .json)");
         }
-        if (m.terrain.type != "hills" && m.terrain.type != "flat" && m.terrain.type != "heightmap" && m.terrain.type != "favela")
-            warn("terrain.type desconocido: \"" + m.terrain.type + "\" (hills, flat, heightmap o favela)");
+        if (m.terrain.type != "hills" && m.terrain.type != "flat" && m.terrain.type != "heightmap" && m.terrain.type != "favela" &&
+            m.terrain.type != "dunes")
+            warn("terrain.type desconocido: \"" + m.terrain.type + "\" (hills, flat, heightmap, favela o dunes)");
+        m.terrain.wavelength = std::max(8.0f, t.Num("wavelength", m.terrain.wavelength));
+        m.terrain.wind = t.Num("wind", m.terrain.wind);
+        m.terrain.meander = t.Num("meander", m.terrain.meander);
+        m.terrain.border = std::max(0.0f, t.Num("border", m.terrain.border));
+        m.terrain.seed = (int)t.Num("seed", (float)m.terrain.seed);
+        const Json& sh = t["shapes"];
+        for (size_t i = 0; i < sh.Size(); ++i) {
+            const Json& s = sh[i];
+            const std::string where = "terrain.shapes[" + std::to_string(i) + "]";
+            MapShape ms;
+            const std::string kind = Lower(s.Str("shape", "line"));
+            if (kind == "round" || kind == "redonda") ms.round = true;
+            else if (kind != "line" && kind != "linea" && kind != "línea") {
+                warn(where + ": shape desconocido \"" + kind + "\" (line o round)");
+                continue;
+            }
+            float at[2] = {0, 0};
+            if (!ReadVec(s["at"], at, 2)) {
+                warn(where + ": falta \"at\": [x, z]");
+                continue;
+            }
+            ms.x = at[0];
+            ms.z = at[1];
+            const Json& pr = s["profile"];
+            bool ok = pr.IsArray() && pr.Size() >= 2;
+            for (size_t k = 0; ok && k < pr.Size(); ++k) {
+                float p[2] = {0, 0};
+                ok = ReadVec(pr[k], p, 2) && (ms.profile.empty() || p[0] > ms.profile.back().first);
+                if (ok) ms.profile.push_back({p[0], p[1]});
+            }
+            if (!ok || (ms.round && ms.profile.front().first < 0.0f)) {
+                warn(where + ": \"profile\" tiene que ser una lista de al menos 2 puntos [u, alto] con u creciente" +
+                     std::string(ms.round ? " (round: u es el radio, desde 0)" : ""));
+                continue;
+            }
+            ms.yaw = s.Num("yaw", 0.0f);
+            ms.width = std::max(0.0f, s.Num("width", ms.width));
+            ms.edge = std::max(0.0f, s.Num("edge", ms.edge));
+            ms.smooth = std::clamp(s.Num("smooth", ms.smooth), 0.0f, 20.0f);
+            ms.bend = s.Num("bend", 0.0f);
+            float st[2] = {1.0f, 1.0f};
+            if (ReadVec(s["stretch"], st, 2)) {
+                ms.stretch[0] = std::max(0.05f, st[0]);
+                ms.stretch[1] = std::max(0.05f, st[1]);
+            }
+            const std::string mode = Lower(s.Str("mode", "add"));
+            if (mode == "level" || mode == "nivelar") ms.level = true;
+            else if (mode != "add" && mode != "sumar") warn(where + ": mode desconocido \"" + mode + "\" (add o level)");
+            ms.hasBase = s.Has("base");
+            ms.base = s.Num("base", 0.0f);
+            m.terrain.shapes.push_back(ms);
+        }
     }
 
     const Json& tr = j["track"];
@@ -273,7 +326,10 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
     m.layoutScale = tr.Num("scale", 1.0f);
     m.halfWidth = tr.Num("width", 9.0f) * 0.5f;
     m.roadStyle = Lower(tr.Str("style", "track"));
+    if (m.roadStyle != "track" && m.roadStyle != "street" && m.roadStyle != "guide")
+        warn("track.style desconocido \"" + m.roadStyle + "\" (track, street o guide)");
     m.banking = tr.Bool("banking", m.roadStyle == "track");
+    if (m.roadStyle == "guide") m.markers = j.Bool("markers", false);   // la guía no se ve: sin estacas ni pórtico
     if (m.track[0].surface == Surface::Keep) m.track[0].surface = m.roadStyle == "street" ? Surface::Concrete : Surface::Track;
 
     float start[2] = {0, 0};
@@ -414,6 +470,10 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
         for (MapObject& o : m.objects) {
             o.pos[0] *= k;
             o.pos[2] *= k;
+        }
+        for (MapShape& s : m.terrain.shapes) {
+            s.x *= k;
+            s.z *= k;
         }
     }
     maps.push_back(m);

@@ -10,7 +10,7 @@ Sos el experto en mapas de MotoSim. Armás mapas que se corren bien (con el bot 
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense (`MODDING.md`, para quien arma mods, en inglés; los comentarios de los `.json` de mapas también van en inglés; nombre, descripción y pista en castellano). El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La física de la Motocross 450 (`tuning.ini`) no cambia** salvo pedido explícito; la pista de motocross (`mods/base/maps/motocross.json`) tampoco, porque es la referencia de las regresiones. Comprobalo con `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`): "idéntico", y el bot en la pista de motocross 1:08.37 / 1:08.51.
+- **La física de la Motocross 450 (`tuning.ini`) no cambia** salvo pedido explícito; la pista de motocross (`mods/base/maps/motocross.json`) tampoco, porque es la referencia de las regresiones. Comprobalo con `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`): "idéntico", y el bot en la pista de motocross 1:08.73 / 1:08.42.
 - **Antes de empezar** leé `docs/MAPAS.md` y `MODDING.md` (el formato de los mapas), y `docs/RENDER.md` si armás geometría.
 - **Al terminar**, anotá lo aprendido en `docs/MAPAS.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (comando y números). Si agregás claves de mapa, documentalas en `MODDING.md`.
 - **Compilar**: `tools\compilar.bat build-msvc-mapas`. Después de tocar un `.h`, tocá los `.cpp` (ninja no sigue bien los headers acá).
