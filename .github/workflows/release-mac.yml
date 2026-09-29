@@ -1,0 +1,60 @@
+name: Publicar build Mac
+# Compila el juego en macOS (Apple clang, arm64), lo empaqueta y lo agrega a la release de la versión de
+# src/Version.h. La release la crea el workflow de Windows (release.yml); éste espera a que exista.
+# También corre con "Run workflow" (sin cambiar la versión), o al tocar este archivo o el empaquetador.
+on:
+  push:
+    branches: [main]
+    paths: [src/Version.h, .github/workflows/release-mac.yml, tools/package_release.py]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publicar-build-mac
+  cancel-in-progress: false
+jobs:
+  release-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar
+        run: |
+          set -eo pipefail
+          cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+          cmake --build build-release --parallel
+      # Lo mismo que prueba build.yml en Mac (sin ventana, desde la carpeta del ejecutable).
+      - name: Probar sin ventana
+        run: |
+          set -eo pipefail
+          cd build-release
+          ./motocross --headless --test bikestats | tee stats.txt
+          if grep '^mods: ' stats.txt | grep -v ' mapas, '; then echo "::error::errores de mods"; exit 1; fi
+          [ "$(grep -c '^moto ' stats.txt)" -ge 5 ] || { echo "::error::faltan motos en bikestats"; exit 1; }
+          ./motocross --headless --bot --time 150 | grep Vuelta | tee vueltas.txt
+          [ "$(wc -l < vueltas.txt)" -ge 2 ] || { echo "::error::el bot no completó 2 vueltas"; exit 1; }
+          ./motocross --headless --map favela --time 1 | grep "favela:" | tee favela.txt
+          grep -q "1052 casas" favela.txt || { echo "::error::la favela no tiene 1052 casas"; exit 1; }
+      # Informativo: en Mac los números no dan idénticos a los de Windows (ver docs/PRUEBAS.md, "En Mac").
+      - name: Verificar suelo (informativo)
+        continue-on-error: true
+        run: |
+          cd build-release
+          ./motocross --headless --test soilcheck
+          ./motocross --headless --flat --test soilcheck
+          ./motocross --headless --map base/circuito --test soilcheck
+      - name: Empaquetar
+        run: python3 tools/package_release.py --mac build-release/motocross
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+          version=$(sed -n 's/.*MOTOSIM_VERSION "\([^"]*\)".*/\1/p' src/Version.h)
+          # La release la crea el workflow de Windows: esperar hasta 40 minutos a que aparezca.
+          for i in $(seq 1 80); do
+            gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && break
+            echo "esperando la release $version ($i/80)"; sleep 30
+          done
+          gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null
+          gh release upload "$version" "dist/MotoSim-$version-mac.zip" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit "$version" --repo "$GITHUB_REPOSITORY" --notes-file RELEASE_NOTES.md

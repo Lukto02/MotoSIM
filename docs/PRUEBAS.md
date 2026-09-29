@@ -46,6 +46,14 @@ detrás de `if(APPLE)` / `if(MSVC)` en el CMake o probando rutas de los dos (com
 
 ### En Mac
 
+**Paquete de Mac** (`MotoSim-vX-mac.zip`, sale con cada versión): `.github/workflows/release-mac.yml` compila en
+`macos-latest` (arm64, `CMAKE_OSX_DEPLOYMENT_TARGET=12.0`), repite las pruebas sin ventana de `build.yml`, arma la carpeta
+con `python3 tools/package_release.py --mac build-release/motocross` (binario `MotoSim` con permiso 755 dentro del zip, LEEME
+con los pasos para abrirlo en Mac arriba: sin firmar hay que sacar la cuarentena con `xattr -dr com.apple.quarantine .`),
+espera a que el workflow de Windows cree la release, sube el zip con `gh release upload --clobber` y deja las notas
+(`RELEASE_NOTES.md`) al día. Se dispara con el mismo cambio de `src/Version.h`, con "Run workflow" o al tocar el workflow o
+el empaquetador. Nunca se corrió en una Mac de verdad: sólo lo que hace el CI (compila, `bikestats`, bot, favela).
+
 `./build.sh [args del juego]` compila en `build-mac/` (CMake + Ninja de Homebrew, Apple clang) y
 arranca el juego desde ahí; `build-mac/motocross` corre desde esa carpeta (encuentra el glTF en `../`).
 Las herramientas de `tools/` andan igual (`bash tools/regresion.sh`, sin permiso de ejecución en git).

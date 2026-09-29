@@ -3,7 +3,9 @@
 2. Descomprimí la carpeta entera. No lo abras desde adentro del zip.
 3. Ejecutá **MotoSim.exe**. Si Windows dice "Windows protegió su PC": *Más información* → *Ejecutar de todas formas* (el juego no está firmado).
 
-Requisitos: Windows 10 u 11 de 64 bits y una placa de video con OpenGL 3.3. No hace falta instalar nada. Adentro del zip, el `LEEME.txt` tiene los controles y cómo jugar en red. En Mac se compila desde el código (`./build.sh`).
+**Mac** (chip Apple: M1 o más nuevo): bajá **MotoSim-v0.3.2-mac.zip**, descomprimilo y, en la Terminal, dentro de la carpeta, corré `xattr -dr com.apple.quarantine .` y después `./MotoSim` (el juego no está firmado por Apple; el `LEEME.txt` de adentro tiene los pasos). Es la primera vez que se publica la versión de Mac: las pruebas automáticas de GitHub la compilan y la corren sin ventana, pero no se probó a mano en una Mac.
+
+Requisitos: Windows 10 u 11 de 64 bits y una placa de video con OpenGL 3.3. No hace falta instalar nada. Adentro del zip, el `LEEME.txt` tiene los controles y cómo jugar en red. En Mac también se puede compilar desde el código (`./build.sh`).
 
 **En red**: juega con la v0.2.5, la v0.2.6, la v0.2.7 y la v0.2.8 (protocolo 7, no cambió). Conviene que los dos tengan la última, porque las reglas de los choques las usa cada uno en su PC. El suelo que se hunde no viaja por red: en una partida en red los surcos son sólo huellas dibujadas.
 

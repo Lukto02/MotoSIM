@@ -62,7 +62,8 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 
 **Versión para compartir** (la v0.3.2, `dist/MotoSim-v0.3.2.zip`, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
-cuando `src/Version.h` cambia en `main`): con MSVC, compilar con el runtime
+cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
+release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
 estático para que el .exe no pida instalar el "Visual C++ Redistributable" en la otra PC
 (`dumpbin /dependents` sólo debe listar DLLs de Windows):
 
