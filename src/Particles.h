@@ -4,6 +4,7 @@
 #include <vector>
 
 class Terrain;
+struct Renderer;
 
 // Partículas extremadamente simples (sin cuerpos rígidos): posición, velocidad, vida y tamaño.
 //  - DIRT: terrones pesados, caen con gravedad y mueren al tocar el suelo.
@@ -22,7 +23,7 @@ public:
     void Emit(Kind kind, Vector3 pos, Vector3 vel, float size, float life, Color color, int owner = 0);
     void Update(float dt, const Terrain& terrain);
     // bikeFrames[owner]: cada moto tal como se dibuja (las llamas viven en su espacio).
-    void Draw(const Camera3D& cam, const Matrix* bikeFrames, int frameCount) const;
+    void Draw(Renderer& renderer, const Camera3D& cam, const Matrix* bikeFrames, int frameCount) const;
     size_t Count() const { return items.size(); }
     void Clear() { items.clear(); }
 
@@ -33,8 +34,12 @@ private:
         Color color;
         Kind kind;
         unsigned char owner;
+        float angle = 0.0f, spin = 0.0f;
+        bool settled = false;
+        float ground = -1e9f;            // DUST: altura del terreno debajo (Update), para que la bocanada no se corte contra el suelo
     };
     std::vector<Item> items;
     size_t capacity = 3000;
+    mutable std::vector<Matrix> clodTransforms;
     Texture2D dirtTex{}, dustTex{};
 };

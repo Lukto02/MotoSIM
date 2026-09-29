@@ -154,16 +154,27 @@ void Props::CreateMeshes()
     meshes = true;
 }
 
-void Props::Draw(Renderer& r, PhysicsWorld& world, Vector3 focus, float radius) const
+void Props::Draw(Renderer& r, PhysicsWorld& world, bool casters, bool staticOnly) const
 {
+    // Pasada principal: nada más allá de graphics.propsRadius de la cámara (0 = sin límite). La lejanía ya es niebla.
+    const bool limited = !casters && r.graphics.propsRadius > 0;
+    const Vector3 cam = limited ? r.CameraPosition() : Vector3{};
+    const float radius = (float)r.graphics.propsRadius;
     for (const Item& it : items) {
         const MapObject& o = it.def;
+        if (staticOnly && o.dynamic) continue;
         const Mat44 t = o.dynamic ? world.Bodies().GetWorldTransform(it.body) : Mat44::sRotationTranslation(it.rot, it.pos);
         const Vec3 d = Dims(o);
-        if (radius > 0.0f) {
+        if (limited) {
             const Vec3 p = t.GetTranslation();
-            const float dx = p.GetX() - focus.x, dz = p.GetZ() - focus.z, reach = radius + d.Length();
+            const float reach = radius + 0.5f * d.Length();                 // el borde más cercano del objeto, sin importar el giro
+            const float dx = p.GetX() - cam.x, dz = p.GetZ() - cam.z;
             if (dx * dx + dz * dz > reach * reach) continue;
+        }
+        if (casters) {
+            const Vec3 p = t.GetTranslation();
+            const float reach = 0.5f * d.Length();          // la mitad de la diagonal: cualquier giro entra
+            if (!r.InShadowPrism({p.GetX() - reach, p.GetY() - reach, p.GetZ() - reach}, {p.GetX() + reach, p.GetY() + reach, p.GetZ() + reach})) continue;
         }
         const Color c = {o.color[0], o.color[1], o.color[2], 255};
         switch (o.shape) {

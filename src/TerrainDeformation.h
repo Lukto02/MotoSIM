@@ -19,8 +19,9 @@ struct Renderer;
 // 34-50 cm y la marca de una cubierta, 10-18): son tiras de cuadriláteros apoyadas en el terreno que
 // oscurecen lo que hay debajo (ver Renderer::DrawSkidMarks y docs/RENDER.md).
 //
-// SURCOS (físico, opcional, F8): donde la trasera patina mucho se hunde el heightfield (máx.
-// ~10 cm). No se reconstruye el collider: los cambios se aplican a Jolt en lotes cada 0.3 s.
+// SURCOS (físico local, F8): ambas ruedas compactan y excavan según carga y deslizamiento.
+// Profundidad configurable hasta 35 cm; bordes con volumen limitado al material excavado.
+// Se reserva el collider al primer surco; luego Jolt y malla se actualizan en lotes cada 0.06 s.
 class TerrainDeformation {
 public:
     static constexpr Color kUntouched = {200, 200, 200, 255};   // el shader divide por esto (0.784)
@@ -47,10 +48,14 @@ public:
 
     // Surcos físicos (funcionan también sin ventana).
     bool physicalRuts = false;
-    float digRate = 0.00012f;        // m por paso y por m/s de patinaje
-    float maxDepth = 0.10f;          // m
+    float digRate = 0.00012f;        // compatibilidad con DigRut; PressWheel usa los ajustes del menú
+    float maxDepth = 0.10f;          // límite del método legado DigRut (m)
     void DigRut(Terrain& terrain, float x, float z, float spin, float slide);
     void CommitRuts(Terrain& terrain, PhysicsWorld& world, float dt);
+    void PressWheel(Terrain& terrain, int wheel, Vector2 at, Vector2 heading, bool contact, float load,
+                    float spin, float slide, float softness, float depth, float dt);
+    void ResetWheelHistory();
+    bool visualRuts = true;
 
 private:
     struct Stroke {
@@ -70,6 +75,9 @@ private:
     Vector2 last[kWheelSlots]{};
     bool hasLast[kWheelSlots]{};
     float commitTimer = 0.0f;
+    Vector2 rutLast[2]{};
+    bool hasRutLast[2]{};
+    float dwell[kWheelSlots]{};
 
     // Goma: un anillo de cuadriláteros (4 vértices cada uno: 16384 entran justo en índices de 16 bits).
     // Cuando se llena, las marcas nuevas pisan las más viejas.

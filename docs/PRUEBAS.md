@@ -6,6 +6,13 @@
   (VS 2022 Build Tools: vcvars64 + CMake + Ninja, reusando las fuentes de raylib y Jolt ya bajadas en
   `build/_deps`, sin internet). Por defecto compila en `build-msvc`; los agentes que trabajan a la vez,
   cada uno en `build-msvc-<área>`. El exe queda en `<carpeta>\motocross.exe` con `tuning.ini` y `mods\`.
+- **Sin Visual Studio** (pasó en una sesión: no existe `C:\Program Files (x86)\Microsoft Visual Studio`, `compilar.bat` da "El
+  sistema no puede encontrar la ruta especificada"): `cmake -S <proyecto> -B <carpeta> -G Ninja -DCMAKE_BUILD_TYPE=Release
+  -DCMAKE_MAKE_PROGRAM=<WinLibs>\mingw64\bin\ninja.exe -DCMAKE_C_COMPILER=<WinLibs>\mingw64\bin\gcc.exe
+  -DCMAKE_CXX_COMPILER=<WinLibs>\mingw64\bin\c++.exe -DFETCHCONTENT_SOURCE_DIR_RAYLIB=<proyecto>\build\_deps\raylib-src
+  -DFETCHCONTENT_SOURCE_DIR_JOLTPHYSICS=<proyecto>\build\_deps\joltphysics-src` con WinLibs en
+  `%LOCALAPPDATA%\Programs\WinLibs` y CMake en `C:\Program Files\CMake\bin` (ponerlos en el `PATH`); con MinGW, ninja sí sigue los
+  headers. Las carpetas de prueba conviene sacarlas del proyecto (scratchpad), con el glTF del piloto en la carpeta de arriba.
 - **Ninja no sigue bien los headers acá** (el MSVC en castellano imprime "Nota: inclusión del archivo"
   y ninja no lo entiende). Después de tocar un `.h` que cambia el tamaño de una estructura (un enum con
   `Count`, un miembro nuevo), tocar los `.cpp` que lo incluyen o recompilar todo. Si no, se linkean
@@ -69,8 +76,7 @@ Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
 `tools/regresion.sh <exe nuevo> <exe de referencia> "args" ...` corre cada prueba sin ventana con los
 dos ejecutables y compara la telemetría (md5). La referencia es el último paquete
-(hoy `dist/MotoSim-v0.2.8/MotoSim.exe`; el más nuevo es el de `ls -t dist`, ojo que la v0.3.1 es
-anterior a las v0.2.x). El juego nuevo agrega ` scr=` al final de cada línea; el script
+(hoy `dist/MotoSim-v0.3.2/MotoSim.exe`; el más nuevo es el de `ls -t dist`). El juego nuevo agrega ` scr=` al final de cada línea; el script
 lo saca.
 
 ```
@@ -157,8 +163,32 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   partida en red) y `--menu no` (corriendo, como "Jugar solo": el HUD con la ayuda de teclas del principio).
 - El panel de datos técnicos (velocidad, rpm, suspensión, agarre...) ya no está siempre: `--datos` lo muestra (o
   T, o Ajustes). Las capturas con el bot o una prueba no llevan la ayuda de teclas (es para el jugador).
+- **`--noprefs`** ni lee ni escribe `preferencias.ini` (las capturas no dependen del archivo de la carpeta ni lo pisan) y
+  **`--gfx bajo|medio|alto|ultra`** aplica ese preset de calidad encima de lo leído (`Renderer::ApplyPreset`: sólo calidad; el
+  estilo y la física del suelo quedan) y **no guarda nada** mientras dura la corrida. Sin ninguno de los dos, sin archivo, el
+  preset sale de la placa (esta PC, RTX 5070: Alto). Ejemplo: `--size 1280 720 --nohud --map base/motocross --test pose
+  --view 200 12 3 --gfx medio --screenshot 3 f.png --time 4`. La red de seguridad de fps no corre con `--size`, capturas,
+  pruebas, bot, `--noprefs` ni `--gfx`.
+- Ajustes tiene tres páginas: con `tools\teclas.ps1`, `RIGHT` sobre la primera fila pasa de Gráficos a Imagen y a Juego y
+  sonido; las filas de cada página y sus posiciones están en MENU.md. Para el mouse, `PostMessage` a la ventana
+  (`WM_MOUSEMOVE`, `WM_LBUTTONDOWN/UP`) con las coordenadas de la captura **divididas por la escala de pantalla de Windows** (125%: 320, 238
+  para clickear en 400, 297).
+- Migración de preferencias: un `preferencias.ini` sin `graficos_version` se copia a `preferencias.ini.v1.bak` y se reescribe;
+  para probarla, dejar uno viejo (o el del jugador) junto al exe y abrir el juego una vez.
 - `preferencias.ini` se lee al lado del exe también en las capturas: si el de tu carpeta tiene el sacudón, el
   motion blur o los datos técnicos cambiados, las capturas cambian.
+- **Surcos físicos en una captura**: las baldosas finas de `TerrainSoil` (y la colisión que las acompaña) sólo existen con
+  `--ruts` (o Deformación "Física" manejando uno mismo); un bot o un test sin `--ruts` sólo deja huellas visuales. Para ver
+  dónde están las baldosas, teñirlas un momento en `kTerrainFS` (`if (physical > 0.5) albedo *= vec3(1, 0.3, 1);`).
+- **Conducir sobre surcos**: con `--ruts` la moto tiene que manejarse casi igual que sin surcos (ver [FISICA.md](FISICA.md),
+  "El surco no tiene que manejar la moto"). Desde `pruebas/`: `--map prueba/plaza_tierra --test circleN --time 60 --ruts`
+  (N = 6 a 16; con `--telemetry` el radio sale de `v / (wy / cos roll)`, sin caídas y a pocos % del radio sin `--ruts`),
+  `--test accel|brakestraight|brakeslide --ruts` y el bot con `--ruts` (`--bot --time 700`: 10 vueltas de 1:08.3 a 1:08.9). Los
+  círculos al límite (roll ~47°) son el detector: cualquier rebote de la cubierta es una caída. `--test soilcheck` mide lo que
+  sienten las ruedas (tope, sin bancos, normal) y que sin surcos `RideHeight`/`RideNormal` den `Height`/`Normal`.
+- **Culling y matas**: para comprobar que el culling no descarta de más, proyectar con la matriz de la cámara los vértices de
+  cada chunk descartado y contar los que caen adentro del frustum (con una variable temporal; debe dar 0). Las capturas
+  con y sin culling difieren por el grano y el viento del pasto (0.01-0.5% de píxeles > 24 niveles entre dos corridas iguales).
 - **Teclas de verdad** (menú, Ajustes, H, T, M, R...): `tools\teclas.ps1 -Dir <carpeta> -Keys "ESC,DOWN,ENTER"`
   con el juego abierto desde esa carpeta (en segundo plano, con `--screenshot T` y `--time`). Manda
   `WM_KEYDOWN`/`WM_KEYUP` con `PostMessage` sólo a esa ventana, cada tecla apretada 90 ms (si baja y sube en
@@ -205,6 +235,54 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
 
 ## Paquete para compartir
 
+### v0.3.2 (29/09/2026): el paquete que junta lo hecho desde la v0.2.8
+
+`dist/MotoSim-v0.3.2.zip` (25 archivos, 7.1 MB). **Es la que se publica en GitHub Releases**: la v0.3.0 y la v0.3.1 se
+armaron sólo acá (`dist/MotoSim-v0.3.0.zip`, `v0.3.1.zip`, nunca se subieron) y las notas de la v0.3.2 son acumulativas
+desde la v0.2.8. Protocolo 7 (`Multiplayer.cpp` idéntico al de la v0.2.8): juega con la v0.2.5 a la v0.2.8 y con las v0.3.x.
+Ejecutable Windows x64 con runtime MinGW estático (`build-release`; MSVC no está en esta PC): `objdump -p` lista
+KERNEL32, USER32, GDI32, SHELL32, WINMM, WS2_32 y las `api-ms-win-crt-*` (la UCRT, que trae Windows 10/11).
+
+- Lo que se cuenta al jugador sale de `LEEME.txt` (raíz del repo, con las novedades arriba) y `RELEASE_NOTES.md` (el
+  cuerpo de la release, lo usa `.github/workflows/release.yml`). Al armar la versión siguiente se **edita `LEEME.txt`**
+  de la raíz (el bloque "NOVEDADES DE LA vX" nuevo arriba, la primera línea con la versión, "Los dos tienen que tener")
+  y `RELEASE_NOTES.md`; el script rechaza un `LEEME.txt` que no diga la versión de `src/Version.h`.
+- **`python tools/package_release.py <exe>`** hace la carpeta `dist/MotoSim-vX/` **y** el zip (el mismo que corre el
+  workflow con `build-release/Release/motocross.exe`): copia `MotoSim.exe`, `tuning.ini`, `mods/` sin `pruebas/`,
+  `MODDING.md`, el modelo 3 del piloto con sus `_deps` y escribe `LEEME.txt` en UTF-8 con BOM y CRLF; nunca lleva
+  `preferencias.ini`; verifica el zip (sano, sin prefs ni pruebas, igual a la carpeta, LEEME CRLF puro). Rehace la
+  carpeta y el zip cada vez, así que se corre una vez para probar desde la carpeta y otra al final (antes del zip
+  definitivo). No depende de nada de esta PC (sólo el exe que se le pasa).
+- Verificado con el exe final (desde la carpeta del paquete y desde el zip descomprimido en otra carpeta):
+  - `--test bikestats`: `mods: 6 mapas, 5 motos`, sin errores (sólo las advertencias de `rut_dig_rate` y `rut_max_depth`);
+  - bot 150 s en motocross: **1:08.73 / 1:08.42**; `--test soilcheck` (motocross, `--flat`, `--map base/circuito`):
+    0 fallos (rodadura sin patinaje: 47.7 mm en la pista, 21.5 mm fuera de ella, 54.0 mm en la tierra del circuito); favela
+    1:37.40 / 1:37.22, circuito con la de carreras 2:11.65, park 0:51.16;
+  - `tools/regresion.sh` contra `dist/MotoSim-v0.3.1` (la última): **idéntico en 13 pruebas** (las 7 de la lista, `airlean`,
+    favela, circuito con la de carreras, Médanos, valle, park). Contra el `baseline-exe` (MinGW, fuentes de la v0.2.8) también
+    idéntico en `accel`, `airlean` y la favela a 40 y 100 s. Contra la **v0.2.8 publicada** (MSVC): idéntico en 10 y
+    **distinto** en `accel`, `airlean` y la favela: ver la trampa del compilador, abajo;
+  - el surco no maneja la moto (`pruebas/`, `--map prueba/plaza_tierra`, con y sin `--ruts`): `accel` 3.26 s a 60 km/h en las
+    dos, 95.5 km/h a los 5 s; `brakestraight` beta máx 4.6 / 4.2°, sin caídas; `circle8` 6.99 / 7.08 m y `circle12`
+    17.14 / 17.23 m (+1.3 y +0.5%), sin caídas. Con la v0.3.1 y `--ruts` (el "antes"): 3.76 s y 80.5 km/h, caída frenando a
+    los 2 s y caída a los 5.3 s en los dos círculos;
+  - capturas (1280x720): menú con "v0.3.2", Ajustes > Gráficos ("Alto (auto)"), los 4 presets en la pista, seis mapas, una
+    corrida `--ruts` con el surco y el polvo, boxes del circuito sin pasto: sin errores de GL en los logs (sólo el aviso de
+    fuente de raylib);
+  - migración: un `preferencias.ini` viejo (sombras 3, sol 60, niebla 190, volumen 40, nombre, moto) queda en
+    `preferencias.ini.v1.bak` idéntico byte a byte, los gráficos pasan a Alto, el volumen, el nombre y la moto quedan y el
+    menú avisa "Renovamos los gráficos"; la red de seguridad de fps midió 5.9 ms contra 5.6 del monitor y no bajó;
+  - red (`tools/red.py`): nuevo contra nuevo, nuevo (carrera) anfitrión con v0.2.8 (trial) cliente, v0.2.8 anfitrión con nuevo
+    cliente, y nuevo con la v0.3.1 y con la v0.3.0: cada uno ve la moto del otro, ping 10-18 ms, corrección 2-9 cm.
+- **Revisión por lectura para MSVC y Mac** (sin compilador de ninguno de los dos): `g++ -std=c++17 -Wall -Wextra -Wpedantic
+  -Wnarrowing -fsyntax-only` sobre todos los `src/*.cpp` (sin `gnu++`, con `-isystem` para raylib y Jolt): 0 avisos (nada de VLAs,
+  inicializadores designados, extensiones ni estrechamientos que MSVC y clang rechazan); un script que busca cada `std::` y
+  función de libc y comprueba que su cabecera esté incluida directo o por un `.h` del proyecto: sólo faltaba `<algorithm>` en
+  `SoilChecks.cpp` (`std::max`; agregado; el resto de lo que marca ya estaba igual en la v0.2.8, que compila con MSVC y
+  clang); ninguna cadena cruda de los shaders pasa de 5.8 KB (MSVC corta los literales de más de 16 KB); sin `M_PI`,
+  `windows.h` fuera de `Net.cpp` (con `NOMINMAX`), `dynamic_cast` ni `typeid` (Mac va con `-fno-rtti`); los bindings
+  estructurados están en `for` y no se capturan en lambdas.
+
 1. Versión: cuando el usuario pide "compilá", el paquete sale con la anterior + 0.0.1 sin preguntar (si
    da un nombre, ése). `src/Version.h`; el protocolo de red sube sólo si cambió el formato de los paquetes.
 2. Compilación aparte con `tools\compilar.bat build-release release` (`-DMOTOSIM_STATIC_RUNTIME=ON`;
@@ -215,8 +293,8 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    - `MODDING.md`;
    - el modelo del piloto: `Low_Poly_Motorcyclist_3_rigged.gltf` con `Low_Poly_Motorcyclist_3_rigged_deps/`
      (el 2 no va en el paquete; queda en el proyecto de respaldo, a pedido del usuario: no borrarlo);
-   - `LEEME.txt`: el anterior con las novedades arriba, en UTF-8 con BOM y CRLF. Verificarlo con
-     Python: el `grep -c $'\r'` de Git Bash da 0 aunque haya CRLF.
+   - `LEEME.txt`: el de la raíz del repo (el de la versión anterior con las novedades nuevas arriba), que el script
+     escribe en UTF-8 con BOM y CRLF. Verificarlo con Python: el `grep -c $'\r'` de Git Bash da 0 aunque haya CRLF.
 
    **Sin `preferencias.ini`**: el juego lo guarda al lado del exe (`GetApplicationDirectory`), sólo con
    ventana; una prueba con ventana desde esa carpeta lo crea (pasó dos veces). Las capturas de
@@ -234,7 +312,7 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    escalón de 0.5 m a fondo (sólo levantando la rueda) y hubo que cambiar el texto. En la v0.2.6, el
    derrape lento no sale "a paso de hombre" (a ~11 km/h la cola sale 4-8°, salvo la 2T) sino a ~15 km/h,
    y la escadaria a 30-32 km/h termina en caída (ver [FISICA.md](FISICA.md)).
-5. `Compress-Archive` de la carpeta a `dist/MotoSim-vX.zip`.
+5. El zip: `python tools/package_release.py <exe>` (carpeta y zip juntos; antes era `Compress-Archive`). Revisar la lista de archivos del zip.
 6. **Publicarlo en GitHub Releases** (la sección de descargas del repo; el README apunta a
    `releases/latest`):
    - después de mergear el PR de la versión, la etiqueta en el commit del paquete:
@@ -251,7 +329,11 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
    - al subir el archivo, la página pasa a ser un borrador (`releases/edit/untagged-...`): revisar que
      el título, la etiqueta y la marca de "Latest" sigan bien antes de "Publish release";
    - comprobar con `curl -s https://api.github.com/repos/Lukto02/MotoSIM/releases/latest`.
-   Publicadas: v0.2.7 y v0.2.8 (etiquetas v0.2.6, v0.2.7, v0.2.8).
+   Publicadas: v0.2.7 y v0.2.8 (etiquetas v0.2.6, v0.2.7, v0.2.8). La v0.3.2 sale por el workflow
+   `.github/workflows/release.yml`: al llegar a `main` un cambio de `src/Version.h` compila con MSVC (`windows-latest`),
+   corre `soilcheck` (motocross, `--flat`, circuito) y el bot de 150 s, arma el paquete con `package_release.py`, y crea la
+   release con `RELEASE_NOTES.md` de cuerpo y el zip (falla si la etiqueta ya existe). Lo que hay que revisar en la pestaña
+   Actions es que ese job y el `build` de cada push estén en verde.
 7. **Limpiar las ramas**: mergeado el PR, borrar su rama acá y en GitHub (`git push origin --delete <rama>`,
    `git branch -d <rama>`), y las de los worktrees de los agentes. Lo normal es que quede sólo `main`: cada
    versión sigue a mano por su etiqueta y su release.
@@ -267,8 +349,24 @@ carpeta del paquete): no se borra; el zip se arma desde una copia sin él.
 Médanos con saltos encadenados, el Parque rediseñado, el piloto que no se mete en la moto, la Trilheira sin
 trompo, la 2T con motor de dos tiempos, la Carrera pesada en el aire, sin parpadeos en el autódromo y la
 favela, profundidad de 24 bits.
+**v0.3.2** (protocolo 7, juega con la v0.2.5-v0.2.8; 7.1 MB; junta la v0.3.0 y la v0.3.1, que no se publicaron): suelo de
+tierra deformable con colisión (surcos, terrones, pasto), el surco que no maneja la moto, sombras en dos cascadas, post-proceso
+limpio, presets Bajo/Medio/Alto/Ultra con autodetección, Ajustes en tres páginas, pasto sin saltos, looks de los mapas.
 
 - **Trampas de las pruebas del paquete**:
+  - **Un exe MSVC y uno MinGW no dan igual después de una caída.** El paquete publicado (v0.2.8, 3.8 MB) es de MSVC y los de
+    esta PC (7 MB) de MinGW: `regresion.sh` da idéntico en todo lo que no termina en caída, pero `accel` (cae a los ~5 s),
+    `airlean` y la favela difieren **después de la caída** (en `accel`, `crash=1` desde t=4.5 y el primer `t=` distinto es 5.51;
+    el bot de motocross y sus vueltas, idénticos). Contra un exe MinGW hecho con las mismas fuentes que la v0.2.8 (`baseline-exe`)
+    dan idénticas: no es un cambio de física. Para regresar contra un paquete de MSVC, mirar hasta el `crash=`; para
+    comparar de verdad, contra un MinGW.
+  - **Un `&` al final de `a && b && ( ... ) &` manda TODA la cadena al fondo**: un `rm -f $DIR/*` corrió en paralelo con las
+    corridas y borró un archivo de salida recién creado (parecía que `soilcheck` no imprimía nada). Poner el `&` sólo
+    dentro del paréntesis, o correr en serie.
+  - **Rutas de Git Bash a un Python de Windows**: `python -c "...r'/c/Users/...'"` escribe en `C:\c\Users\...` (creó una
+    carpeta `C:\c`). Pasar a Python rutas `C:/...` o `C:\...`, o `Expand-Archive` de PowerShell.
+  - `tools/package_release.py` se rehace entero cada vez (carpeta y zip): correrlo una vez, probar desde la carpeta
+    (con `--noprefs` las capturas no dejan `preferencias.ini`; sin él, borrarlo) y correrlo otra vez al final.
   - `brakeslideN` toma N en **m/s**, no en km/h (`brakeslide10` entra a 36 km/h). El derrape lento se
     mide con `brakeslide2.5` a `brakeslide4.4` (9-16 km/h), mirando `beta` mientras `rb` > 0.5.
   - En `frenada280` el "SE CAYÓ" de `tools/frenada.py` es el muro: la recta de la prueba se termina a

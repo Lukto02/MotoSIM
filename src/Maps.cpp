@@ -391,15 +391,16 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
     if (lk.IsObject()) {
         m.look.preset = Lower(lk.Str("preset", "day"));
         if (m.look.preset == "sunset") {                  // valores del atardecer (se pueden pisar abajo)
-            const float sd[3] = {-0.55f, 0.30f, -0.78f}, sc[3] = {2.55f, 1.62f, 0.92f}, ze[3] = {64, 96, 168}, ho[3] = {236, 156, 108},
-                        gr[3] = {118, 86, 66};
+            // (calibrados con el estilo de color del post y el Ambient() nuevo; la exposición es 1.0 porque el estilo ya suma 5%)
+            const float sd[3] = {-0.52f, 0.42f, -0.74f}, sc[3] = {2.6f, 1.78f, 1.02f}, ze[3] = {62, 108, 158}, ho[3] = {232, 168, 122},
+                        gr[3] = {126, 106, 90};
             std::copy(sd, sd + 3, m.look.sunDir);
             std::copy(sc, sc + 3, m.look.sunColor);
             std::copy(ze, ze + 3, m.look.zenith);
             std::copy(ho, ho + 3, m.look.horizon);
             std::copy(gr, gr + 3, m.look.ground);
-            m.look.fog = 0.0026f;
-            m.look.exposure = 1.05f;
+            m.look.fog = 0.0024f;
+            m.look.exposure = 1.0f;
             m.look.groundTextures = "street";
         }
         m.look.custom |= ReadVec(lk["sun_dir"], m.look.sunDir, 3);

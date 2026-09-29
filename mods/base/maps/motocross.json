@@ -36,5 +36,6 @@
     ["rollers", "kicker"]
   ],
 
-  "look": { "preset": "day" }
+  // Day look; fog written out so a future change of the preset does not move it.
+  "look": { "preset": "day", "fog": 0.0034 }
 }

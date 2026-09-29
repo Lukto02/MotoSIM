@@ -7,11 +7,13 @@ paquetes, motos remotas). El funcionamiento visto desde el jugador está en el R
 
 - Cada paquete lleva `MX` y el número de protocolo (`kProtocol` en `Multiplayer.cpp`). Distinto = "otra
   versión". **Sube cada vez que cambia el formato de un paquete** (y la versión del juego la elige el
-  usuario). Historia: 3 (v0.3.1), 4 (v0.2.1-v0.2.2, mapa), 5 (v0.2.3, cuerpo de costado), 6 (v0.2.4,
+  usuario). Historia (la "v0.3.1" de acá es la vieja, de antes de la v0.2.1, no la v0.3.1 de la serie nueva): 3 (v0.3.1), 4 (v0.2.1-v0.2.2, mapa), 5 (v0.2.3, cuerpo de costado), 6 (v0.2.4,
   mapa por nombre `mod/archivo`), 7 (v0.2.5, la moto de cada uno; la v0.2.6 sigue en 7 y juega con la
   v0.2.5: probado con anfitrión de una y cliente de la otra, en los dos sentidos, con motos distintas; la
   v0.2.7 y la v0.2.8 también siguen en 7 y juegan con las anteriores: la regla nueva de los choques la usa
-  cada uno en su PC).
+  cada uno en su PC; la v0.3.0, la v0.3.1 y la v0.3.2 (suelo deformable, gráficos) tampoco tocaron el formato:
+  siguen en 7, `Multiplayer.cpp` idéntico al de la v0.2.8, y la v0.3.2 conectó con la v0.2.8 en los dos sentidos, y con la v0.3.1
+  (de anfitrión) y la v0.3.0 (de cliente), con `tools/red.py` y motos distintas).
 - HELLO (cliente → anfitrión, a la IP del código y por broadcast) → WELCOME con el número de jugador.
   El HELLO lleva la moto del jugador; si cambia de moto conectado, se vuelve a mandar.
 - Estado de cada moto 60 veces por segundo: posición, rotación, velocidades, suspensión, ruedas,

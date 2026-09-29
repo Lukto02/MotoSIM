@@ -5,6 +5,7 @@
 #include "BikeStyleDef.h"
 #include "MathUtil.h"
 #include "raymath.h"
+#include "rlgl.h"
 
 #include <algorithm>
 #include <cmath>
@@ -96,6 +97,7 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
 {
     for (const std::string& path : paths) {
         if (!FileExists(path.c_str())) continue;
+        polishedSuit = std::string(GetFileName(path.c_str())) == "Low_Poly_Motorcyclist_3_rigged.gltf";
         model = LoadModel(path.c_str());
         break;
     }
@@ -161,6 +163,152 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
         bindNormals[v] = m.normals ? Vector3Normalize({m.normals[v * 3], m.normals[v * 3 + 1], m.normals[v * 3 + 2]}) : Vector3{0.0f, 1.0f, 0.0f};
     }
 
+    polishedSuit = polishedSuit && m.indices && m.texcoords && spineChain[1] >= 0 && spineChain[2] >= 0;
+    if (polishedSuit) {
+        // El modelo 3 trae un aro hundido/saliente en la espalda (x ~ 0, y ~ 1.19).
+        // Lo ajustamos en reposo al perfil de la campera ANTES del skinning: UV, pesos y rig siguen vivos.
+        std::vector<float> backMask(m.vertexCount, 0.0f);
+        if (!m.colors) m.colors = (unsigned char*)MemAlloc(m.vertexCount * 4);
+        // El aro tiene caras que se solapan al aplanarlo: se reemplaza por un abanico
+        // que cierra su contorno original, en vez de comprimir esas caras unas contra otras.
+        using PositionKey = std::tuple<long long, long long, long long>;
+        auto originalKey = [&](int v) -> PositionKey {
+            const Vector3 p = bindVerts[v];
+            return {std::llround(p.x*1e5), std::llround(p.y*1e5), std::llround(p.z*1e5)};
+        };
+        struct Edge { int a = 0, b = 0, count = 0; };
+        std::map<std::pair<PositionKey, PositionKey>, Edge> edges;
+        std::vector<unsigned short> keep;
+        std::vector<int> removedUse(m.vertexCount, 0), keptUse(m.vertexCount, 0);
+        auto inPatch = [&](int v) {
+            const Vector3 p = bindVerts[v];
+            return std::fabs(p.x - 0.0046f) < 0.085f && p.y > 1.115f && p.y < 1.27f && p.z < -0.1f;
+        };
+        for (int t = 0; t < m.triangleCount; ++t) {
+            const int a = m.indices[3*t], b = m.indices[3*t+1], c = m.indices[3*t+2];
+            if (inPatch(a) && inPatch(b) && inPatch(c)) {
+                const int ids[] = {a, b, c};
+                for (int j = 0; j < 3; ++j) {
+                    const int v = ids[j], w = ids[(j+1)%3];
+                    ++removedUse[v];
+                    auto kv = originalKey(v), kw = originalKey(w);
+                    if (kw < kv) std::swap(kv, kw);
+                    Edge& e = edges[{kv, kw}];
+                    e.a = v; e.b = w; ++e.count;
+                }
+            } else {
+                for (int v : {a, b, c}) { keep.push_back((unsigned short)v); ++keptUse[v]; }
+            }
+        }
+        int center = -1, boundaryCount = 0;
+        Vector3 centerPos{};
+        Vector2 centerUV{};
+        std::map<int, float> weights;
+        for (int v = 0; v < m.vertexCount; ++v)
+            if (removedUse[v] && !keptUse[v]) { center = v; break; }
+        for (const auto& entry : edges) {
+            const Edge& e = entry.second;
+            if (e.count != 1) continue;
+            ++boundaryCount;
+            centerPos = Vector3Add(centerPos, bindVerts[e.a]);
+            centerUV = Vector2Add(centerUV, {m.texcoords[e.a*2], m.texcoords[e.a*2+1]});
+            for (int k = 0; k < 4; ++k) weights[m.boneIds[e.a*4+k]] += m.boneWeights[e.a*4+k];
+        }
+        if (center >= 0 && boundaryCount == 10 && keep.size() + boundaryCount*3 <= (size_t)m.triangleCount*3) {
+            bindVerts[center] = Vector3Scale(centerPos, 1.0f / boundaryCount);
+            centerUV = Vector2Scale(centerUV, 1.0f / boundaryCount);
+            m.texcoords[center*2] = centerUV.x; m.texcoords[center*2+1] = centerUV.y;
+            std::vector<std::pair<float, int>> sortedWeights;
+            for (auto w : weights) sortedWeights.push_back({w.second, w.first});
+            std::sort(sortedWeights.rbegin(), sortedWeights.rend());
+            float total = 0.0f;
+            for (int k = 0; k < 4 && k < (int)sortedWeights.size(); ++k) total += sortedWeights[k].first;
+            for (int k = 0; k < 4; ++k) {
+                m.boneIds[center*4+k] = k < (int)sortedWeights.size() ? sortedWeights[k].second : 0;
+                m.boneWeights[center*4+k] = k < (int)sortedWeights.size() ? sortedWeights[k].first / total : 0.0f;
+            }
+            backMask[center] = 1.0f;
+            for (const auto& entry : edges) {
+                const Edge& e = entry.second;
+                if (e.count != 1) continue;
+                keep.insert(keep.end(), {(unsigned short)e.a, (unsigned short)e.b, (unsigned short)center});
+                // Incluye las copias en costuras, así no quedan cortes en la iluminación.
+                for (int v = 0; v < m.vertexCount; ++v)
+                    if (originalKey(v) == originalKey(e.a) || originalKey(v) == originalKey(e.b)) backMask[v] = 1.0f;
+            }
+            m.triangleCount = (int)keep.size() / 3;
+            std::memcpy(m.indices, keep.data(), keep.size() * sizeof(unsigned short));
+            UpdateMeshBuffer(m, 6, m.indices, (int)keep.size() * (int)sizeof(unsigned short), 0);
+            UpdateMeshBuffer(m, 1, m.texcoords, m.vertexCount * 2 * (int)sizeof(float), 0);
+        }
+        for (int v = 0; v < m.vertexCount; ++v) {
+            Vector3& p = bindVerts[v];
+            const float x = p.x - 0.0046f, y = p.y - 1.19f;
+            const float fitRadius = std::sqrt(x*x / (0.15f*0.15f) + y*y / (0.16f*0.16f));
+            const float fit = p.z < -0.095f ? 1.0f - mu::Smoothstep(0.65f, 1.0f, fitRadius) : 0.0f;
+            if (fit > 0.0f) {
+                p.z += (-0.1334f - 0.26f*y + 0.65f*x*x - p.z) * fit;
+                backMask[v] = std::max(backMask[v], fit);
+                // La espalda central seguía también a los brazos: al agarrar el manubrio
+                // reaparecía el bulto. Transición suave a las dos vértebras de esa altura.
+                int low = spineChain[0], high = spineChain[1];
+                if (p.y >= bindPos[high].y) { low = high; high = spineChain[2]; }
+                const float u = mu::Clamp((p.y - bindPos[low].y) / (bindPos[high].y - bindPos[low].y), 0.0f, 1.0f);
+                std::map<int, float> blend;
+                for (int k = 0; k < 4; ++k) blend[m.boneIds[v*4+k]] += m.boneWeights[v*4+k] * (1.0f-fit);
+                blend[low] += (1.0f-u)*fit;
+                blend[high] += u*fit;
+                std::vector<std::pair<float, int>> sorted;
+                for (auto w : blend) sorted.push_back({w.second, w.first});
+                std::sort(sorted.rbegin(), sorted.rend());
+                float total = 0.0f;
+                for (int k = 0; k < 4 && k < (int)sorted.size(); ++k) total += sorted[k].first;
+                for (int k = 0; k < 4; ++k) {
+                    m.boneIds[v*4+k] = k < (int)sorted.size() ? sorted[k].second : 0;
+                    m.boneWeights[v*4+k] = k < (int)sorted.size() ? sorted[k].first / total : 0.0f;
+                }
+            }
+            const float radius = std::sqrt(x*x / (0.115f*0.115f) + y*y / (0.115f*0.115f));
+            const float paint = p.z < -0.095f ? 1.0f - mu::Smoothstep(0.72f, 1.0f, radius) : 0.0f;
+            // Coordenadas de reposo: paneles continuos que siguen al rig, sin clasificar
+            // las manchas ni la iluminación pintada del atlas como si fueran tela negra.
+            m.colors[4*v] = (unsigned char)std::lround(mu::Clamp(0.5f+p.x*0.5f,0.0f,1.0f)*255);
+            m.colors[4*v+1] = (unsigned char)std::lround(mu::Clamp(p.y*0.5f,0.0f,1.0f)*255);
+            m.colors[4*v+2] = (unsigned char)std::lround(mu::Clamp(0.5f+p.z*0.5f,0.0f,1.0f)*255);
+            m.colors[4*v+3] = (unsigned char)std::lround(255.0f * std::max(paint, backMask[v]));
+        }
+        // Normales por área, soldadas por posición en las costuras de UV. Sólo cambia la zona retocada.
+        using Key = std::tuple<long long, long long, long long>;
+        auto key = [&](int v) -> Key {
+            const Vector3 p = bindVerts[v];
+            return {std::llround(p.x*1e5), std::llround(p.y*1e5), std::llround(p.z*1e5)};
+        };
+        std::map<Key, Vector3> normals;
+        for (int t = 0; t < m.triangleCount; ++t) {
+            int ids[3];
+            for (int j = 0; j < 3; ++j) ids[j] = m.indices ? m.indices[3*t+j] : 3*t+j;
+            const Vector3 face = Vector3CrossProduct(Vector3Subtract(bindVerts[ids[1]], bindVerts[ids[0]]),
+                                                     Vector3Subtract(bindVerts[ids[2]], bindVerts[ids[0]]));
+            for (int v : ids) normals[key(v)] = Vector3Add(normals[key(v)], face);
+        }
+        for (int v = 0; v < m.vertexCount; ++v) {
+            if (backMask[v] <= 0.0f && bindVerts[v].y > 1.43f) continue;
+            Vector3 normal = normals[key(v)];
+            if (Vector3Length(normal) > 1e-8f)
+                bindNormals[v] = Vector3Normalize(normal);
+        }
+        if (m.vboId[3]) UpdateMeshBuffer(m, 3, m.colors, m.vertexCount * 4, 0);
+        else {
+            rlEnableVertexArray(m.vaoId);
+            m.vboId[3] = rlLoadVertexBuffer(m.colors, m.vertexCount * 4, false);
+            rlSetVertexAttribute(3, 4, RL_UNSIGNED_BYTE, true, 0, 0);
+            rlEnableVertexAttribute(3);
+            rlDisableVertexArray();
+            rlDisableVertexBuffer();
+        }
+        TraceLog(LOG_INFO, "piloto: espalda sin aro (%d bordes), material de traje mate", boundaryCount);
+    }
+
     // Parte del ragdoll de cada hueso (los que no están en la lista siguen a su padre).
     partOf.assign(n, -1);
     auto assign = [&](int b, int part) { if (b >= 0) partOf[b] = part; };
@@ -180,6 +328,8 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
     texture = model.materials[model.meshMaterial[0]].maps[MATERIAL_MAP_DIFFUSE].texture;
     GenTextureMipmaps(&texture);
     SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
+    SetTextureFilter(texture, TEXTURE_FILTER_ANISOTROPIC_8X);
+    model.materials[model.meshMaterial[0]].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
 
     // Pesos propios (si la mano es un solo hueso, se les suman los dedos virtuales).
     realBones = n;
@@ -1176,6 +1326,6 @@ void RiderModel::Skin()
 void RiderModel::Draw(Renderer& r, const Matrix& world)
 {
     BuildShape(r);                           // la moto que se acaba de dibujar (la de este piloto)
-    r.SetGloss(0.2f);
-    r.DrawMeshTextured(model.meshes[0], world, texture);
+    r.SetGloss(polishedSuit ? 0.08f : 0.2f);
+    r.DrawMeshTextured(model.meshes[0], world, texture, true, polishedSuit);
 }

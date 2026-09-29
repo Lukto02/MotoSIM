@@ -1,0 +1,43 @@
+name: Publicar build Windows
+on:
+  push:
+    branches: [main]
+    paths: [src/Version.h]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publicar-build
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar con runtime estático
+        run: |
+          cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release -DMOTOSIM_STATIC_RUNTIME=ON
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build-release --config Release --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Verificar suelo y conducción
+        run: |
+          & build-release/Release/motocross.exe --headless --test soilcheck
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build-release/Release/motocross.exe --headless --flat --test soilcheck
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build-release/Release/motocross.exe --headless --map base/circuito --test soilcheck
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & build-release/Release/motocross.exe --headless --bot --time 150
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Empaquetar
+        run: python tools/package_release.py build-release/Release/motocross.exe
+      - name: Publicar en Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = [regex]::Match((Get-Content src/Version.h -Raw), 'MOTOSIM_VERSION "([^"]+)"').Groups[1].Value
+          gh release view $version --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) { throw "La release $version ya existe; no se reemplaza." }
+          gh release create $version "dist/MotoSim-$version.zip" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "MotoSim $version" --notes-file RELEASE_NOTES.md --latest
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

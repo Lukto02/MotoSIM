@@ -37,7 +37,9 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--net-lag")) opt.netLag = (float)std::atof(next());   // ms (pruebas de red)
         else if (!std::strcmp(argv[i], "--net-jitter")) opt.netJitter = (float)std::atof(next());
         else if (!std::strcmp(argv[i], "--menu")) opt.menuScreen = next();          // pruebas: join, name, lobby, maps, bikes, ajustes, controles, no
-        else if (!std::strcmp(argv[i], "--datos")) opt.techData = true;             // panel de datos técnicos (T) a la vista
+        else if (!std::strcmp(argv[i], "--gfx")) opt.gfx = next();                  // pruebas: preset de calidad bajo|medio|alto|ultra (no guarda)
+        else if (!std::strcmp(argv[i], "--noprefs")) opt.noPrefs = true;            // pruebas: sin leer ni escribir preferencias.ini
+        else if (!std::strcmp(argv[i], "--datos")) opt.techData = true;            // panel de datos técnicos (T) a la vista
         else if (!std::strcmp(argv[i], "--bike")) opt.bike = next();                // mod/moto
         else if (!std::strcmp(argv[i], "--map")) opt.map = next();                  // motocross | favela | mod/mapa
         else if (!std::strcmp(argv[i], "--sound-test")) {        // WAV de prueba del sonido: [2t|raspado|chillido]

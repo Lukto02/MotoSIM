@@ -1,5 +1,6 @@
 #include "Render.h"
 #include "BikeStyleDef.h"
+#include "GpuPreset.h"
 #include "MeshBuilder.h"
 
 #include "rlgl.h"
@@ -28,6 +29,7 @@ uniform vec3 groundBounce;
 uniform float fogDensity;
 uniform vec3 camPos;
 uniform float exposure;
+uniform float ambientStrength;
 
 vec3 ToLinear(vec3 c) { return pow(c, vec3(2.2)); }
 
@@ -58,44 +60,112 @@ vec3 Tonemap(vec3 c)
     return pow(clamp(c, 0.0, 1.0), vec3(1.0 / 2.2));
 }
 
+// Luz de ambiente hemisférica: rebote del suelo abajo, cielo arriba (algo desaturado, para que la sombra no
+// salga azul) y un relleno de lado desde el lado opuesto al sol (las paredes en sombra no quedan negras).
 vec3 Ambient(vec3 n)
 {
-    return mix(groundBounce, skyZenith * 0.8 + skyHorizon * 0.35, 0.5 + 0.5 * n.y);
+    vec3 sky = skyZenith * 0.8 + skyHorizon * 0.35;
+    sky = mix(sky, vec3(dot(sky, vec3(1.0 / 3.0))), 0.30);
+    float fill = max(dot(n, -normalize(vec3(sunDir.x, 0.0, sunDir.z) + vec3(1e-5, 0.0, 0.0))), 0.0) * (1.0 - abs(n.y));
+    return ambientStrength * (1.25 * mix(groundBounce, sky, 0.5 + 0.5 * n.y)
+                              + 0.30 * fill * (skyHorizon * 0.5 + groundBounce * 0.5));
 }
 )";
 
-// Sombra del sol: mapa de profundidad ortográfico alrededor de la moto. Filtro tienda 3x3 sobre
-// comparaciones bilineales (4x4 texels con pesos): bordes suaves sin escalones.
+// Sombra del sol en dos cascadas ortográficas, cada una en su textura: la cercana (todo lo que se mueve, el
+// detalle fino) y la lejana (sólo el mundo quieto, en caché; ver Game::Draw). Comparación por hardware
+// (sampler2DShadow, cada lectura ya es un 2x2 bilineal) con una grilla de 5 o 9 lecturas separadas 1 texel por
+// la suavidad. El sesgo va en metros del mundo (el texel de cada cascada): un sesgo en profundidad normalizada
+// o con piso separaba la sombra del pie de las cosas, y crecía con el radio.
+// Plan B (SHADOW_MANUAL, si no hay glTexParameteri para pedir la comparación): sampler2D y comparación a mano.
 const char* kShadow = R"(
+#ifdef SHADOW_MANUAL
 uniform sampler2D shadowMap;
+uniform sampler2D shadowMap1;
+#define SHADOW_SAMPLER sampler2D
+float ShadowRef(sampler2D map, vec3 c, float invRes)
+{
+    vec2 st = c.xy / invRes - 0.5;
+    vec2 b = floor(st), f = st - b;
+    vec2 o = (b + 0.5) * invRes;
+    float s00 = c.z <= texture(map, o).r ? 1.0 : 0.0;
+    float s10 = c.z <= texture(map, o + vec2(invRes, 0.0)).r ? 1.0 : 0.0;
+    float s01 = c.z <= texture(map, o + vec2(0.0, invRes)).r ? 1.0 : 0.0;
+    float s11 = c.z <= texture(map, o + vec2(invRes)).r ? 1.0 : 0.0;
+    return mix(mix(s00, s10, f.x), mix(s01, s11, f.x), f.y);
+}
+#else
+uniform sampler2DShadow shadowMap;
+uniform sampler2DShadow shadowMap1;
+#define SHADOW_SAMPLER sampler2DShadow
+float ShadowRef(sampler2DShadow map, vec3 c, float invRes) { return texture(map, c); }
+#endif
 uniform mat4 lightVP;
-uniform float shadowTexel;
+uniform mat4 lightVP1;
+uniform vec2 shadowWorldTexel;   // metros por texel de cada cascada
+uniform vec2 shadowInvRes;       // 1 / lado de cada mapa
+uniform float shadowFarOn;       // 1 con cascada lejana
+uniform float shadowTaps;        // lecturas del filtro: 5 o 9
+uniform float shadowStrength;
+uniform float shadowSoftness;
+const float kShadowDepth = 349.0;   // largo del volumen de la luz (planos 1 a 350 m)
+
+float ShadowTaps(SHADOW_SAMPLER map, vec3 c, float invRes)
+{
+    float r = invRes * shadowSoftness;
+#ifndef SHADOW_MANUAL
+    if (shadowTaps > 7.0) {
+        float s = 0.0;
+        for (int j = -1; j <= 1; ++j)
+            for (int i = -1; i <= 1; ++i) s += ShadowRef(map, vec3(c.xy + vec2(i, j) * r, c.z), invRes);
+        return s * (1.0 / 9.0);
+    }
+#endif
+    float s = ShadowRef(map, c, invRes) * 2.0;
+    s += ShadowRef(map, vec3(c.xy + vec2(r, 0.0), c.z), invRes) + ShadowRef(map, vec3(c.xy - vec2(r, 0.0), c.z), invRes);
+    s += ShadowRef(map, vec3(c.xy + vec2(0.0, r), c.z), invRes) + ShadowRef(map, vec3(c.xy - vec2(0.0, r), c.z), invRes);
+    return s * (1.0 / 6.0);
+}
+
+// Visibilidad del sol en una cascada. inside: cuánto pesa (1 adentro, cae a 0 en el borde del mapa: fadeW es la
+// fracción del lado del mapa que dura el fundido).
+float CascadeVis(SHADOW_SAMPLER map, mat4 vp, float wt, float invRes, float fadeW, vec3 p, vec3 n, float ndl, out float inside)
+{
+    float sinT = sqrt(max(0.0, 1.0 - ndl * ndl));
+    vec3 pp = p + n * wt * (0.35 + sinT);                   // corrimiento por la normal, en texels del mundo
+    vec3 c = (vp * vec4(pp, 1.0)).xyz * 0.5 + 0.5;
+    vec2 e2 = min(c.xy, 1.0 - c.xy);
+    float edge = min(e2.x, e2.y);
+    inside = smoothstep(0.0, fadeW, edge);
+    if (edge <= 0.0 || c.z >= 1.0 || c.z <= 0.0) { inside = 0.0; return 1.0; }
+    float tanT = min(sinT / max(ndl, 0.05), 4.0);
+    c.z -= wt * (0.5 + 0.5 * tanT) / kShadowDepth;            // sesgo de profundidad, en metros del mundo
+    return ShadowTaps(map, c, invRes);
+}
 
 float Shadow(vec3 p, vec3 n, float ndl)
 {
-    vec4 lp = lightVP * vec4(p + n * 0.03, 1.0);
-    vec3 c = lp.xyz / lp.w * 0.5 + 0.5;
-    float edge = min(min(c.x, 1.0 - c.x), min(c.y, 1.0 - c.y));
-    if (edge <= 0.0 || c.z >= 1.0) return 1.0;
-    float z = c.z - (0.00012 + 0.0005 * (1.0 - ndl));
-    vec2 st = c.xy / shadowTexel - 0.5;
-    vec2 base = floor(st), f = st - base;
-    float lit = 0.0;
-    for (int j = -1; j <= 2; ++j) {
-        float wy = j == -1 ? 1.0 - f.y : (j == 2 ? f.y : 1.0);
-        for (int i = -1; i <= 2; ++i) {
-            float wx = i == -1 ? 1.0 - f.x : (i == 2 ? f.x : 1.0);
-            float d = texture(shadowMap, (base + vec2(i, j) + 0.5) * shadowTexel).r;
-            lit += (z <= d ? 1.0 : 0.0) * wx * wy;
+    if (shadowStrength <= 0.0) return 1.0;
+    bool farOn = shadowFarOn > 0.5;
+    float in0, in1 = 0.0;
+    // Cercana: se funde a la lejana en el 8% del borde del mapa (o a luz plena en el 15%, si no hay lejana).
+    float v = CascadeVis(shadowMap, lightVP, shadowWorldTexel.x, shadowInvRes.x, farOn ? 0.08 : 0.15, p, n, ndl, in0);
+    if (in0 < 1.0) {
+        float v1 = 1.0;
+        if (farOn) {                                            // lejana: a luz plena en el 25% de su borde
+            v1 = CascadeVis(shadowMap1, lightVP1, shadowWorldTexel.y, shadowInvRes.y, 0.25, p, n, ndl, in1);
+            v1 = mix(1.0, v1, in1);
         }
+        v = mix(v1, v, in0);
     }
-    return mix(1.0, lit / 9.0, smoothstep(0.0, 0.05, edge));   // se desvanece en el borde del mapa
+    return mix(1.0, v, shadowStrength);
 }
 )";
 
 const char* kLitVS = R"(#version 330
 in vec3 vertexPosition;
 in vec2 vertexTexCoord;
+in vec2 vertexTexCoord2;
 in vec3 vertexNormal;
 in vec4 vertexColor;
 uniform mat4 mvp;
@@ -105,13 +175,37 @@ out vec3 fragPos;
 out vec3 fragNormal;
 out vec4 fragColor;
 out vec2 fragTexCoord;
+out vec2 fragSoil;
 void main()
 {
+    fragSoil = vertexTexCoord2;
     fragPos = vec3(matModel * vec4(vertexPosition, 1.0));
     fragNormal = normalize(vec3(matNormal * vec4(vertexNormal, 0.0)));
     fragColor = vertexColor;
     fragTexCoord = vertexTexCoord;
     gl_Position = mvp * vec4(vertexPosition, 1.0);
+}
+)";
+
+const char* kDebrisVS = R"(#version 330
+in vec3 vertexPosition;
+in vec3 vertexNormal;
+in mat4 instanceTransform;
+uniform mat4 mvp;
+out vec3 fragPos;
+out vec3 fragNormal;
+out vec4 fragColor;
+out vec2 fragTexCoord;
+void main()
+{
+    mat4 m=instanceTransform;
+    fragColor=vec4(m[0][3],m[1][3],m[2][3],1.0);
+    m[0][3]=0.0; m[1][3]=0.0; m[2][3]=0.0;
+    vec4 wp=m*vec4(vertexPosition,1.0);
+    fragPos=wp.xyz;
+    fragNormal=normalize(transpose(inverse(mat3(m)))*vertexNormal);
+    fragTexCoord=vec2(0.5);
+    gl_Position=mvp*wp;
 }
 )";
 
@@ -123,6 +217,7 @@ in vec2 fragTexCoord;
 uniform sampler2D texture0;
 uniform vec4 colDiffuse;
 uniform float gloss;
+uniform int riderSurface;
 out vec4 finalColor;
 
 float Hash12(vec2 p)
@@ -141,6 +236,28 @@ float Noise2(vec2 p)
 void main()
 {
     vec4 base = texture(texture0, fragTexCoord) * colDiffuse * fragColor;
+    if (riderSurface != 0) {
+        // La textura original define los paneles, pero su luz pintada no debe duplicar la del sol.
+        vec3 t = texture(texture0, fragTexCoord).rgb;
+        vec3 rest = fragColor.rgb * 2.0 - vec3(1.0, 0.0, 1.0);
+        float ax = abs(rest.x);
+        float jacket = smoothstep(0.94, 0.965, rest.y);
+        float sidePanel = smoothstep(0.145, 0.165, ax) * (1.0-smoothstep(0.23,0.25,ax));
+        float sleeve = smoothstep(0.23,0.26,ax);
+        float red = jacket * (1.0-sidePanel) * mix(1.0,smoothstep(1.14,1.17,rest.y),sleeve);
+        vec3 suit = mix(vec3(0.12,0.135,0.16),vec3(0.48,0.105,0.12),red);
+        float piping = (1.0-smoothstep(0.003,0.008,abs(ax-0.15))) * jacket * (1.0-sleeve);
+        float band = (1.0-smoothstep(0.013,0.019,abs(rest.y-1.20))) * sleeve;
+        suit = mix(suit,vec3(0.73,0.75,0.74),max(piping,band));
+        // Casco, piel y guantes mantienen su atlas; la ropa tiene paneles diseñados en reposo.
+        float skin = smoothstep(1.39,1.43,rest.y);
+        suit = mix(suit,t,skin);
+        // Trama muy fina: desaparece por derivadas antes de volverse ruido a distancia.
+        vec2 weaveUV = fragTexCoord * 1400.0;
+        float visible = 1.0 - smoothstep(0.25, 0.8, max(fwidth(weaveUV.x), fwidth(weaveUV.y)));
+        float weave = sin(weaveUV.x * 6.28318) * sin(weaveUV.y * 6.28318);
+        base = vec4(suit * (1.0 + 0.025 * weave * visible * (1.0 - skin)), 1.0);
+    }
     vec3 albedo = ToLinear(base.rgb);
     vec3 n = normalize(fragNormal);
     vec3 v = normalize(camPos - fragPos);
@@ -191,11 +308,15 @@ in vec3 fragPos;
 in vec3 fragNormal;
 in vec4 fragColor;
 in vec2 fragTexCoord;
+in vec2 fragSoil;
 uniform sampler2D texture0;   // huellas (UV del terreno)
 uniform sampler2D texture1;   // ruido gris de detalle
 uniform sampler2D dirtMap;    // rgb color, a altura
 uniform sampler2D grassMap;
+uniform float soilDetail;
+uniform float soilWetness;
 uniform float pavedTint;      // favela: el color del vértice tiñe también el pavimento (asfalto / cemento)
+uniform float sheenOn;        // 1 con ground_textures circuit o street (hay asfalto); 0 en tierra y arena
 out vec4 finalColor;
 
 // Normal perturbada por una altura escalar sin tangentes (Mikkelsen, "bump mapping unparametrized
@@ -235,22 +356,54 @@ void main()
     dirtCol *= mix(vec3(1.0), ToLinear(fragColor.rgb) * 2.0, pavedTint);
     vec3 grassCol = ToLinear(fragColor.rgb) * ToLinear(grass.rgb) * 2.0;
     vec3 albedo = mix(grassCol, dirtCol, t) * (0.82 + 0.36 * coarse) * (0.9 + 0.2 * fine);
+    // Lomas del borde: el suelo se proyecta por (x, z) y en una pared se estira, así que sus manchas no valen; la pared
+    // lisa de lejos parecía de cartón. Las manchas de macro-variación (más claras, más secas) se toman a lo largo de la
+    // curva de nivel y a lo alto (sin estirar), sólo sobre pasto empinado.
+    float wall = (1.0 - smoothstep(0.55, 0.95, n0.y)) * (1.0 - t);
+    if (wall > 0.0) {
+        vec2 tang = normalize(vec2(-n0.z, n0.x) + vec2(1e-5, 0.0));
+        vec2 sw = vec2(dot(w, tang), fragPos.y);
+        float patch1 = texture(texture1, sw * 0.055 + vec2(0.13, 0.41)).r;
+        float patch2 = texture(texture1, sw * 0.16 + vec2(0.71, 0.29)).r;
+        albedo *= mix(vec3(1.0), (0.84 + 0.32 * patch1) * mix(vec3(1.0), vec3(1.13, 1.05, 0.78), smoothstep(0.4, 0.7, patch2)), wall);
+    }
 
     // Huellas: gris neutro = suelo sin tocar. Más oscuro = surco (tierra compactada, hundida);
     // más claro = tierra suelta que la rueda empujó a los costados (levantada).
     vec3 marks = texture(texture0, fragTexCoord).rgb * (1.0 / 0.784);
     float relief = dot(marks, vec3(0.3333)) - 1.0;
-    albedo *= pow(marks, vec3(1.6));
+    // El barro físico usa su altura de 5 cm: el atlas global no limita el detalle ni pinta cuadrados.
+    float physical = clamp(fragSoil.y,0.0,1.0);
+    relief = mix(relief,clamp(fragSoil.x * 5.0,-0.7,0.4),physical);
+    albedo *= mix(pow(marks,vec3(1.6)),vec3(1.0),physical);
+    float disturbed = physical * smoothstep(0.001,0.012,abs(fragSoil.x));
+    vec3 mud = ToLinear(vec3(0.31,0.235,0.16)) * (0.8+0.4*fine);
+    albedo = mix(albedo,mud,disturbed * (0.45+0.45*soilWetness));
 
     // Altura para el relieve con un mip más borroso: la derivada de detalles de un píxel es ruido.
     float dirtH = texture(dirtMap, w * 0.42, 1.5).a, grassH = texture(grassMap, w * 0.65, 1.5).a;
-    float height = mix(grassH * 0.008, dirtH * 0.012, t) + relief * 0.07;
+    float height = (mix(grassH * 0.008, dirtH * 0.012, t) + relief * 0.085 * (1.0-physical)) * soilDetail;
     float bumpFade = 1.0 - smoothstep(8.0, 30.0, dist);                 // lejos el relieve sólo titilaría
     vec3 n = PerturbNormal(fragPos, n0, height * bumpFade);
 
     float ndl = max(dot(n, sunDir), 0.0);
     float sh = Shadow(fragPos, n0, max(dot(n0, sunDir), 0.0));
-    vec3 col = albedo * (Ambient(n) + sunColor * ndl * sh);
+    float churn = clamp(-relief * 2.0, 0.0, 1.0);
+    float wet = soilWetness * churn;
+    albedo *= 1.0 - wet * 0.23;
+    vec3 col = albedo * (Ambient(n) * (1.0 - churn * 0.16) + sunColor * ndl * sh);
+    // Taludes: la luz de ambiente de una pared empinada pierde el cielo de arriba y sale más oscura que el llano
+    // del lado; se le suma el ambiente de cara al cielo para que no se vean como una franja apagada.
+    col += albedo * 0.5 * (1.0 - smoothstep(0.55, 0.95, n0.y)) * Ambient(vec3(0.0, 1.0, 0.0));
+    vec3 view = normalize(camPos - fragPos);
+    float spec = pow(max(dot(n, normalize(sunDir + view)), 0.0), 48.0);
+    col += sunColor * spec * wet * 0.22 * sh * ndl;
+    float fresnel = pow(1.0-max(dot(n,view),0.0),5.0);
+    col += SkyColor(reflect(-view,n),0.0) * wet * (0.025+0.12*fresnel);
+    // Brillo rasante del asfalto (sólo circuito y calle): reflejo Fresnel del horizonte, más fuerte en lo oscuro.
+    float sheen = pow(1.0 - max(dot(n0, view), 0.0), 5.0) * smoothstep(0.3, 0.7, t) * pavedTint
+                * (1.0 - 0.8 * smoothstep(0.1, 0.35, dot(albedo, vec3(1.0 / 3.0))));
+    col += skyHorizon * sheen * 0.5 * sheenOn;
     finalColor = vec4(Tonemap(ApplyFog(col, fragPos)), 1.0);
 }
 )";
@@ -312,6 +465,12 @@ uniform float time;
 uniform sampler2D texture1;    // huellas: donde pasó una rueda el pasto queda aplastado
 uniform vec2 terrainOrigin;
 uniform float terrainSize;
+uniform float grassDistance;
+uniform float grassDensity;    // 0..1 (graphics.grassDensity)
+uniform float grassWind;
+uniform float grassDisplacement;
+uniform vec3 grassCamera;
+uniform vec4 grassContacts[10];
 out vec3 fragPos;
 out vec2 fragTexCoord;
 out vec3 fragTint;
@@ -319,13 +478,37 @@ void main()
 {
     mat4 m = instanceTransform;
     fragTint = vec3(m[0][3], m[1][3], m[2][3]);
-    m[0][3] = 0.0; m[1][3] = 0.0; m[2][3] = 0.0;
+    float lodHash = m[3][3];                                   // hash de raleo de la mata (Terrain::GrassTufts)
+    m[0][3] = 0.0; m[1][3] = 0.0; m[2][3] = 0.0; m[3][3] = 1.0;
     vec3 root = m[3].xyz;
     vec3 marks = textureLod(texture1, (root.xz - terrainOrigin) / terrainSize, 0.0).rgb * (1.0 / 0.784);
     float squash = clamp((1.0 - dot(marks, vec3(0.3333))) * 3.0, 0.0, 0.85);
+    squash *= min(grassDisplacement, 1.0);
+    float camDist = length(root.xz-grassCamera.xz);
+    float distanceFade = 1.0 - smoothstep(grassDistance * 0.72, grassDistance, camDist);
+    // Raleo sin saltos: la fracción de matas que quedan baja con el cuadrado de la distancia (y con la densidad); las
+    // que sobran se achican hasta desaparecer con la distancia de este cuadro (el hash de cada una viaja en la matriz) y
+    // las que quedan crecen para que la cobertura no se vea a puntitos.
+    float keep = min(1.0, 900.0 / max(camDist * camDist, 1.0)) * grassDensity;
+    float lodK = smoothstep(lodHash, lodHash + 0.15, keep);
+    float grow = min(2.0, inversesqrt(max(keep, 0.05)));
     vec4 wp = m * vec4(vertexPosition.x, vertexPosition.y * (1.0 - squash), vertexPosition.z, 1.0);
+    distanceFade *= lodK;
+    wp.xyz = root + (wp.xyz-root)*distanceFade*grow;
     float top = 1.0 - vertexTexCoord.y;                        // 0 en la base, 1 en la punta
-    wp.xz += vec2(sin(time * 1.7 + root.x * 0.6 + root.z * 0.4), cos(time * 1.3 + root.z * 0.5)) * (0.05 * top * top);
+    wp.xz += vec2(sin(time * 1.7 + root.x * 0.6 + root.z * 0.4), cos(time * 1.3 + root.z * 0.5)) * (0.07 * top * top * grassWind * (1.0-squash) * distanceFade);
+    vec2 push = vec2(0.0);
+    float bend = 0.0;
+    for (int i=0; i<10; ++i) {
+        if (grassContacts[i].w <= 0.0) continue;
+        vec2 offset = root.xz-grassContacts[i].xz;
+        float influence = 1.0-smoothstep(0.12,grassContacts[i].w,length(offset));
+        influence *= 1.0-smoothstep(0.3,1.0,abs(root.y-grassContacts[i].y));
+        push += offset/max(length(offset),0.1) * influence;
+        bend = max(bend,influence);
+    }
+    wp.xz += push * (0.32 * top*top * grassDisplacement * distanceFade);
+    wp.y -= min(wp.y-root.y, 0.24 * bend*top*top * grassDisplacement * distanceFade);
     fragPos = wp.xyz;
     fragTexCoord = vertexTexCoord;
     gl_Position = mvp * wp;
@@ -346,8 +529,10 @@ void main()
     vec3 n = vec3(0.0, 1.0, 0.0);                  // se ilumina como el suelo: sin costuras con el terreno
     float ndl = max(dot(n, sunDir), 0.0);
     float sh = Shadow(fragPos, n, ndl);
-    float ao = mix(0.55, 1.0, 1.0 - fragTexCoord.y);  // la base de la mata, entre hojas, recibe menos cielo
-    vec3 col = albedo * (Ambient(n) * ao + sunColor * ndl * sh);
+    float ao = mix(0.8, 1.0, 1.0 - fragTexCoord.y);   // la base de la mata, entre hojas, recibe menos cielo
+    // A la sombra la mata recibe rebote de las hojas de al lado y del suelo (el terreno en sombra tiene su relleno de
+    // taludes): sin esto, la base oscura de la hoja (textura) queda casi negra al lado del suelo en sombra.
+    vec3 col = albedo * (Ambient(n) * ao * (1.0 + 0.5 * (1.0 - sh)) + sunColor * ndl * sh);
     finalColor = vec4(Tonemap(ApplyFog(col, fragPos)), 1.0);
 }
 )";
@@ -435,16 +620,20 @@ uniform float aberration;
 uniform float vignette;
 uniform float time;
 uniform float grain;
+uniform vec4 grade;            // exposición, saturación, contraste, nitidez (el estilo de color; ver Renderer::DrawPost)
+uniform int fxaaEnabled;
 out vec4 finalColor;
 
-// FXAA (versión compacta de la de Timothy Lottes): suaviza bordes siguiendo el gradiente de luma.
-vec3 Fxaa(vec2 uv)
+// FXAA (versión compacta de la de Timothy Lottes): suaviza bordes siguiendo el gradiente de luma. `diag` devuelve
+// el promedio de las cuatro diagonales (sin suavizar), que usa la nitidez.
+vec3 Fxaa(vec2 uv, out vec3 diag)
 {
     vec2 px = 1.0 / resolution;
     vec3 nw = texture(texture0, uv + vec2(-1.0, -1.0) * px).rgb;
     vec3 ne = texture(texture0, uv + vec2(1.0, -1.0) * px).rgb;
     vec3 sw = texture(texture0, uv + vec2(-1.0, 1.0) * px).rgb;
     vec3 se = texture(texture0, uv + vec2(1.0, 1.0) * px).rgb;
+    diag = 0.25 * (nw + ne + sw + se);
     vec3 m = texture(texture0, uv).rgb;
     const vec3 L = vec3(0.299, 0.587, 0.114);
     float lNW = dot(nw, L), lNE = dot(ne, L), lSW = dot(sw, L), lSE = dot(se, L), lM = dot(m, L);
@@ -459,46 +648,83 @@ vec3 Fxaa(vec2 uv)
     return (lB < lMin || lB > lMax) ? a : b;
 }
 
-void main()
+float AmountAt(vec2 uv, float aspect)
 {
-    vec2 uv = fragTexCoord;
-    float aspect = resolution.x / resolution.y;
-    vec3 col = Fxaa(uv);
+    return speedBlur * smoothstep(0.12, 0.75, length((uv - focus) * vec2(aspect, 1.0)));
+}
 
-    // Motion blur radial con la velocidad: el centro (la moto) queda nítido, los bordes se estiran
-    // hacia afuera como el suelo que pasa al costado de la cámara.
+// FXAA + motion blur radial en un punto: el centro (la moto) queda nítido, los bordes se estiran hacia afuera como
+// el suelo que pasa al costado de la cámara. Todo pasa por acá, también los canales de la aberración: mezclar una
+// muestra cruda con la ya suavizada cancelaría el FXAA (escalones rosa y verde) aunque la aberración valga 0.
+vec3 Scene(vec2 uv, float aspect, out vec3 diag)
+{
+    vec3 col;
+    if (fxaaEnabled != 0) {
+        col = Fxaa(uv, diag);
+    } else {
+        vec2 px = 1.0 / resolution;
+        col = texture(texture0, uv).rgb;
+        diag = 0.25 * (texture(texture0, uv + vec2(-1.0, -1.0) * px).rgb + texture(texture0, uv + vec2(1.0, -1.0) * px).rgb
+                     + texture(texture0, uv + vec2(-1.0, 1.0) * px).rgb + texture(texture0, uv + vec2(1.0, 1.0) * px).rgb);
+    }
     vec2 d = uv - focus;
     float r = length(d * vec2(aspect, 1.0));
-    float amount = speedBlur * smoothstep(0.12, 0.75, r);
+    float amount = AmountAt(uv, aspect);
     if (amount > 0.0005) {
         vec3 acc = col;
         float wsum = 1.0;
-        for (int i = 1; i <= 10; ++i) {
-            float t = float(i) / 10.0;
+        for (int i = 1; i <= 12; ++i) {
+            float t = float(i) / 12.0;
             float w = 1.0 - 0.6 * t;
             acc += texture(texture0, uv - d * (amount * t / max(r, 0.05))).rgb * w;
             wsum += w;
         }
         col = acc / wsum;
     }
+    return col;
+}
 
-    // Aberración cromática: rojo y azul se separan un poco hacia los bordes.
+float Hash2(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+
+void main()
+{
+    vec2 uv = fragTexCoord;
+    float aspect = resolution.x / resolution.y;
+    vec3 diag;
+    vec3 col = Scene(uv, aspect, diag);
+
+    // Aberración cromática: rojo y azul se separan un poco hacia los bordes (sólo si la hay: costo triple).
     vec2 c = uv - 0.5;
     float e = aberration * dot(c, c) * 4.0;
-    col.r = mix(col.r, texture(texture0, uv + c * e).r, 0.85);
-    col.b = mix(col.b, texture(texture0, uv - c * e).b, 0.85);
+    if (e > 0.0) {
+        vec3 dr, db;
+        col.r = Scene(uv + c * e, aspect, dr).r;
+        col.b = Scene(uv - c * e, aspect, db).b;
+    }
+
+    // Estilo de color (grade.x exposición, .y saturación, .z contraste, .w nitidez), sobre la imagen ya tonemapeada:
+    // 1. nitidez: la diferencia con el promedio de las diagonales, acotada (no dibuja halos); con el motion blur se
+    //    apaga (no hay nada que afilar); 2. exposición; 3. saturación; 4. contraste (curva S suave).
+    float sharp = grade.w * (1.0 - clamp(AmountAt(uv, aspect) / 0.004, 0.0, 1.0));
+    col += clamp(col - diag, vec3(-0.06), vec3(0.06)) * sharp;
+    col *= grade.x;
+    col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, grade.y);
+    col = clamp(col, 0.0, 1.0);
+    col = mix(col, col * col * (3.0 - 2.0 * col), grade.z);
 
     // Viñeta y grano de película.
     col *= 1.0 - vignette * smoothstep(0.45, 1.25, length(c * vec2(aspect, 1.0) * 1.6));
     float g = fract(sin(dot(uv * resolution + time * 61.7, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
     col += g * grain;
+    // Dither triangular de ±1 nivel al final: sin él, el degradé del cielo se corta en bandas de un nivel.
+    col += (Hash2(gl_FragCoord.xy) + Hash2(gl_FragCoord.xy + 7.0) - 1.0) / 255.0;
     finalColor = vec4(col, 1.0);
 }
 )";
 
-std::string Fragment(const char* body, bool shadows)
+std::string Fragment(const char* body, bool shadows, bool manualShadows = false)
 {
-    return std::string(kVersion) + kCommon + (shadows ? kShadow : "") + body;
+    return std::string(kVersion) + (manualShadows ? "#define SHADOW_MANUAL 1\n" : "") + kCommon + (shadows ? kShadow : "") + body;
 }
 
 // ------------------------------------------------------------------------ texturas generadas
@@ -552,9 +778,8 @@ Texture2D UploadTileable(Image img)
     UnloadImage(img);
     GenTextureMipmaps(&tex);
     SetTextureFilter(tex, TEXTURE_FILTER_TRILINEAR);
-    SetTextureFilter(tex, TEXTURE_FILTER_ANISOTROPIC_8X);   // el suelo se ve casi siempre de costado
     SetTextureWrap(tex, TEXTURE_WRAP_REPEAT);
-    return tex;
+    return tex;                                             // la anisotropía (el suelo se ve de costado) la pone Renderer::UpdateGraphics
 }
 
 Texture2D GenDetailTexture()
@@ -1153,6 +1378,8 @@ struct DepthGL {
     void(MOTOSIM_GLAPI* texImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void*) = nullptr;
     void(MOTOSIM_GLAPI* getAttachmentParam)(unsigned, unsigned, unsigned, int*) = nullptr;
     void(MOTOSIM_GLAPI* getTexLevelParam)(unsigned, int, unsigned, int*) = nullptr;
+    void(MOTOSIM_GLAPI* texParameteri)(unsigned, unsigned, int) = nullptr;
+    void(MOTOSIM_GLAPI* getTexParameteri)(unsigned, unsigned, int*) = nullptr;
     bool ok = false;
 
     static const DepthGL& Get()
@@ -1166,6 +1393,8 @@ struct DepthGL {
             load(g.texImage2D, "glTexImage2D");
             load(g.getAttachmentParam, "glGetFramebufferAttachmentParameteriv");
             load(g.getTexLevelParam, "glGetTexLevelParameteriv");
+            load(g.texParameteri, "glTexParameteri");
+            load(g.getTexParameteri, "glGetTexParameteriv");
             g.ok = g.genRenderbuffers && g.bindRenderbuffer && g.renderbufferStorage && g.texImage2D && g.getAttachmentParam && g.getTexLevelParam;
             if (!g.ok) TraceLog(LOG_WARNING, "RENDER: sin las funciones de OpenGL para pedir 24 bits de profundidad; elige el driver");
             return g;
@@ -1217,6 +1446,63 @@ void MakeDepth24(unsigned tex, int w, int h)
     gl.getTexLevelParam(DepthGL::kTexture2D, 0, DepthGL::kTextureDepthSize, &after);
     rlDisableTexture();
     TraceLog(LOG_INFO, "RENDER: mapa de sombras de %d bits (el driver había dado %d)", after, before);
+}
+
+// Sombras con comparación por hardware (sampler2DShadow): hace falta glTexParameteri para pedirla en la textura
+// de profundidad. Sin él, el shader de sombras se arma en su plan B (comparación a mano, ver kShadow).
+bool ShadowHardware()
+{
+    const DepthGL& gl = DepthGL::Get();
+    const bool ok = gl.ok && gl.texParameteri && gl.getTexParameteri;
+    static bool said = false;
+    if (!ok && !said) {
+        said = true;
+        TraceLog(LOG_WARNING, "RENDER: sin glTexParameteri para la comparación de sombras por hardware; filtro manual");
+    }
+    return ok;
+}
+
+// La textura de profundidad del mapa de sombras con comparación por hardware y filtro bilineal (cada lectura de
+// sampler2DShadow promedia 2x2 texels ya comparados) y sin repetir en los bordes. Sin glTexParameteri (plan B),
+// queda como la deja raylib: nearest, y el shader compara a mano.
+void MakeShadowSampler(unsigned tex)
+{
+    if (!ShadowHardware()) return;
+    const DepthGL& gl = DepthGL::Get();
+    rlEnableTexture(tex);
+    gl.texParameteri(DepthGL::kTexture2D, 0x884C, 0x884E);   // GL_TEXTURE_COMPARE_MODE = GL_COMPARE_REF_TO_TEXTURE
+    gl.texParameteri(DepthGL::kTexture2D, 0x884D, 0x0203);   // GL_TEXTURE_COMPARE_FUNC = GL_LEQUAL
+    gl.texParameteri(DepthGL::kTexture2D, 0x2800, 0x2601);   // GL_TEXTURE_MAG_FILTER = GL_LINEAR
+    gl.texParameteri(DepthGL::kTexture2D, 0x2801, 0x2601);   // GL_TEXTURE_MIN_FILTER = GL_LINEAR
+    gl.texParameteri(DepthGL::kTexture2D, 0x2802, 0x812F);   // GL_TEXTURE_WRAP_S = GL_CLAMP_TO_EDGE
+    gl.texParameteri(DepthGL::kTexture2D, 0x2803, 0x812F);   // GL_TEXTURE_WRAP_T
+    int mode = 0;
+    gl.getTexParameteri(DepthGL::kTexture2D, 0x884C, &mode);
+    rlDisableTexture();
+    if (mode != 0x884E) TraceLog(LOG_WARNING, "RENDER: el driver no tomó la comparación de sombras por hardware (modo 0x%X)", mode);
+}
+
+// Un mapa de sombras: framebuffer sólo con profundidad de 24 bits. Id 0 si no se pudo armar.
+RenderTexture2D MakeShadowTarget(int resolution)
+{
+    RenderTexture2D next{};
+    next.id = rlLoadFramebuffer();
+    next.texture.width = next.texture.height = resolution;
+    rlEnableFramebuffer(next.id);
+    next.depth.id = rlLoadTextureDepth(resolution, resolution, false);
+    MakeDepth24(next.depth.id, resolution, resolution);
+    MakeShadowSampler(next.depth.id);
+    next.depth.width = next.depth.height = resolution;
+    next.depth.mipmaps = 1;
+    next.depth.format = PIXELFORMAT_UNCOMPRESSED_R32;
+    rlFramebufferAttach(next.id, next.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
+    const bool complete = rlFramebufferComplete(next.id);
+    rlDisableFramebuffer();
+    if (!complete) {
+        rlUnloadFramebuffer(next.id);
+        return RenderTexture2D{};
+    }
+    return next;
 }
 
 } // namespace
@@ -1341,7 +1627,182 @@ void Renderer::FindLocs(Shader& sh, Locs& l)
     l.camPos = GetShaderLocation(sh, "camPos");
     l.exposure = GetShaderLocation(sh, "exposure");
     l.lightVP = GetShaderLocation(sh, "lightVP");
-    l.shadowTexel = GetShaderLocation(sh, "shadowTexel");
+    l.lightVP1 = GetShaderLocation(sh, "lightVP1");
+    l.shadowInvRes = GetShaderLocation(sh, "shadowInvRes");
+    l.shadowFarOn = GetShaderLocation(sh, "shadowFarOn");
+    l.shadowTaps = GetShaderLocation(sh, "shadowTaps");
+    l.ambientStrength = GetShaderLocation(sh, "ambientStrength");
+    l.shadowStrength = GetShaderLocation(sh, "shadowStrength");
+    l.shadowSoftness = GetShaderLocation(sh, "shadowSoftness");
+    l.shadowWorldTexel = GetShaderLocation(sh, "shadowWorldTexel");
+}
+
+void Renderer::ApplyAniso(Texture2D tex) const
+{
+    // rlTextureParameters vuelve la anisotropía a 1 en CADA llamada (también con el wrap o el filtro): tiene que ser
+    // lo último que se le pide a la textura.
+    if (tex.id != 0) rlTextureParameters(tex.id, RL_TEXTURE_FILTER_ANISOTROPIC, std::clamp(graphics.aniso, 1, 16));
+}
+
+void Renderer::UpdateGraphics()
+{
+    // Filtro anisotrópico de las texturas del suelo (los atlas de Circuit y Favela lo reaplican al ver otra revisión).
+    graphics.aniso = std::clamp(graphics.aniso, 1, 16);
+    if (graphics.aniso != anisoApplied && detail.id != 0) {
+        for (const Texture2D& t : {detail, dirtTex, grassTex, pavedTex, soilTex, sandTex}) ApplyAniso(t);
+        anisoApplied = graphics.aniso;
+        ++anisoRevision;
+    }
+    // El radio de la lejana o su resolución cambian lo que hay dibujado en ella: Game::Draw la rehace.
+    if (graphics.shadowFar != shadowFarRadius) {
+        shadowFarRadius = graphics.shadowFar;
+        ++shadowFarRevision;
+    }
+    if (graphics.shadowQuality == 0) return;
+    const int resolution = graphics.shadowQuality == 3 ? 4096 : graphics.shadowQuality == 1 ? 1024 : 2048;
+    const int farResolution = std::min(resolution, 3072);
+    const bool wantFar = graphics.shadowFar > 0;
+    if (shadowMap.id && resolution == shadowResolution && wantFar == (shadowMap1.id != 0)) return;
+
+    // Se construye primero el reemplazo: si falla, seguimos con la textura anterior.
+    const bool nearChanged = !shadowMap.id || resolution != shadowResolution;
+    if (nearChanged) {
+        RenderTexture2D next = MakeShadowTarget(resolution);
+        if (!next.id) {
+            TraceLog(LOG_WARNING, "sombras: no se pudo crear el mapa de %d", resolution);
+            graphics.shadowQuality = !shadowMap.id ? 0 : shadowResolution == 4096 ? 3 : shadowResolution == 1024 ? 1 : 2;
+            return;
+        }
+        if (shadowMap.id) rlUnloadFramebuffer(shadowMap.id);
+        shadowMap = next;
+        shadowResolution = resolution;
+    }
+    if (!wantFar || nearChanged) {                                // la lejana se rehace con la cercana (o se apaga)
+        if (shadowMap1.id) rlUnloadFramebuffer(shadowMap1.id);
+        shadowMap1 = RenderTexture2D{};
+        shadowResolution1 = 0;
+    }
+    if (wantFar && !shadowMap1.id) {
+        shadowMap1 = MakeShadowTarget(farResolution);
+        if (shadowMap1.id) {
+            shadowResolution1 = farResolution;
+            ++shadowFarRevision;
+        } else {
+            TraceLog(LOG_WARNING, "sombras: no se pudo crear el mapa lejano de %d; queda sólo la cercana", farResolution);
+            graphics.shadowFar = shadowFarRadius = 0;
+        }
+    }
+    // Un slot de textura por cascada en los cuatro materiales que reciben sombras (occlusion y emission). Sin
+    // lejana, el segundo slot lleva la misma textura (el sampler tiene que apuntar a algo válido).
+    for (Material* m : {&material, &terrainMaterial, &grassMaterial, &debrisMaterial})
+        if (m->maps) {
+            m->maps[MATERIAL_MAP_OCCLUSION].texture = shadowMap.depth;
+            m->maps[MATERIAL_MAP_EMISSION].texture = shadowMap1.id ? shadowMap1.depth : shadowMap.depth;
+        }
+}
+
+// ------------------------------------------------------------------------------------ presets de calidad
+namespace {
+// Lo que fija cada preset: sólo campos de calidad (los que cuestan rendimiento). El estilo (sol, ambiente, exposición,
+// niebla, intensidad y suavidad de sombra, viñeta, grano, aberración, viento, estilo de color) queda del jugador, y la
+// física del suelo (soilMode, soilSoftness, soilDepth), la pantalla completa y el sacudón nunca entran.
+struct QualityPreset {
+    int shadowQuality, shadowNear, shadowFar, shadowTaps;   // sombras: resolución cercana (1 1024, 2 2048, 3 4096), radios (m), lecturas
+    int grassDistance, grassDensity, propsRadius, detailRadius;
+    int aniso, renderScale, soilDetail, soilParticles, grassDisplacement;
+    bool fxaa;
+};
+//                                       sombras                 pasto           props  gente  aniso  escala  relieve  partíc.  desplaz.  fxaa
+const QualityPreset kQualityPresets[Renderer::kPresets] = {
+    /* Bajo  */ {1, 20, 48, 5,      25, 60, 250, 260,   4, 75, 60, 50, 100, true},
+    /* Medio */ {2, 24, 80, 5,      45, 85, 350, 300,   8, 100, 100, 80, 100, true},
+    /* Alto  */ {2, 24, 96, 9,      70, 100, 500, 350,  16, 100, 100, 100, 100, true},
+    /* Ultra */ {3, 28, 140, 9,     120, 100, 0, 450,   16, 100, 100, 100, 100, true},
+};
+} // namespace
+
+void Renderer::ApplyPreset(Graphics& g, int preset)
+{
+    const QualityPreset& p = kQualityPresets[std::clamp(preset, 0, kPresets - 1)];
+    g.shadowQuality = p.shadowQuality;
+    g.shadowNear = p.shadowNear;
+    g.shadowFar = p.shadowFar;
+    g.shadowTaps = p.shadowTaps;
+    g.grassDistance = p.grassDistance;
+    g.grassDensity = p.grassDensity;
+    g.propsRadius = p.propsRadius;
+    g.detailRadius = p.detailRadius;
+    g.aniso = p.aniso;
+    g.renderScale = p.renderScale;
+    g.soilDetail = p.soilDetail;
+    g.soilParticles = p.soilParticles;
+    g.grassDisplacement = p.grassDisplacement;
+    g.fxaa = p.fxaa;
+    g.preset = g.customBase = std::clamp(preset, 0, kPresets - 1);
+}
+
+int Renderer::MatchPreset(const Graphics& g)
+{
+    for (int i = 0; i < kPresets; ++i) {
+        const QualityPreset& p = kQualityPresets[i];
+        if (g.shadowQuality == p.shadowQuality && g.shadowNear == p.shadowNear && g.shadowFar == p.shadowFar && g.shadowTaps == p.shadowTaps &&
+            g.grassDistance == p.grassDistance && g.grassDensity == p.grassDensity && g.propsRadius == p.propsRadius &&
+            g.detailRadius == p.detailRadius && g.aniso == p.aniso && g.renderScale == p.renderScale && g.soilDetail == p.soilDetail &&
+            g.soilParticles == p.soilParticles && g.grassDisplacement == p.grassDisplacement && g.fxaa == p.fxaa)
+            return i;
+    }
+    return -1;
+}
+
+void Renderer::ResetStyle(Graphics& g)
+{
+    const Graphics defaults{};
+    g.sunlight = defaults.sunlight;
+    g.ambient = defaults.ambient;
+    g.brightness = defaults.brightness;
+    g.fog = defaults.fog;
+    g.shadowStrength = defaults.shadowStrength;
+    g.shadowSoftness = defaults.shadowSoftness;
+    g.vignette = defaults.vignette;
+    g.grain = defaults.grain;
+    g.aberration = defaults.aberration;
+    g.grassWind = defaults.grassWind;
+    g.colorStyle = defaults.colorStyle;
+}
+
+const char* Renderer::PresetName(int preset)
+{
+    static const char* names[kPresets] = {"Bajo", "Medio", "Alto", "Ultra"};
+    return preset >= 0 && preset < kPresets ? names[preset] : "Personalizado";
+}
+
+const char* Renderer::PresetKey(int preset)
+{
+    static const char* keys[kPresets] = {"bajo", "medio", "alto", "ultra"};
+    return preset >= 0 && preset < kPresets ? keys[preset] : "personalizado";
+}
+
+int Renderer::PresetFromKey(const std::string& key)
+{
+    for (int i = 0; i < kPresets; ++i)
+        if (key == PresetKey(i)) return i;
+    return -1;
+}
+
+std::string Renderer::GpuDescription(int* detectedPreset)
+{
+    // glGetString(GL_VENDOR 0x1F00 / GL_RENDERER 0x1F01) por glfwGetProcAddress, como el resto de las funciones que rlgl no expone.
+    using GetString = const unsigned char*(MOTOSIM_GLAPI*)(unsigned);
+    const GetString getString = reinterpret_cast<GetString>(glfwGetProcAddress("glGetString"));
+    std::string vendor, renderer;
+    if (getString) {
+        if (const unsigned char* v = getString(0x1F00)) vendor = reinterpret_cast<const char*>(v);
+        if (const unsigned char* r = getString(0x1F01)) renderer = reinterpret_cast<const char*>(r);
+    }
+    const int preset = gpupreset::ForGpu(vendor, renderer);   // Ultra no sale nunca sola; sin datos, Medio
+    if (detectedPreset) *detectedPreset = preset;
+    TraceLog(LOG_INFO, "RENDER: placa \"%s\" (%s): preset %s", renderer.c_str(), vendor.c_str(), PresetName(preset));
+    return renderer.empty() ? vendor : renderer;
 }
 
 void Renderer::Init()
@@ -1353,25 +1814,17 @@ void Renderer::Init()
     skyHorizon = Linear({186, 206, 224, 255}, 0.7f);
     groundBounce = Linear({92, 80, 64, 255}, 0.8f);
 
-    // Mapa de sombras: framebuffer con sólo una textura de profundidad.
-    shadowMap.id = rlLoadFramebuffer();
-    shadowMap.texture.width = shadowMap.texture.height = kShadowResolution;
-    rlEnableFramebuffer(shadowMap.id);
-    shadowMap.depth.id = rlLoadTextureDepth(kShadowResolution, kShadowResolution, false);
-    MakeDepth24(shadowMap.depth.id, kShadowResolution, kShadowResolution);
-    shadowMap.depth.width = shadowMap.depth.height = kShadowResolution;
-    shadowMap.depth.mipmaps = 1;
-    shadowMap.depth.format = PIXELFORMAT_UNCOMPRESSED_R32;
-    rlFramebufferAttach(shadowMap.id, shadowMap.depth.id, RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_TEXTURE2D, 0);
-    if (!rlFramebufferComplete(shadowMap.id)) TraceLog(LOG_WARNING, "sombras: framebuffer incompleto");
-    rlDisableFramebuffer();
+    UpdateGraphics();
 
-    lit = LoadShaderFromMemory(kLitVS, Fragment(kLitFS, true).c_str());
-    terrainShader = LoadShaderFromMemory(kLitVS, Fragment(kTerrainFS, true).c_str());
+    const bool manualShadows = !ShadowHardware();    // plan B: sin comparación por hardware
+    lit = LoadShaderFromMemory(kLitVS, Fragment(kLitFS, true, manualShadows).c_str());
+    terrainShader = LoadShaderFromMemory(kLitVS, Fragment(kTerrainFS, true, manualShadows).c_str());
     skyShader = LoadShaderFromMemory(kLitVS, Fragment(kSkyFS, false).c_str());
     depthShader = LoadShaderFromMemory(kDepthVS, kDepthFS);
-    grassShader = LoadShaderFromMemory(kGrassVS, Fragment(kGrassFS, true).c_str());
+    grassShader = LoadShaderFromMemory(kGrassVS, Fragment(kGrassFS, true, manualShadows).c_str());
     skidShader = LoadShaderFromMemory(kSkidVS, Fragment(kSkidFS, false).c_str());
+    debrisShader = LoadShaderFromMemory(kDebrisVS, Fragment(kLitFS, true, manualShadows).c_str());
+    FindLocs(debrisShader, debrisLocs);
     FindLocs(lit, litLocs);
     FindLocs(terrainShader, terrainLocs);
     FindLocs(skyShader, skyLocs);
@@ -1383,12 +1836,22 @@ void Renderer::Init()
     grassTimeLoc = GetShaderLocation(grassShader, "time");
     grassOriginLoc = GetShaderLocation(grassShader, "terrainOrigin");
     grassSizeLoc = GetShaderLocation(grassShader, "terrainSize");
+    grassDistanceLoc = GetShaderLocation(grassShader, "grassDistance");
+    grassDensityLoc = GetShaderLocation(grassShader, "grassDensity");
+    grassWindLoc = GetShaderLocation(grassShader, "grassWind");
+    grassDisplacementLoc = GetShaderLocation(grassShader, "grassDisplacement");
+    grassCameraLoc = GetShaderLocation(grassShader, "grassCamera");
+    grassContactsLoc = GetShaderLocation(grassShader, "grassContacts");
+    soilDetailLoc = GetShaderLocation(terrainShader, "soilDetail");
+    soilWetnessLoc = GetShaderLocation(terrainShader, "soilWetness");
 
     // El mapa de sombras va en el slot de "occlusion" del material; raylib lo enlaza en cada DrawMesh.
     lit.locs[SHADER_LOC_MAP_OCCLUSION] = GetShaderLocation(lit, "shadowMap");
+    lit.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(lit, "shadowMap1");
     material = LoadMaterialDefault();
     material.shader = lit;
     material.maps[MATERIAL_MAP_OCCLUSION].texture = shadowMap.depth;
+    material.maps[MATERIAL_MAP_EMISSION].texture = shadowMap1.id ? shadowMap1.depth : shadowMap.depth;
 
     detail = GenDetailTexture();
     dirtTex = GenDirtTexture();
@@ -1396,16 +1859,20 @@ void Renderer::Init()
     pavedTex = GenPavedTexture();
     soilTex = GenSoilTexture();
     sandTex = GenSandTexture();
+    UpdateGraphics();                                        // anisotropía de las texturas recién hechas
     pavedTintLoc = GetShaderLocation(terrainShader, "pavedTint");
+    sheenOnLoc = GetShaderLocation(terrainShader, "sheenOn");
     terrainShader.locs[SHADER_LOC_MAP_NORMAL] = GetShaderLocation(terrainShader, "dirtMap");
     terrainShader.locs[SHADER_LOC_MAP_ROUGHNESS] = GetShaderLocation(terrainShader, "grassMap");
     terrainShader.locs[SHADER_LOC_MAP_OCCLUSION] = GetShaderLocation(terrainShader, "shadowMap");
+    terrainShader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(terrainShader, "shadowMap1");
     terrainMaterial = LoadMaterialDefault();
     terrainMaterial.shader = terrainShader;
     terrainMaterial.maps[MATERIAL_MAP_SPECULAR].texture = detail;    // -> texture1
     terrainMaterial.maps[MATERIAL_MAP_NORMAL].texture = dirtTex;
     terrainMaterial.maps[MATERIAL_MAP_ROUGHNESS].texture = grassTex;
     terrainMaterial.maps[MATERIAL_MAP_OCCLUSION].texture = shadowMap.depth;
+    terrainMaterial.maps[MATERIAL_MAP_EMISSION].texture = shadowMap1.id ? shadowMap1.depth : shadowMap.depth;
 
     skyMaterial = LoadMaterialDefault();
     skyMaterial.shader = skyShader;
@@ -1422,15 +1889,35 @@ void Renderer::Init()
     postVignetteLoc = GetShaderLocation(postShader, "vignette");
     postTimeLoc = GetShaderLocation(postShader, "time");
     postGrainLoc = GetShaderLocation(postShader, "grain");
+    postFxaaLoc = GetShaderLocation(postShader, "fxaaEnabled");
+    postGradeLoc = GetShaderLocation(postShader, "grade");
+    riderSurfaceLoc = GetShaderLocation(lit, "riderSurface");
 
     // Pasto: la matriz de cada instancia llega por atributo; texture1 = huellas (se asigna al dibujar).
     bladeTex = GenBladeTexture();
     grassShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocationAttrib(grassShader, "instanceTransform");
     grassShader.locs[SHADER_LOC_MAP_OCCLUSION] = GetShaderLocation(grassShader, "shadowMap");
+    grassShader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(grassShader, "shadowMap1");
     grassMaterial = LoadMaterialDefault();
     grassMaterial.shader = grassShader;
     grassMaterial.maps[MATERIAL_MAP_DIFFUSE].texture = bladeTex;
     grassMaterial.maps[MATERIAL_MAP_OCCLUSION].texture = shadowMap.depth;
+    grassMaterial.maps[MATERIAL_MAP_EMISSION].texture = shadowMap1.id ? shadowMap1.depth : shadowMap.depth;
+    debrisShader.locs[SHADER_LOC_MATRIX_MODEL] = GetShaderLocationAttrib(debrisShader, "instanceTransform");
+    debrisShader.locs[SHADER_LOC_MAP_OCCLUSION] = GetShaderLocation(debrisShader, "shadowMap");
+    debrisShader.locs[SHADER_LOC_MAP_EMISSION] = GetShaderLocation(debrisShader, "shadowMap1");
+    debrisMaterial = LoadMaterialDefault();
+    debrisMaterial.shader = debrisShader;
+    debrisMaterial.maps[MATERIAL_MAP_OCCLUSION].texture = shadowMap.depth;
+    debrisMaterial.maps[MATERIAL_MAP_EMISSION].texture = shadowMap1.id ? shadowMap1.depth : shadowMap.depth;
+    // Cada sampler de sombras a su unidad aunque no haya textura (sombras apagadas): un sampler2DShadow que
+    // comparte unidad con el sampler2D de texture0 hace fallar el dibujado (GL_INVALID_OPERATION).
+    for (Shader* sh : {&lit, &terrainShader, &grassShader, &debrisShader}) {
+        const int units[2] = {MATERIAL_MAP_OCCLUSION, MATERIAL_MAP_EMISSION};
+        SetShaderValue(*sh, sh->locs[SHADER_LOC_MAP_OCCLUSION], &units[0], SHADER_UNIFORM_INT);
+        SetShaderValue(*sh, sh->locs[SHADER_LOC_MAP_EMISSION], &units[1], SHADER_UNIFORM_INT);
+    }
+    debris = GenSphereMesh(2, 5);
 
     box = GenBoxMesh();
     cylinder = GenCylinderMesh(16);
@@ -1464,6 +1951,7 @@ void Renderer::SetLook(const MapLook& look)
                      (unsigned char)std::clamp(c[2], 0.0f, 255.0f), 255};
     };
     sunDir = Vector3Normalize({look.sunDir[0], look.sunDir[1], look.sunDir[2]});
+    ++shadowFarRevision;                      // otro mapa u otro sol: lo dibujado en la cascada lejana ya no sirve
     sunColor = {look.sunColor[0], look.sunColor[1], look.sunColor[2]};
     skyZenith = Linear(color(look.zenith), sunset ? 0.7f : 0.72f);
     skyHorizon = Linear(color(look.horizon), sunset ? 0.74f : 0.7f);
@@ -1477,6 +1965,8 @@ void Renderer::SetLook(const MapLook& look)
     terrainMaterial.maps[MATERIAL_MAP_ROUGHNESS].texture = sand ? sandTex : (street ? soilTex : grassTex);
     const float tint = street || circuit || sand ? 1.0f : 0.0f;
     SetShaderValue(terrainShader, pavedTintLoc, &tint, SHADER_UNIFORM_FLOAT);
+    const float sheen = street || circuit ? 1.0f : 0.0f;         // brillo rasante sólo donde hay asfalto (no en arena)
+    SetShaderValue(terrainShader, sheenOnLoc, &sheen, SHADER_UNIFORM_FLOAT);
 }
 
 void Renderer::UpdateBikeBody(Vector3 steerHead, Vector3 forkUp)
@@ -1501,6 +1991,9 @@ void Renderer::Shutdown()
     UnloadMesh(tire);
     UnloadMesh(rim);
     UnloadMesh(tuft);
+    UnloadMesh(debris);
+    MemFree(debrisMaterial.maps);
+    UnloadShader(debrisShader);
     for (Mesh& m : rider) UnloadMesh(m);
     for (int s = 0; s < 2; ++s) {
         for (int i = 0; i < BikeMesh::Count; ++i)
@@ -1528,21 +2021,39 @@ void Renderer::Shutdown()
     UnloadTexture(sandTex);
     UnloadTexture(bladeTex);
     rlUnloadFramebuffer(shadowMap.id);        // también libera la textura de profundidad
+    if (shadowMap1.id) rlUnloadFramebuffer(shadowMap1.id);
 }
 
 void Renderer::SetCommon(Shader sh, const Locs& l, const Camera3D& cam)
 {
     SetShaderValue(sh, l.sunDir, &sunDir, SHADER_UNIFORM_VEC3);
-    SetShaderValue(sh, l.sunColor, &sunColor, SHADER_UNIFORM_VEC3);
+    const Vector3 sun = Vector3Scale(sunColor, graphics.sunlight / 100.0f);
+    SetShaderValue(sh, l.sunColor, &sun, SHADER_UNIFORM_VEC3);
     SetShaderValue(sh, l.skyZenith, &skyZenith, SHADER_UNIFORM_VEC3);
     SetShaderValue(sh, l.skyHorizon, &skyHorizon, SHADER_UNIFORM_VEC3);
     SetShaderValue(sh, l.groundBounce, &groundBounce, SHADER_UNIFORM_VEC3);
-    SetShaderValue(sh, l.fogDensity, &fogDensity, SHADER_UNIFORM_FLOAT);
+    const float fog = fogDensity * graphics.fog / 100.0f;
+    SetShaderValue(sh, l.fogDensity, &fog, SHADER_UNIFORM_FLOAT);
     SetShaderValue(sh, l.camPos, &cam.position, SHADER_UNIFORM_VEC3);
-    SetShaderValue(sh, l.exposure, &exposure, SHADER_UNIFORM_FLOAT);
+    const float brightness = exposure * graphics.brightness / 100.0f;
+    SetShaderValue(sh, l.exposure, &brightness, SHADER_UNIFORM_FLOAT);
     if (l.lightVP >= 0) SetShaderValueMatrix(sh, l.lightVP, lightVP);
-    const float texel = 1.0f / (float)kShadowResolution;
-    SetShaderValue(sh, l.shadowTexel, &texel, SHADER_UNIFORM_FLOAT);
+    if (l.lightVP1 >= 0) SetShaderValueMatrix(sh, l.lightVP1, lightVP1);
+    const float ambient = graphics.ambient / 100.0f;
+    const float strength = ShadowsEnabled() ? graphics.shadowStrength / 100.0f : 0.0f;
+    const float softness = graphics.shadowSoftness / 100.0f;
+    // Metros por texel del mundo y 1/lado de cada cascada (la lejana tiene su propia resolución).
+    const float worldTexel[2] = {2.0f * ShadowHalfSize(0) / (float)std::max(1, shadowResolution),
+                                 2.0f * ShadowHalfSize(1) / (float)std::max(1, shadowResolution1)};
+    const float invRes[2] = {1.0f / (float)std::max(1, shadowResolution), 1.0f / (float)std::max(1, shadowResolution1)};
+    const float farOn = FarShadowEnabled() ? 1.0f : 0.0f, taps = graphics.shadowTaps >= 9 ? 9.0f : 5.0f;
+    SetShaderValue(sh, l.ambientStrength, &ambient, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(sh, l.shadowStrength, &strength, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(sh, l.shadowSoftness, &softness, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(sh, l.shadowWorldTexel, worldTexel, SHADER_UNIFORM_VEC2);
+    SetShaderValue(sh, l.shadowInvRes, invRes, SHADER_UNIFORM_VEC2);
+    SetShaderValue(sh, l.shadowFarOn, &farOn, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(sh, l.shadowTaps, &taps, SHADER_UNIFORM_FLOAT);
 }
 
 void Renderer::BeginFrame(const Camera3D& cam)
@@ -1552,9 +2063,21 @@ void Renderer::BeginFrame(const Camera3D& cam)
     SetCommon(skyShader, skyLocs, cam);
     SetCommon(grassShader, grassLocs, cam);
     SetCommon(skidShader, skidLocs, cam);
-    // Cuánto mide un píxel de la escena (la textura va al tamaño real del framebuffer): las marcas de goma se
-    // ensanchan a lo lejos para no quedar más finas que eso.
-    const float pixelAngle = 2.0f * std::tan(cam.fovy * DEG2RAD * 0.5f) / (float)std::max(1, GetRenderHeight());
+    SetCommon(debrisShader, debrisLocs, cam);
+    const float grassDistance=(float)graphics.grassDistance, wind=graphics.grassWind/100.0f, displacement=graphics.grassDisplacement/100.0f;
+    const float soilDetail=graphics.soilDetail/100.0f, wetness=graphics.soilSoftness/100.0f;
+    SetShaderValue(grassShader, grassDistanceLoc, &grassDistance, SHADER_UNIFORM_FLOAT);
+    const float grassDensity = std::clamp(graphics.grassDensity, 0, 100) / 100.0f;
+    SetShaderValue(grassShader, grassDensityLoc, &grassDensity, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(grassShader, grassWindLoc, &wind, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(grassShader, grassDisplacementLoc, &displacement, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(grassShader, grassCameraLoc, &cam.position, SHADER_UNIFORM_VEC3);
+    SetShaderValueV(grassShader, grassContactsLoc, grassContacts, SHADER_UNIFORM_VEC4, 10);
+    SetShaderValue(terrainShader, soilDetailLoc, &soilDetail, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(terrainShader, soilWetnessLoc, &wetness, SHADER_UNIFORM_FLOAT);
+    // Cuánto mide un píxel de la escena (la textura de la escena, que con renderScale es más chica que la ventana):
+    // las marcas de goma se ensanchan a lo lejos para no quedar más finas que eso.
+    const float pixelAngle = 2.0f * std::tan(cam.fovy * DEG2RAD * 0.5f) / (float)std::max(1, sceneRT.texture.height > 0 ? sceneRT.texture.height : GetRenderHeight());
     SetShaderValue(skidShader, skidPixelLoc, &pixelAngle, SHADER_UNIFORM_FLOAT);
     const float time = (float)GetTime();
     SetShaderValue(skyShader, skyTimeLoc, &time, SHADER_UNIFORM_FLOAT);
@@ -1566,9 +2089,10 @@ void Renderer::SetGloss(float gloss) { SetShaderValue(lit, glossLoc, &gloss, SHA
 
 void Renderer::BeginScene()
 {
-    // Textura de la escena al tamaño real del framebuffer (se rehace si cambia la ventana), con 24 bits
-    // de profundidad pedidos (ver LoadSceneTarget).
-    const int w = GetRenderWidth(), h = GetRenderHeight();
+    // Textura de la escena: el tamaño del framebuffer por renderScale (se rehace si cambia la ventana o la escala),
+    // con 24 bits de profundidad pedidos (ver LoadSceneTarget). El post la estira a la ventana con filtro bilineal.
+    const int scale = std::clamp(graphics.renderScale, 50, 100);
+    const int w = std::max(1, (GetRenderWidth() * scale + 50) / 100), h = std::max(1, (GetRenderHeight() * scale + 50) / 100);
     if (sceneRT.id == 0 || sceneRT.texture.width != w || sceneRT.texture.height != h) {
         if (sceneRT.id > 0) UnloadRenderTexture(sceneRT);
         sceneRT = LoadSceneTarget(w, h);
@@ -1592,6 +2116,14 @@ void Renderer::DrawPost(const PostFX& fx)
     SetShaderValue(postShader, postVignetteLoc, &fx.vignette, SHADER_UNIFORM_FLOAT);
     SetShaderValue(postShader, postTimeLoc, &time, SHADER_UNIFORM_FLOAT);
     SetShaderValue(postShader, postGrainLoc, &fx.grain, SHADER_UNIFORM_FLOAT);
+    const int fxaa = graphics.fxaa ? 1 : 0;
+    SetShaderValue(postShader, postFxaaLoc, &fxaa, SHADER_UNIFORM_INT);
+    // Estilo de color: exposición, saturación, contraste, nitidez. Vívido (el de siempre): el ACES por canal deja los
+    // colores lavados y sin blancos, esto los levanta un poco sin quemar; natural: casi la imagen tal cual; suave: parejo.
+    static const float kGrades[3][4] = {{1.00f, 1.00f, 0.00f, 0.20f},    // natural
+                                        {1.05f, 1.08f, 0.25f, 0.40f},    // vívido
+                                        {1.00f, 1.05f, 0.10f, 0.00f}};   // suave
+    SetShaderValue(postShader, postGradeLoc, kGrades[std::clamp(graphics.colorStyle, 0, 2)], SHADER_UNIFORM_VEC4);
     BeginShaderMode(postShader);
     DrawTexturePro(sceneRT.texture, {0.0f, 0.0f, res[0], -res[1]}, {0.0f, 0.0f, (float)GetScreenWidth(), (float)GetScreenHeight()},
                    {0.0f, 0.0f}, 0.0f, WHITE);
@@ -1608,32 +2140,78 @@ void Renderer::DrawSky(const Camera3D& cam)
     rlEnableBackfaceCulling();
 }
 
-void Renderer::BeginShadowPass(Vector3 focus)
+void Renderer::BeginShadowPass(Vector3 focus, int cascade)
 {
     // Base de la vista de la luz (la misma que arma BeginMode3D con up = Y). El foco se ajusta a la
-    // grilla de texels: si no, el borde de las sombras titila al moverse la cámara.
+    // grilla de texels de la cascada: si no, el borde de las sombras titila al moverse la cámara. Todo el
+    // mundo sale de la misma orientación de luz (sólo cambian el radio y el foco).
+    const float half = ShadowHalfSize(cascade);
+    shadowCascade = cascade;
     const Vector3 right = Vector3Normalize(Vector3CrossProduct({0.0f, 1.0f, 0.0f}, sunDir));
     const Vector3 up = Vector3CrossProduct(sunDir, right);
-    const float texel = 2.0f * kShadowHalfSize / (float)kShadowResolution;
+    shadowRight = right;
+    shadowUp = up;
+    const float texel = 2.0f * half / (float)(cascade == 0 ? shadowResolution : shadowResolution1);
     const float a = Vector3DotProduct(focus, right), b = Vector3DotProduct(focus, up);
     focus = Vector3Add(focus, Vector3Add(Vector3Scale(right, std::round(a / texel) * texel - a), Vector3Scale(up, std::round(b / texel) * texel - b)));
-    shadowFocus = focus;
+    shadowFocuses[cascade] = focus;
 
     Camera3D cam{};
     cam.target = focus;
-    cam.position = Vector3Add(focus, Vector3Scale(sunDir, 100.0f));
+    cam.position = Vector3Add(focus, Vector3Scale(sunDir, 150.0f));   // 150 m hacia el sol: entra lo alto que da sombra
     cam.up = {0.0f, 1.0f, 0.0f};
-    cam.fovy = 2.0f * kShadowHalfSize;
+    cam.fovy = 2.0f * half;
     cam.projection = CAMERA_ORTHOGRAPHIC;
 
     savedNear = rlGetCullDistanceNear();
     savedFar = rlGetCullDistanceFar();
-    rlSetClipPlanes(1.0, 220.0);
-    BeginTextureMode(shadowMap);
+    rlSetClipPlanes(1.0, 350.0);                                       // volumen de 349 m (kShadowDepth)
+    BeginTextureMode(cascade == 0 ? shadowMap : shadowMap1);
     ClearBackground(WHITE);
     BeginMode3D(cam);
-    lightVP = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
+    (cascade == 0 ? lightVP : lightVP1) = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
     shadowPass = true;
+}
+
+bool Renderer::InShadowPrism(Vector3 lo, Vector3 hi, int cascade) const
+{
+    if (!shadowPass && cascade < 0) return true;
+    if (cascade < 0) cascade = shadowCascade;
+    const float half = ShadowHalfSize(cascade);
+    const Vector3 f = shadowFocuses[cascade];
+    const Vector3 c = {(lo.x + hi.x) * 0.5f - f.x, (lo.y + hi.y) * 0.5f - f.y, (lo.z + hi.z) * 0.5f - f.z};
+    const Vector3 e = {(hi.x - lo.x) * 0.5f, (hi.y - lo.y) * 0.5f, (hi.z - lo.z) * 0.5f};
+    for (const Vector3& axis : {shadowRight, shadowUp}) {
+        const float reach = std::fabs(axis.x) * e.x + std::fabs(axis.y) * e.y + std::fabs(axis.z) * e.z;
+        if (std::fabs(Vector3DotProduct(c, axis)) > half + reach) return false;
+    }
+    return true;
+}
+
+bool Renderer::BoxVisible(Vector3 lo, Vector3 hi) const
+{
+    const Matrix vp = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
+    int outside[6] = {0, 0, 0, 0, 0, 0};
+    for (int k = 0; k < 8; ++k) {
+        const Vector3 p = {k & 1 ? hi.x : lo.x, k & 2 ? hi.y : lo.y, k & 4 ? hi.z : lo.z};
+        const float x = vp.m0 * p.x + vp.m4 * p.y + vp.m8 * p.z + vp.m12, y = vp.m1 * p.x + vp.m5 * p.y + vp.m9 * p.z + vp.m13;
+        const float z = vp.m2 * p.x + vp.m6 * p.y + vp.m10 * p.z + vp.m14, w = vp.m3 * p.x + vp.m7 * p.y + vp.m11 * p.z + vp.m15;
+        outside[0] += x < -w;
+        outside[1] += x > w;
+        outside[2] += y < -w;
+        outside[3] += y > w;
+        outside[4] += z < -w;
+        outside[5] += z > w;
+    }
+    for (int o : outside)
+        if (o == 8) return false;
+    return true;
+}
+
+Vector3 Renderer::CameraPosition() const
+{
+    const Matrix inv = MatrixInvert(rlGetMatrixModelview());
+    return {inv.m12, inv.m13, inv.m14};
 }
 
 void Renderer::EndShadowPass()
@@ -1665,17 +2243,21 @@ void Renderer::DrawTerrain(const Mesh& mesh, Texture2D marks)
     DrawMesh(mesh, terrainMaterial, MatrixIdentity());
 }
 
-void Renderer::DrawMeshTextured(const Mesh& mesh, const Matrix& world, Texture2D texture, bool twoSided)
+void Renderer::DrawMeshTextured(const Mesh& mesh, const Matrix& world, Texture2D texture, bool twoSided, bool riderSurface)
 {
     if (twoSided) rlDisableBackfaceCulling();
     if (shadowPass) {
         DrawMesh(mesh, depthMaterial, world);
     } else {
+        int surface = riderSurface ? 1 : 0;
+        SetShaderValue(lit, riderSurfaceLoc, &surface, SHADER_UNIFORM_INT);
         const Texture2D previous = material.maps[MATERIAL_MAP_DIFFUSE].texture;
         material.maps[MATERIAL_MAP_DIFFUSE].texture = texture;
         material.maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
         DrawMesh(mesh, material, world);
         material.maps[MATERIAL_MAP_DIFFUSE].texture = previous;
+        surface = 0;
+        SetShaderValue(lit, riderSurfaceLoc, &surface, SHADER_UNIFORM_INT);
     }
     rlEnableBackfaceCulling();
 }
@@ -1706,4 +2288,10 @@ void Renderer::DrawGrass(const Matrix* transforms, int count, Texture2D marks, f
     rlDisableBackfaceCulling();
     DrawMeshInstanced(tuft, grassMaterial, transforms, count);
     rlEnableBackfaceCulling();
+}
+
+void Renderer::DrawSoilChunks(const Matrix* transforms, int count)
+{
+    if (count <= 0 || shadowPass) return;
+    DrawMeshInstanced(debris, debrisMaterial, transforms, count);
 }

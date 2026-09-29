@@ -591,6 +591,7 @@ void Favela::BuildAtlas(const Font& font)
     UnloadImage(img);
     GenTextureMipmaps(&atlas);
     SetTextureFilter(atlas, TEXTURE_FILTER_TRILINEAR);
+    atlasAniso = -1;                                              // la anisotropía la aplica Draw (Renderer::ApplyAniso)
 }
 
 // ------------------------------------------------------------------------ mallas
@@ -897,6 +898,11 @@ void Favela::CreateMeshes(const Font& font)
     for (int i = 0; i < kChunks * kChunks; ++i) {
         Chunk& c = chunks[i];
         c.center ={origin + (i % kChunks + 0.5f) * size / kChunks, 0.0f, origin + (i / kChunks + 0.5f) * size / kChunks};
+        for (const MeshBuilder* b : {&solid[i], &decal[i], &two[i]})
+            for (int v = 0; v < b->VertexCount(); ++v) {
+                c.lo = Vector3Min(c.lo, b->P(v));
+                c.hi = Vector3Max(c.hi, b->P(v));
+            }
         if (solid[i].VertexCount() > 0) {
             c.solid = solid[i].Build();
             c.hasSolid = true;
@@ -997,12 +1003,19 @@ void Favela::CreateMeshes(const Font& font)
 void Favela::Draw(Renderer& r, float time) const
 {
     if (!meshes) return;
+    if (atlasAniso != r.AnisoRevision()) {                       // el atlas se filtra como el resto de las texturas
+        r.ApplyAniso(atlas);
+        atlasAniso = r.AnisoRevision();
+    }
+    // Bloques fuera de la vista: afuera (Renderer::BoxVisible con la caja de cada bloque).
+    bool shown[kChunks * kChunks];
+    for (int i = 0; i < kChunks * kChunks; ++i) shown[i] = chunks[i].lo.x <= chunks[i].hi.x && r.BoxVisible(chunks[i].lo, chunks[i].hi);
     r.DrawMeshColored(backdrop, MatrixIdentity(), WHITE);
-    for (const Chunk& c : chunks)
-        if (c.hasSolid) r.DrawMeshColored(c.solid, MatrixIdentity(), WHITE);
+    for (int i = 0; i < kChunks * kChunks; ++i)
+        if (chunks[i].hasSolid && shown[i]) r.DrawMeshColored(chunks[i].solid, MatrixIdentity(), WHITE);
     rlDisableBackfaceCulling();
-    for (const Chunk& c : chunks)
-        if (c.hasTwoSided) r.DrawMeshColored(c.twoSided, MatrixIdentity(), WHITE);
+    for (int i = 0; i < kChunks * kChunks; ++i)
+        if (chunks[i].hasTwoSided && shown[i]) r.DrawMeshColored(chunks[i].twoSided, MatrixIdentity(), WHITE);
     // Pipas: se mecen con el viento; el hilo baja hasta una terraza.
     for (const Kite& k : kites) {
         const float t = time + k.phase;
@@ -1013,19 +1026,19 @@ void Favela::Draw(Renderer& r, float time) const
         if (!r.InShadowPass()) DrawLine3D(k.anchor, p, Color{230, 230, 230, 160});
     }
     rlEnableBackfaceCulling();
-    for (const Chunk& c : chunks)
-        if (c.hasDecal) r.DrawMeshTextured(c.decal, MatrixIdentity(), atlas, false);   // de una cara: los banderines que
-                                                                                        // cruzan la calle son dos espalda con espalda
+    for (int i = 0; i < kChunks * kChunks; ++i)
+        if (chunks[i].hasDecal && shown[i]) r.DrawMeshTextured(chunks[i].decal, MatrixIdentity(), atlas, false);   // de una cara: los banderines que
+                                                                                                                   // cruzan la calle son dos espalda con espalda
 }
 
-void Favela::DrawShadows(Renderer& r, Vector3 focus, float radius) const
+void Favela::DrawShadows(Renderer& r) const
 {
     if (!meshes) return;
     const float half = size / kChunks * 0.72f;                  // radio de un bloque
     for (const Chunk& c : chunks) {
         if (!c.hasSolid) continue;
-        const float dx = c.center.x - focus.x, dz = c.center.z - focus.z;
-        if (dx * dx + dz * dz > (radius + half) * (radius + half)) continue;
+        // El morro sube hasta unos 90 m y los cimientos bajan un poco: y en [-10, 90].
+        if (!r.InShadowPrism({c.center.x - half, -10.0f, c.center.z - half}, {c.center.x + half, 90.0f, c.center.z + half})) continue;
         r.DrawMeshColored(c.solid, MatrixIdentity(), WHITE);
     }
 }

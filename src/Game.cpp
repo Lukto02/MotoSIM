@@ -25,6 +25,8 @@ using JPH::Mat44;
 using JPH::Quat;
 using JPH::Vec3;
 
+bool RunSoilChecks(Terrain& terrain, PhysicsWorld& world);
+
 namespace {
 
 // Colores de la interfaz.
@@ -80,7 +82,8 @@ Game::~Game() = default;
 int Game::Run()
 {
     if (!opt.headless) {
-        SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
+        // Sin MSAA de ventana: la escena se dibuja en una textura (sin MSAA) y suaviza el FXAA; sólo lo usaban el HUD y los menús.
+        SetConfigFlags(FLAG_VSYNC_HINT | FLAG_WINDOW_RESIZABLE);
         InitWindow(opt.width, opt.height, "MotoSim " MOTOSIM_VERSION);
         SetExitKey(KEY_NULL);                                   // Esc abre el menú
         // En monitores chicos la ventana por defecto no entra: se ajusta al 85% del monitor.
@@ -93,12 +96,27 @@ int Game::Run()
         int hz = GetMonitorRefreshRate(monitor);
         SetTargetFPS(hz > 0 ? hz : 60);
         LoadPrefs();
+        if (!opt.gfx.empty()) {                                 // pruebas: --gfx bajo|medio|alto|ultra (encima de lo leído; no se guarda)
+            const int p = Renderer::PresetFromKey(opt.gfx);
+            if (p >= 0) {
+                Renderer::ApplyPreset(renderer.graphics, p);
+                renderer.graphics.autoPreset = false;
+            } else {
+                std::printf("--gfx %s: no es un preset (bajo, medio, alto, ultra)\n", opt.gfx.c_str());
+            }
+        }
         const bool testing = opt.sizeGiven || opt.screenshotAt >= 0.0f || !opt.test.empty() || opt.bot;
         const bool want = opt.fullscreen >= 0 ? opt.fullscreen == 1 : (fullscreen && !testing);
         fullscreen = false;
         if (want) SetFullscreen(true, false);
     }
     Init();
+
+    if (opt.test == "soilcheck") {
+        const bool passed = RunSoilChecks(terrain, *physics);
+        Shutdown();
+        return passed ? 0 : 1;
+    }
 
     if (opt.headless) {
         const float limit = opt.quitAfter > 0.0f ? opt.quitAfter : 60.0f;
@@ -133,6 +151,7 @@ int Game::Run()
             const float frameDt = GetFrameTime();
             Frame(frameDt);
             Draw();
+            PerfWatch(frameDt);
             if (frames++ > 30) {                                // los primeros frames cargan cosas
                 total += frameDt;
                 worst = std::max(worst, (double)frameDt);
@@ -154,6 +173,10 @@ void Game::Init()
     bikeParams.Register(tuning);
     tuning.Add("rut_dig_rate", &deformation.digRate);
     tuning.Add("rut_max_depth", &deformation.maxDepth);
+    tuning.Add("rut_ride", &terrain.rideSoil);
+    tuning.Add("rut_ride_depth", &terrain.rideDepth);
+    tuning.Add("rut_ride_sink", &terrain.rideSink);
+    tuning.Add("rut_ride_blur", &terrain.rideBlur);
 
     if (!opt.headless) {
         rlSetClipPlanes(0.08, 900.0);
@@ -211,6 +234,7 @@ void Game::Init()
         first = 0;
     }
     LoadMap(mods.Maps()[first]);
+    if (!startNotice.empty()) ShowMessage(startNotice, 12.0f);       // aviso de las preferencias (p. ej. la migración de gráficos)
     // Ajustes del jugador (preferencias.ini): la caja y el control de tracción, sólo si maneja él (el bot y las
     // pruebas, con los de siempre); el volumen, siempre.
     if (PlayerDriving()) {
@@ -267,7 +291,7 @@ void Game::Init()
     debugVectors = opt.debugVectors;
     if (opt.sideCamera) camera.mode = ChaseCamera::Mode::Side;
     if (opt.viewZoom > 0.0f) camera.FixView(mu::Rad(opt.viewYaw), mu::Rad(opt.viewPitch), opt.viewZoom);
-    deformation.physicalRuts = opt.ruts;
+    deformation.physicalRuts = opt.ruts || (PlayerDriving() && renderer.graphics.soilMode == 2);
 
     // Multijugador: nombre (el usuario de Windows si no se pasó --name) y, si se pidió, la partida.
     playerName = opt.name;
@@ -355,6 +379,7 @@ void Game::LoadMap(const MapDef& def, bool keepPlace)
         circuit.Build(track, terrain, current);
         circuit.CreateCollision(*physics);
     }
+    deformation.ResetWheelHistory();
     props.Build(opt.flat ? std::vector<MapObject>{} : current.objects, terrain, *physics);
     if (!opt.headless) {
         terrain.CreateMeshes();
@@ -430,6 +455,8 @@ void Game::StartHost()
 {
     mp.SetLocalMap(current.id);
     if (mp.Host(playerName, (uint16_t)opt.port)) {
+        terrain.ResetDeformation(*physics);
+        deformation.ResetWheelHistory();
         std::printf("Partida LAN creada. Código: %s\n", mp.InviteCode().c_str());
         for (const std::string& other : mp.OtherCodes()) std::printf("  otra red: %s\n", other.c_str());
         std::fflush(stdout);
@@ -445,6 +472,7 @@ void Game::StartHost()
 void Game::StartJoin(const std::string& inviteCode)
 {
     if (!mp.Join(inviteCode, playerName)) std::printf("%s\n", mp.Status().c_str());
+    else { terrain.ResetDeformation(*physics); deformation.ResetWheelHistory(); }
     ShowMessage(mp.Status(), 4.0f);
     lastStatus = mp.Status();
 }
@@ -461,7 +489,10 @@ void Game::Shutdown()
         int count = 0;
         float deepest = 0.0f;
         terrain.DeformationStats(count, deepest);
-        std::printf("surcos: %d muestras deformadas, profundidad max %.1f cm\n", count, deepest * 100.0f);
+        float removed, deposited, bank;
+        terrain.SoilStats(removed,deposited,bank);
+        std::printf("surcos: %d muestras deformadas, profundidad max %.1f cm, borde %.1f cm, excavado %.5f m3, depositado %.5f m3\n",
+            count,deepest*100.0f,bank*100.0f,removed,deposited);
     }
     if (!opt.headless) {
         terrain.Unload();
@@ -791,13 +822,19 @@ void Game::Step(BikeInput in)
         jumpAir = 0.0f;
     }
     jumpShow = std::max(0.0f, jumpShow - kDt);
+    deformation.visualRuts = renderer.graphics.soilMode != 0;
     if (!opt.headless) EmitEffects();
-    if (deformation.physicalRuts) {
-        const Wheel& rw = bike.wheels[Bike::REAR];
-        if (rw.grounded)
-            deformation.DigRut(terrain, rw.contactPoint.GetX(), rw.contactPoint.GetZ(), rw.omega * rw.radius - rw.longVel, std::fabs(rw.latVel));
-        deformation.CommitRuts(terrain, *physics, kDt);
-    }
+    if (deformation.physicalRuts && !mp.Active()) {
+        const Vec3 direction=bike.Rotation()*Vec3::sAxisZ();
+        for (int i=0; i<2; ++i) {
+            const Wheel& w=bike.wheels[i];
+            const bool ground=w.grounded && w.onTerrain;
+            deformation.PressWheel(terrain,i,{w.contactPoint.GetX(),w.contactPoint.GetZ()},{direction.GetX(),direction.GetZ()},ground,
+                w.normalForce,w.omega*w.radius-w.longVel,w.latVel,renderer.graphics.soilSoftness/100.0f,renderer.graphics.soilDepth/100.0f,kDt);
+        }
+    } else deformation.ResetWheelHistory();
+    // Se termina cualquier lote pendiente aunque se acabe de apagar la excavación.
+    deformation.CommitRuts(terrain, *physics, kDt);
     const float respawnAfter = AutoRespawnAfter(opt);
     if (bike.crashed && respawnAfter >= 0.0f && bike.crashedTime > respawnAfter) {
         if (opt.respawnHere && FreeRide()) RespawnHere();   // prueba de lo que hace la R del jugador en un mapa libre
@@ -995,7 +1032,10 @@ void Game::HandleKeys()
     if (const float wheel = GetMouseWheelMove(); wheel != 0.0f) camera.Zoom(wheel);
     if (IsKeyPressed(KEY_F8)) {
         deformation.physicalRuts = !deformation.physicalRuts;
-        ShowMessage(deformation.physicalRuts ? "Surcos físicos prendidos" : "Surcos físicos apagados");
+        renderer.graphics.soilMode = deformation.physicalRuts ? 2 : 1;
+        SavePrefs();
+        if (mp.Active()) ShowMessage("En red: huellas visuales; el terreno físico no se modifica");
+        else ShowMessage(deformation.physicalRuts ? "Surcos físicos prendidos" : "Surcos físicos apagados");
     }
     if (IsKeyPressed(KEY_F9) && riderModel.Loaded()) {
         useRiderModel = !useRiderModel;
@@ -1634,11 +1674,31 @@ void Game::SetFullscreen(bool on, bool remember)
 
 static std::string PrefsPath() { return std::string(GetApplicationDirectory()) + "preferencias.ini"; }
 
+// Copia el archivo de una versión anterior (sin graficos_version) antes de reescribirlo: SavePrefs escribe todo de nuevo y
+// lo que el jugador tenía a mano (o un comentario suyo) se perdería. No pisa una copia que ya existe (.bak2, .bak3...).
+static void BackupOldPrefs()
+{
+    int size = 0;
+    unsigned char* data = LoadFileData(PrefsPath().c_str(), &size);
+    if (!data) return;
+    std::string dst = PrefsPath() + ".v1.bak";
+    for (int n = 2; FileExists(dst.c_str()) && n < 20; ++n) dst = PrefsPath() + ".v1.bak" + std::to_string(n);
+    SaveFileData(dst.c_str(), data, size);
+    UnloadFileData(data);
+    TraceLog(LOG_INFO, "PREFS: copia de las preferencias anteriores en %s", dst.c_str());
+}
+
 void Game::LoadPrefs()
 {
+    auto& g = renderer.graphics;
+    // Lo gráfico parte del preset que le toca a la placa (glGetString, hace falta el contexto de OpenGL: después de
+    // InitWindow), con el estilo en sus defaults y grafico_auto = 1. Sin archivo, o con uno de una versión anterior, queda así.
+    gpuName = Renderer::GpuDescription(&detectedPreset);
+    Renderer::ApplyPreset(g, detectedPreset);
+    g.autoPreset = true;
     // "clave = valor" por línea, como tuning.ini (# comenta). Si falta una clave (preferencias de una versión
     // anterior), queda el default.
-    if (!FileExists(PrefsPath().c_str())) return;
+    if (opt.noPrefs || !FileExists(PrefsPath().c_str())) return;
     char* text = LoadFileText(PrefsPath().c_str());
     if (!text) return;
     std::map<std::string, std::string> values;
@@ -1661,9 +1721,32 @@ void Game::LoadPrefs()
     auto flag = [&](const char* key, bool& value) {
         if (auto it = values.find(key); it != values.end() && !it->second.empty()) value = std::atoi(it->second.c_str()) != 0;
     };
+    auto number = [&](const char* key, int& value, int lo, int hi) {
+        if (auto it = values.find(key); it != values.end()) {
+            char* end = nullptr;
+            const long parsed = std::strtol(it->second.c_str(), &end, 10);
+            if (end != it->second.c_str() && *end == '\0') value = (int)std::clamp(parsed, (long)lo, (long)hi);
+        }
+    };
+    auto textOf = [&](const char* key) {
+        auto it = values.find(key);
+        return it == values.end() ? std::string() : it->second;
+    };
+
+    // Sin graficos_version (v0.2.8 y anteriores) los rangos y el significado de los ajustes eran otros: se conserva todo lo
+    // que no es gráfico y lo gráfico vuelve al preset de la placa, con el archivo viejo copiado aparte.
+    int version = 0;
+    number("graficos_version", version, 0, 1000);
+    const bool migrating = version < 2;
+    if (migrating && !PrefsLocked()) BackupOldPrefs();
+
+    // Lo que no es gráfico, y la física del suelo (no entra en ningún preset).
     flag("pantalla_completa", fullscreen);
     flag("sacudon_camara", camera.shakeEnabled);
     flag("motion_blur", motionBlur);
+    number("tierra_deformacion", g.soilMode, 0, 2);
+    number("tierra_blandura", g.soilSoftness, 0, 100);
+    number("tierra_profundidad", g.soilDepth, 5, 35);
     flag("datos_tecnicos", techData);
     flag("caja_automatica", prefAutoShift);
     flag("control_traccion", prefTraction);
@@ -1676,18 +1759,139 @@ void Game::LoadPrefs()
         helpMode = it->second == "siempre" ? HelpMode::Always : (it->second == "nunca" ? HelpMode::Never : HelpMode::Start);
     if (auto it = values.find("moto"); it != values.end()) chosenBike = savedBike = it->second;   // vacío = la de cada mapa
     if (auto it = values.find("nombre"); it != values.end()) savedName = it->second;   // vacío = el usuario de Windows
+
+    if (migrating) {
+        startNotice = std::string("Renovamos los gráficos: quedaron en ") + Renderer::PresetName(detectedPreset) + ". Ajustes \xE2\x86\x92 Gráficos.";   // se muestra al armar el mapa (LoadMap pisa el mensaje)
+        if (!PrefsLocked()) SavePrefs();                          // ya con graficos_version = 2
+        return;
+    }
+
+    // 1) Un preset con nombre manda: las claves sueltas de calidad se ignoran (un Alto retocado en una versión nueva se
+    //    mejora solo). 2) El estilo se lee siempre, recortado a los rangos del menú. 3) Personalizado: las claves sueltas.
+    g.autoPreset = false;
+    flag("grafico_auto", g.autoPreset);
+    const int named = Renderer::PresetFromKey(textOf("grafico_preset"));
+    if (named >= 0) Renderer::ApplyPreset(g, named);
+    number("sombras_suavidad", g.shadowSoftness, 60, 130);
+    number("sombras_intensidad", g.shadowStrength, 40, 100);
+    number("luz_sol", g.sunlight, 70, 130);
+    number("luz_ambiente", g.ambient, 60, 140);
+    number("exposicion", g.brightness, 70, 130);
+    number("niebla", g.fog, 25, 150);
+    number("vineta", g.vignette, 0, 60);
+    number("grano", g.grain, 0, 40);
+    number("aberracion", g.aberration, 0, 50);
+    number("pasto_viento", g.grassWind, 0, 150);
+    if (const std::string style = textOf("estilo_color"); !style.empty())
+        g.colorStyle = style == "natural" ? 0 : (style == "suave" ? 2 : 1);
+    if (named < 0) {
+        number("sombras_calidad", g.shadowQuality, 0, 3);
+        number("sombras_distancia", g.shadowNear, 16, 40);                     // radio de la cascada cercana
+        number("sombras_lejos", g.shadowFar, 0, 200);                          // 0: sin cascada lejana
+        if (g.shadowFar > 0) g.shadowFar = std::max(g.shadowFar, 50);
+        number("sombras_filtro", g.shadowTaps, 5, 9);
+        g.shadowTaps = g.shadowTaps >= 9 ? 9 : 5;
+        number("pasto_distancia", g.grassDistance, 0, 120);
+        number("pasto_densidad", g.grassDensity, 0, 100);
+        number("distancia_props", g.propsRadius, 0, 2000);
+        number("distancia_gente", g.detailRadius, 0, 1000);
+        number("filtro_texturas", g.aniso, 1, 16);
+        g.aniso = g.aniso >= 12 ? 16 : (g.aniso >= 6 ? 8 : (g.aniso >= 3 ? 4 : 1));   // 1, 4, 8 o 16
+        number("resolucion_render", g.renderScale, 75, 100);
+        flag("fxaa", g.fxaa);
+        number("tierra_relieve", g.soilDetail, 0, 200);
+        number("tierra_particulas", g.soilParticles, 0, 150);
+        number("pasto_desplazamiento", g.grassDisplacement, 0, 200);
+        // Personalizado vuelve a su preset base (el último que se aplicó); si las claves sueltas coinciden con uno, es ése.
+        const int base = Renderer::PresetFromKey(textOf("grafico_base"));
+        g.customBase = base >= 0 ? base : detectedPreset;
+        g.preset = Renderer::MatchPreset(g);
+        if (g.preset >= 0) g.customBase = g.preset;
+    }
 }
 
 void Game::SavePrefs() const
 {
+    if (PrefsLocked()) return;                       // --noprefs y --gfx: el archivo no se toca
     auto b = [](bool v) { return v ? "1" : "0"; };
     const char* help = helpMode == HelpMode::Always ? "siempre" : (helpMode == HelpMode::Never ? "nunca" : "al_empezar");
+    const auto& g = renderer.graphics;
+    const char* styles[] = {"natural", "vivido", "suave"};
+    // Las claves de calidad de antes (sombras_calidad, pasto_distancia...) se siguen escribiendo, para que volver a una
+    // versión anterior no rompa nada; con un preset con nombre, al leer mandan grafico_preset.
     const std::string text = std::string("# Preferencias de MotoSim (las guarda el juego: menú -> Ajustes)\n") +
-                             "pantalla_completa = " + b(fullscreen) + "\nsacudon_camara = " + b(camera.shakeEnabled) +
+                             "graficos_version = 2\ngrafico_preset = " + Renderer::PresetKey(g.preset) + "\ngrafico_base = " +
+                             Renderer::PresetKey(g.customBase) + "\ngrafico_auto = " + b(g.autoPreset) +
+                             "\npantalla_completa = " + b(fullscreen) + "\nsacudon_camara = " + b(camera.shakeEnabled) +
                              "\nmotion_blur = " + b(motionBlur) + "\nsonido = " + b(!muted) + "\nvolumen = " + std::to_string(volume * 10) +
                              "\nayuda_teclas = " + help + "\ndatos_tecnicos = " + b(techData) + "\ncaja_automatica = " + b(prefAutoShift) +
+                             "\nsombras_calidad = " + std::to_string(g.shadowQuality) +
+                             "\nsombras_distancia = " + std::to_string(g.shadowNear) +
+                             "\nsombras_lejos = " + std::to_string(g.shadowFar) + "\nsombras_filtro = " + std::to_string(g.shadowTaps) +
+                             "\nsombras_suavidad = " + std::to_string(g.shadowSoftness) +
+                             "\nsombras_intensidad = " + std::to_string(g.shadowStrength) +
+                             "\nluz_sol = " + std::to_string(g.sunlight) + "\nluz_ambiente = " + std::to_string(g.ambient) +
+                             "\nexposicion = " + std::to_string(g.brightness) + "\nniebla = " + std::to_string(g.fog) +
+                             "\nestilo_color = " + styles[std::clamp(g.colorStyle, 0, 2)] +
+                             "\nvineta = " + std::to_string(g.vignette) + "\ngrano = " + std::to_string(g.grain) +
+                             "\naberracion = " + std::to_string(g.aberration) + "\nfxaa = " + b(g.fxaa) +
+                             "\nresolucion_render = " + std::to_string(g.renderScale) + "\nfiltro_texturas = " + std::to_string(g.aniso) +
+                             "\npasto_distancia = " + std::to_string(g.grassDistance) + "\npasto_densidad = " + std::to_string(g.grassDensity) +
+                             "\ndistancia_props = " + std::to_string(g.propsRadius) + "\ndistancia_gente = " + std::to_string(g.detailRadius) +
+                             "\npasto_viento = " + std::to_string(g.grassWind) +
+                             "\npasto_desplazamiento = " + std::to_string(g.grassDisplacement) + "\ntierra_deformacion = " + std::to_string(g.soilMode) +
+                             "\ntierra_blandura = " + std::to_string(g.soilSoftness) + "\ntierra_profundidad = " + std::to_string(g.soilDepth) +
+                             "\ntierra_relieve = " + std::to_string(g.soilDetail) + "\ntierra_particulas = " + std::to_string(g.soilParticles) +
                              "\ncontrol_traccion = " + b(prefTraction) + "\nmoto = " + savedBike + "\nnombre = " + savedName + "\n";
     SaveFileText(PrefsPath().c_str(), const_cast<char*>(text.c_str()));
+}
+
+// El preset de calidad que eligió el jugador (o el que sigue): a mano, así que deja de ser "automático".
+void Game::ApplyQualityPreset(int preset)
+{
+    Renderer::ApplyPreset(renderer.graphics, preset);
+    renderer.graphics.autoPreset = false;
+    SavePrefs();
+}
+
+// Tras tocar un campo de calidad suelto: si sigue coincidiendo con un preset es ése; si no, Personalizado (que vuelve a
+// customBase, el último aplicado). Tocar calidad a mano apaga la red de seguridad de fps (ya no lo eligió el juego).
+void Game::QualityChanged()
+{
+    auto& g = renderer.graphics;
+    g.autoPreset = false;
+    g.preset = Renderer::MatchPreset(g);
+    if (g.preset >= 0) g.customBase = g.preset;
+    SavePrefs();
+}
+
+// Red de seguridad de fps, sólo si el preset lo eligió el juego (grafico_auto = 1): tras 5 s de manejo (carga de shaders)
+// mide 12 s, con el menú cerrado, sin pausa y con la ventana enfocada. Si el cuadro medio pasa 1.35 veces el período del
+// monitor baja un escalón, avisa y guarda. Una sola vez por preset. No corre con capturas, pruebas ni el bot.
+void Game::PerfWatch(float dt)
+{
+    auto& g = renderer.graphics;
+    if (!g.autoPreset || g.preset < 1 || perfChecked[g.preset] || !PlayerDriving() || opt.sizeGiven || opt.screenshotAt >= 0.0f || PrefsLocked()) return;
+    if (menu != Menu::None || paused || mapLoadIn >= 0 || !mapLoaded || !IsWindowFocused() || IsWindowMinimized() || dt > 0.25f) return;
+    if (perfSkip < 5.0f) {
+        perfSkip += dt;
+        return;
+    }
+    perfTime += dt;
+    ++perfFrames;
+    if (perfTime < 12.0f) return;
+    const int hz = GetMonitorRefreshRate(GetCurrentMonitor());
+    const float period = 1.0f / (float)(hz > 0 ? hz : 60), mean = perfTime / (float)perfFrames;
+    const int from = g.preset;
+    perfChecked[from] = true;
+    perfSkip = perfTime = 0.0f;
+    perfFrames = 0;
+    TraceLog(LOG_INFO, "GRAFICOS: %s, cuadro medio %.1f ms (monitor %.1f ms)%s", Renderer::PresetName(from), mean * 1000.0f, period * 1000.0f,
+             mean > 1.35f * period ? ": anda lento, baja un escalón" : "");
+    if (mean <= 1.35f * period) return;
+    Renderer::ApplyPreset(g, from - 1);              // sigue siendo automático
+    ShowMessage(std::string("Bajamos los gráficos a ") + Renderer::PresetName(from - 1) + " para que ande más fluido. Ajustes \xE2\x86\x92 Gráficos.", 8.0f);
+    SavePrefs();
 }
 
 void Game::ApplySound()
@@ -1882,6 +2086,7 @@ void Game::FeedTireSound()
 
 void Game::EmitEffects()
 {
+    for (auto& contact : renderer.grassContacts) contact = Vector4{};
     // La cola raspando el piso (wheelie pasado): chispas que salen del contacto hacia donde desliza,
     // más cuanto más rápido, y el ruido del raspado. Contra el pavimento, un objeto o una casa, el acero
     // saca muchas chispas; en la tierra salen menos (las piedritas) y levanta polvo.
@@ -2001,37 +2206,50 @@ void Game::EmitWheelEffects(int bikeSlot, int wheel, const WheelFx& w, Vec3 fwd,
     // Goma en el asfalto: a cuánto resbala la cubierta sobre el suelo. Sólo apoyada en el terreno: sobre una
     // rampa o un escalón la marca quedaría abajo, en el piso (las de los demás llegan siempre a la altura del
     // terreno: no se sabe).
-    const bool onTerrain = std::fabs(w.contact.GetY() - terrain.Height(w.contact.GetX(), w.contact.GetZ())) < 0.08f;
+    const bool onTerrain = bikeSlot == 0 ? bike.wheels[wheel].onTerrain :
+        std::fabs(w.contact.GetY() - terrain.Height(w.contact.GetX(), w.contact.GetZ())) < 0.08f;
     deformation.WheelContact(slot, w.contact.GetX(), w.contact.GetZ(), w.grounded, w.load, w.markSlip, std::hypot(w.spin, w.latVel),
                              {fwd.GetX(), fwd.GetZ()}, onTerrain, kDt, bikeSlot == 0 ? BrakingEdge(bike.wheels[wheel]) : 0.0f);
-    if (!w.grounded) return;
+    if (w.grounded && onTerrain && slot < 10)
+        renderer.grassContacts[slot] = {w.contact.GetX(),w.contact.GetY(),w.contact.GetZ(),0.8f};
+    if (!w.grounded) { roostAccum[slot]=dustAccum[slot]=0.0f; return; }
 
     const float slide = std::fabs(w.latVel);
     const Vec3 n = w.normal;
     const Vec3 f = (fwd - n * fwd.Dot(n)).NormalizedOr(fwd);
     const Vec3 side = n.Cross(f);
     const Vec3 cp = w.contact + n * 0.04f;
-    const float dirty = terrain.Dustiness(cp.GetX(), cp.GetZ());
+    const float dirty = onTerrain ? terrain.Dustiness(cp.GetX(), cp.GetZ()) : 0.0f;
+    const float soil = onTerrain ? terrain.SoilAmount(cp.GetX(),cp.GetZ()) : 0.0f;
+    const float wet = renderer.graphics.soilSoftness/100.0f;
+    const float particleScale = renderer.graphics.soilParticles/100.0f;
     const bool red = terrain.Streets();
 
-    // Tierra (roost): proporcional al patinaje de la trasera y a la velocidad de la rueda,
-    // sale hacia atrás y arriba; si derrapa, también hacia afuera.
-    if (wheel == Bike::REAR) {
-        float& roost = roostAccum[bikeSlot];
-        roost += (std::max(0.0f, w.spin - 0.6f) * 55.0f + std::max(0.0f, slide - 1.2f) * 30.0f) * dirty * kDt;
-        while (roost >= 1.0f) {
-            roost -= 1.0f;
-            Vec3 v = -f * (std::max(w.spin, 1.0f) * Rand(0.45f, 0.9f)) + n * Rand(1.2f, 4.2f) + side * Rand(-1.3f, 1.3f) -
-                     side * (w.latVel * Rand(0.2f, 0.6f));
-            unsigned char r = (unsigned char)Rand(70.0f, 112.0f);
-            particles.Emit(Particles::DIRT, ToRl(cp), ToRl(v), Rand(0.05f, 0.12f), Rand(0.8f, 1.4f),
-                           Color{(unsigned char)(red ? r * 1.25f : r), (unsigned char)(r * (red ? 0.6f : 0.72f)), (unsigned char)(r * (red ? 0.42f : 0.5f)), 255});
-        }
+    // Sale de la tangente trasera de la rueda y conserva parte de la velocidad de la moto.
+    // Carga, cizallamiento y tipo de suelo gobiernan la cantidad; sin carga no hay excavadora aérea.
+    float& roost=roostAccum[slot];
+    const float shear=std::max(0.0f,std::fabs(w.spin)-0.7f)+slide*0.6f;
+    const float loadFactor=std::clamp(w.load/1000.0f,0.0f,1.5f);
+    const float rate=std::min(480.0f,(shear*32.0f+(bikeVel.Length()>2.0f?5.0f:0.0f))*loadFactor*soil*
+        (wheel==Bike::REAR?1.0f:0.35f)*(0.6f+wet)*particleScale);
+    if (rate <= 0.0f) roost=0.0f;
+    else roost=std::min(roost+rate*kDt,12.0f);
+    while (roost >= 1.0f) {
+        roost-=1.0f;
+        const float spinSpeed=std::min(22.0f,std::fabs(w.spin));
+        const float dir=w.spin < -0.7f ? 1.0f : -1.0f;
+        const Vec3 at=cp+f*(dir*0.10f)+side*Rand(-0.055f,0.055f)+n*Rand(0.03f,0.10f);
+        const Vec3 v=bikeVel*Rand(0.25f,0.5f)+f*(dir*Rand(0.35f,0.7f)*spinSpeed)+
+            n*Rand(1.0f,2.2f+spinSpeed*0.18f)+side*(Rand(-1.0f,1.0f)-w.latVel*0.3f);
+        const unsigned char shade=(unsigned char)Rand(70.0f-15.0f*wet,112.0f-20.0f*wet);
+        particles.Emit(Particles::DIRT,ToRl(at),ToRl(v),Rand(0.035f,0.10f+wet*0.045f),Rand(1.0f,2.0f),
+            Color{(unsigned char)(red?shade*1.25f:shade),(unsigned char)(shade*(red?0.6f:0.72f)),(unsigned char)(shade*(red?0.42f:0.5f)),255});
     }
 
     // Polvo: por velocidad, más si patina o derrapa.
     const float speed = bikeVel.Length();
-    dustAccum[slot] += (std::max(0.0f, speed - 3.0f) * 1.1f + std::max(0.0f, w.spin) * 3.0f + slide * 2.5f) * dirty * kDt;
+    dustAccum[slot] += (std::max(0.0f, speed - 3.0f) * 1.1f + std::max(0.0f, w.spin) * 3.0f + slide * 2.5f) * dirty * (1.0f-0.7f*wet) * particleScale * kDt;
+    dustAccum[slot] = particleScale > 0.0f ? std::min(dustAccum[slot], 8.0f) : 0.0f;
     while (dustAccum[slot] >= 1.0f) {
         dustAccum[slot] -= 1.0f;
         // El polvo sale arrastrado por la rueda: conserva parte de la velocidad de la moto.
@@ -2046,13 +2264,13 @@ void Game::EmitWheelEffects(int bikeSlot, int wheel, const WheelFx& w, Vec3 fwd,
         // 70% de lo que era (0.12 + 0.45·impacto): el usuario lo quería más suave. La vibración va con el cuadrado
         // (queda a la mitad); el zoom hacia adentro y la caída de la cámara, al 70%. Los choques no cambian.
         if (bikeSlot == 0) camera.AddShake(0.084f + 0.315f * impact);
-        for (int k = 0; k < (int)(8 + 16 * impact); ++k) {
+        for (int k = 0; k < (int)((8 + 16 * impact) * soil * particleScale); ++k) {
             Vec3 v = f * Rand(-1.5f, 1.5f) + side * Rand(-2.5f, 2.5f) + n * Rand(0.5f, 2.5f);
             unsigned char r = (unsigned char)Rand(80.0f, 115.0f);
             particles.Emit(Particles::DIRT, ToRl(cp), ToRl(v), Rand(0.04f, 0.08f), Rand(0.5f, 1.0f),
                            Color{r, (unsigned char)(r * 0.72f), (unsigned char)(r * 0.5f), 255});
         }
-        for (int k = 0; k < (int)(3 + 6 * impact); ++k) {
+        for (int k = 0; k < (int)((3 + 6 * impact) * dirty * particleScale * (1.0f-0.7f*wet)); ++k) {
             Vec3 v = side * Rand(-1.5f, 1.5f) + f * Rand(-1.0f, 1.0f) + n * Rand(0.3f, 1.0f);
             particles.Emit(Particles::DUST, ToRl(cp + n * 0.2f), ToRl(v), Rand(0.7f, 1.2f), Rand(1.8f, 2.8f),
                            Color{182, 162, 132, (unsigned char)Rand(60.0f, 90.0f)});
@@ -2099,31 +2317,37 @@ void Game::BuildTrackDressing()
     }
 }
 
-// Todo lo sólido: en la pasada de sombras sólo el terreno cercano al foco.
+// Todo lo sólido: en la pasada de sombras sólo lo que cae en el prisma de la luz de la cascada. La cascada lejana
+// (shadowFarPass) lleva sólo el mundo quieto: nada de la moto propia, el piloto, los demás jugadores ni las motos
+// estacionadas (está en caché y se movería su sombra; a más de 24 m no se nota).
 void Game::DrawScene(bool shadowCasters)
 {
     if (shadowCasters) {
         const Vector3 f = renderer.ShadowFocus();
-        terrain.Draw(renderer, deformation.MarksTexture(), f.x, f.z, Renderer::kShadowHalfSize * 1.5f + 10.0f);
+        terrain.Draw(renderer, deformation.MarksTexture(), f.x, f.z, renderer.ShadowHalfSize(shadowFarPass ? 1 : 0) * 1.5f + 10.0f);
     } else {
         terrain.Draw(renderer, deformation.MarksTexture());
         renderer.DrawGrass(grassTufts.data(), (int)grassTufts.size(), deformation.MarksTexture(), terrain.OriginX(), terrain.Size());
     }
     for (const Prop& p : dressing) renderer.Box(p.transform, p.color);
-    if (shadowCasters) props.Draw(renderer, *physics, renderer.ShadowFocus(), Renderer::kShadowHalfSize * 1.5f + 10.0f);
+    if (shadowCasters) props.Draw(renderer, *physics, true, shadowFarPass);
     else props.Draw(renderer, *physics);
     if (circuit.Active()) {
-        if (shadowCasters) circuit.DrawShadows(renderer, renderer.ShadowFocus(), Renderer::kShadowHalfSize * 1.5f + 10.0f);
+        if (shadowCasters) circuit.DrawShadows(renderer);
         else circuit.Draw(renderer);
     }
     if (favela.Active()) {
-        if (shadowCasters) favela.DrawShadows(renderer, renderer.ShadowFocus(), Renderer::kShadowHalfSize * 1.5f + 10.0f);
+        if (shadowCasters) favela.DrawShadows(renderer);
         else favela.Draw(renderer, (float)GetTime());
         // Motos estacionadas (con la pata puesta: un poco inclinadas) y el baú de los motoboys.
         for (const Favela::Parked& pk : favela.ParkedBikes()) {
+            if (shadowFarPass) break;
             const Quat q = Quat::sRotation(Vec3::sAxisY(), pk.yaw) * Quat::sRotation(Vec3::sAxisZ(), -0.12f);
             const Vec3 at = pk.pos + Vec3(0.0f, 0.62f, 0.0f);
-            if (shadowCasters && (at - ToJph(renderer.ShadowFocus())).Length() > 60.0f) continue;
+            if (shadowCasters) {                      // sólo las que caen en el prisma de la luz (la moto mide ~2 m)
+                const Vector3 a = ToRl(at);
+                if (!renderer.InShadowPrism({a.x - 2.0f, a.y - 2.0f, a.z - 2.0f}, {a.x + 2.0f, a.y + 2.0f, a.z + 2.0f})) continue;
+            }
             parkedBike.SetVisualState(at, q, false);
             for (Wheel& w : parkedBike.wheels) w.extension = w.travel * 0.7f;
             parkedBike.Draw(renderer, 0.0f, false, pk.livery);
@@ -2133,6 +2357,7 @@ void Game::DrawScene(bool shadowCasters)
     }
     // Goma en el asfalto: después de lo opaco del suelo (queda encima de las líneas pintadas y del asfalto de boxes).
     if (!shadowCasters) deformation.DrawSkids(renderer);
+    if (shadowFarPass) return;                 // la cascada lejana termina acá: sólo el mundo quieto
     if (menu == Menu::Bikes && !previewBikeId.empty()) {
         // Selector de motos: la marcada, sin piloto, girando sobre una plataforma oscura con un aro del color
         // del juego (la plataforma crece al entrar y sube la moto con ella).
@@ -2163,6 +2388,7 @@ void Game::DrawScene(bool shadowCasters)
 
 void Game::Draw()
 {
+    terrain.UpdateSoilVisibility(camera.cam.position.x,camera.cam.position.z);
     deformation.Flush();             // dibuja en la textura de huellas (fuera de BeginDrawing)
 
     // Piloto con modelo: pose y skinning una vez por frame (sirven para la sombra y para la imagen).
@@ -2179,20 +2405,53 @@ void Game::Draw()
     }
     mp.UpdateVisuals(GetFrameTime());                   // motos y pilotos de los demás (pose y skinning)
 
-    // Sombras: mapa de profundidad desde el sol, centrado un poco por delante de lo que sigue la cámara.
+    // Sombras: la cascada cercana (todo, cada cuadro) centrada a 0.25 de su radio hacia donde mira la cámara, y la
+    // lejana (sólo el mundo quieto) en caché: se rehace cuando el centro deseado (la moto + 0.2 de su radio hacia
+    // la cámara) se movió más de 0.2 de su radio, a lo sumo una vez cada 3 cuadros, o si cambió algo que la invalida.
     const Vec3 subject = ragdoll.Active() ? ragdoll.Position(alpha) : bike.RenderPosition(alpha);
     Vector3 look = Vector3Subtract(camera.cam.target, camera.cam.position);
     look.y = 0.0f;
     look = Vector3Length(look) > 0.01f ? Vector3Normalize(look) : Vector3{0.0f, 0.0f, 1.0f};
-    const Vector3 ahead = Vector3Add(ToRl(subject), Vector3Scale(look, 12.0f));
-    renderer.BeginShadowPass(ahead);
-    DrawScene(true);
-    renderer.EndShadowPass();
+    renderer.UpdateGraphics();
+    if (renderer.ShadowsEnabled()) {
+        const Vector3 ahead = Vector3Add(ToRl(subject), Vector3Scale(look, renderer.ShadowHalfSize(0) * 0.25f));
+        shadowFarPass = false;
+        renderer.BeginShadowPass(ahead, 0);
+        DrawScene(true);
+        renderer.EndShadowPass();
+        if (renderer.FarShadowEnabled()) {
+            const float farRadius = renderer.ShadowHalfSize(1);
+            const Vector3 want = Vector3Add(ToRl(subject), Vector3Scale(look, farRadius * 0.2f));
+            const float moved = Vector2Distance({want.x, want.z}, {shadowFarCenter.x, shadowFarCenter.z});
+            ++shadowFarAge;
+            if (shadowFarRevision != renderer.ShadowFarRevision() || (moved > farRadius * 0.2f && shadowFarAge >= 3)) {
+                shadowFarPass = true;
+                renderer.BeginShadowPass(want, 1);
+                DrawScene(true);
+                renderer.EndShadowPass();
+                shadowFarPass = false;
+                shadowFarCenter = want;
+                shadowFarRevision = renderer.ShadowFarRevision();
+                shadowFarAge = 0;
+            }
+        }
+    }
 
-    // Pasto 3D en un radio por delante de la cámara; se recalcula al moverse más de 1 m.
-    if (Vector2Distance({ahead.x, ahead.z}, {grassCenter.x, grassCenter.z}) > 1.0f) {
-        terrain.GrassTufts(ahead.x, ahead.z, 30.0f, grassTufts);
-        grassCenter = ahead;
+    // Radio medido desde la cámara, con margen para que el desvanecimiento lo haga el shader: la lista se rehace cada
+    // 6 m de cámara con 10 m de margen (el raleo con la distancia lo hace kGrassVS cada cuadro, sin saltos, y
+    // Terrain::GrassTufts ya deja pasar las matas que van a entrar en esos 6 m).
+    const int radius=renderer.graphics.grassDistance, density=std::clamp(renderer.graphics.grassDensity,0,100);
+    const Vector3 center=camera.cam.position;
+    if (radius != grassRadius || density != grassDensityBuilt || Vector2Distance({center.x,center.z},{grassCenter.x,grassCenter.z})>6.0f) {
+        if (radius > 0 && density > 0) terrain.GrassTufts(center.x,center.z,(float)radius+10.0f,grassTufts,density/100.0f);
+        else grassTufts.clear();
+        grassRadius=radius;
+        grassDensityBuilt=density;
+        grassCenter=center;
+    }
+    if (grassRevision != terrain.DeformationRevision()) {
+        for (Matrix& m : grassTufts) m.m13=terrain.Height(m.m12,m.m14)-0.02f;
+        grassRevision=terrain.DeformationRevision();
     }
 
     renderer.BeginScene();
@@ -2208,7 +2467,7 @@ void Game::Draw()
         const Multiplayer::Remote& r = mp.Remotes()[id];
         frames[1 + id] = r.active ? ToRl(Mat44::sRotationTranslation(r.DisplayRot(), r.DisplayPos())) : MatrixIdentity();
     }
-    particles.Draw(camera.cam, frames, 1 + Multiplayer::kMaxPlayers);
+    particles.Draw(renderer, camera.cam, frames, 1 + Multiplayer::kMaxPlayers);
     if (debugVectors) {
         rlDrawRenderBatchActive();
         rlDisableDepthTest();
@@ -2221,14 +2480,16 @@ void Game::Draw()
 
     // Post-proceso (F7): motion blur radial centrado en la moto, más fuerte cuanto más rápido.
     Renderer::PostFX fx;
+    fx.vignette = renderer.graphics.vignette * 0.005f;
+    fx.grain = renderer.graphics.grain * 0.0003f;
     if (postEffects) {
         const Vector2 onScreen = GetWorldToScreen(Vector3Add(ToRl(subject), {0.0f, 0.4f, 0.0f}), camera.cam);
         fx.focus = {mu::Clamp(onScreen.x / (float)GetScreenWidth(), 0.2f, 0.8f), mu::Clamp(onScreen.y / (float)GetScreenHeight(), 0.2f, 0.8f)};
         const float speed = ragdoll.Active() ? ragdoll.Velocity().Length() : bike.speed;
-        fx.speedBlur = motionBlur ? mu::Smoothstep(11.0f, 28.0f, speed) * 0.035f : 0.0f;
-        fx.aberration = 0.0015f + mu::Smoothstep(14.0f, 30.0f, speed) * 0.0035f;
+        fx.speedBlur = motionBlur ? mu::Smoothstep(11.0f, 28.0f, speed) * 0.025f : 0.0f;
+        fx.aberration = (0.0015f + mu::Smoothstep(14.0f, 30.0f, speed) * 0.0035f) * renderer.graphics.aberration / 100.0f;
     } else {
-        fx.vignette = fx.grain = 0.0f;                  // sólo queda el FXAA
+        fx.vignette = fx.grain = 0.0f;                  // quedan el FXAA y el estilo de color (siempre puestos)
     }
 
     BeginDrawing();
@@ -2786,11 +3047,49 @@ std::vector<Game::MenuItem> Game::MenuItems()
     return items;
 }
 
-// Ajustes: lo que antes estaba suelto en el menú (pantalla completa, sacudón, motion blur) y lo que el jugador
-// puede querer cambiar (volumen, ayuda, datos técnicos, caja, tracción). Todo se guarda al cambiarlo.
+namespace {
+// Ajustes de "una de varias" que valen un número: cuál de los valores fijos es el más cercano al de ahora (el
+// preferencias.ini puede traer cualquier otro).
+int NearestIndex(const int* values, int count, int v)
+{
+    int best = 0;
+    for (int i = 1; i < count; ++i)
+        if (std::abs(values[i] - v) < std::abs(values[best] - v)) best = i;
+    return best;
+}
+
+// Siguiente valor de una lista ordenada a partir de v: d > 0 el primero mayor, d < 0 el último menor (sin dar la vuelta);
+// d == 0 (Enter o click) sube y, pasado el último, vuelve al primero.
+int StepList(const int* values, int count, int v, int d)
+{
+    if (d < 0) {
+        for (int i = count - 1; i >= 0; --i)
+            if (values[i] < v) return values[i];
+        return values[0];
+    }
+    for (int i = 0; i < count; ++i)
+        if (values[i] > v) return values[i];
+    return d > 0 ? values[count - 1] : values[0];
+}
+
+// El nombre de la placa sin lo que le agrega el driver: "NVIDIA GeForce RTX 5070/PCIe/SSE2" -> "NVIDIA GeForce RTX 5070".
+std::string ShortGpuName(std::string name)
+{
+    for (const char* cut : {"/", " ("}) {
+        const size_t at = name.find(cut);
+        if (at != std::string::npos) name.resize(at);
+    }
+    return name;
+}
+} // namespace
+
+// Ajustes, en tres páginas (la primera fila cambia de una a otra): GRÁFICOS (calidad y presets, con las opciones avanzadas
+// escondidas), IMAGEN (estilo: color, niebla, efectos, luz) y JUEGO Y SONIDO (volumen, ayuda, caja, terreno). Ninguna fila de
+// gráficos ni de imagen toca la física del suelo: esa vive en TERRENO. Todo se guarda al cambiarlo.
 std::vector<Game::Setting> Game::SettingsItems()
 {
     std::vector<Setting> items;
+    auto& g = renderer.graphics;
     // Sí / no: → prende, ← apaga, Enter o click cambia.
     auto toggle = [&](const char* group, const char* label, const std::string& hint, bool on, std::function<void()> flip) {
         Setting s;
@@ -2805,80 +3104,356 @@ std::vector<Game::Setting> Game::SettingsItems()
         };
         items.push_back(s);
     };
-    // Una de varias: → la siguiente, ← la anterior (dan la vuelta).
-    auto choice = [&](const char* group, const char* label, const std::string& hint, const std::string& value, std::function<void(int)> step) {
+    // Una de varias: recibe el paso tal cual (±1 las flechas, 0 Enter o click) y cada ajuste decide si da la vuelta.
+    auto choice = [&](const char* group, const char* label, const std::string& hint, const std::string& value, std::function<void(int)> change) {
         Setting s;
         s.group = group;
         s.label = label;
         s.hint = hint;
         s.kind = Setting::Kind::Choice;
         s.value = value;
-        s.change = [step](int d) { step(d == 0 ? 1 : d); };
+        s.change = change;
         items.push_back(s);
     };
+    auto wrap = [](int at, int count, int d) { return ((at + (d == 0 ? 1 : d)) % count + count) % count; };
+    // Un número entre lo y hi de a `step`: ← baja y → sube (sin dar la vuelta); Enter sube y da la vuelta al final.
+    // quality: es un campo de calidad (recalcula el preset) o de estilo (sólo se guarda).
+    auto range = [&](const char* group, const char* label, const std::string& hint, int& value, int lo, int hi, int step, const std::string& shown,
+                     bool quality) {
+        int* target = &value;
+        choice(group, label, hint, shown, [this, target, lo, hi, step, quality](int d) {
+            *target = d == 0 ? (*target + step > hi ? lo : *target + step) : std::clamp(*target + d * step, lo, hi);
+            if (quality) QualityChanged();
+            else SavePrefs();
+        });
+    };
+    auto percent = [&](const char* group, const char* label, const std::string& hint, int& value, int lo, int hi, int step, bool quality = false) {
+        range(group, label, hint, value, lo, hi, step, std::to_string(value) + "%", quality);
+    };
+    // Una de varias opciones con nombre (da la vuelta), elegida por su lugar en la lista.
+    auto options = [&](const char* group, const char* label, const std::string& hint, const char* const* names, int count, int at,
+                       std::function<void(int)> pick) {
+        choice(group, label, hint, names[std::clamp(at, 0, count - 1)], [pick, at, count, wrap](int d) { pick(wrap(at, count, d)); });
+    };
+    // Lo que fija un preset (para armar los paquetes de las filas de Sombras y de Distancia de dibujado).
+    auto presetOf = [](int p) {
+        Renderer::Graphics t;
+        Renderer::ApplyPreset(t, p);
+        return t;
+    };
 
-    toggle("IMAGEN", "Pantalla completa", "Sin bordes, del tamaño del monitor. También con F11 o Alt+Enter.", fullscreen,
-           [this] { SetFullscreen(!fullscreen); });
-    toggle("IMAGEN", "Motion blur", "Los bordes de la pantalla se desenfocan cuando vas rápido.", motionBlur, [this] {
-        motionBlur = !motionBlur;
-        SavePrefs();
-    });
-    toggle("IMAGEN", "Sacudón de cámara", "La cámara se sacude al aterrizar y al chocar, y vibra a mucha velocidad.", camera.shakeEnabled, [this] {
-        camera.shakeEnabled = !camera.shakeEnabled;
-        SavePrefs();
-    });
+    // Primera fila: la página.
     {
         Setting s;
-        s.group = "SONIDO";
-        s.label = "Volumen";
-        s.kind = Setting::Kind::Level;
-        s.level = volume;
-        s.levels = 10;
-        s.dim = muted;
-        s.value = muted ? std::string("Apagado") : std::to_string(volume * 10) + "%";
-        s.hint = muted ? "Apagado: Enter o M lo prende." : "El motor, los petardeos y las cubiertas. M lo apaga y lo prende.";
-        s.change = [this](int d) {
-            if (d == 0) muted = !muted;              // Enter: prende o apaga
-            else {
-                volume = std::clamp(volume + d, 0, 10);
-                muted = false;
-            }
-            ApplySound();
-            SavePrefs();
-        };
+        s.label = "Sección";
+        s.kind = Setting::Kind::Tabs;
+        s.tabs = {"Gráficos", "Imagen", "Juego y sonido"};
+        s.level = settingsPage;
+        s.value = s.tabs[(size_t)settingsPage];
+        s.hint = "\xE2\x86\x90 \xE2\x86\x92 cambian de página: gráficos, imagen, y juego y sonido (LB y RB en el joystick).";
+        s.change = [this](int d) { SetSettingsPage((settingsPage + (d == 0 ? 1 : d) + 3) % 3); };
         items.push_back(s);
     }
-    const char* helpNames[] = {"Al empezar", "Siempre", "Nunca"};
-    const char* helpHints[] = {"Abajo a la izquierda los primeros segundos y en pausa. H la muestra o la esconde.",
-                               "Siempre abajo a la izquierda. H la esconde.", "No aparece sola. H la muestra."};
-    choice("EN PANTALLA", "Ayuda de teclas", helpHints[(int)helpMode], helpNames[(int)helpMode], [this](int d) {
-        helpMode = (HelpMode)(((int)helpMode + d + 3) % 3);
-        helpPinned = -1;
-        SavePrefs();
-    });
-    toggle("EN PANTALLA", "Datos técnicos", "Arriba a la izquierda: velocidad, motor, suspensión, agarre y cuadros por segundo. También con T.",
-           techData, [this] {
-               techData = !techData;
-               SavePrefs();
-           });
-    choice("MANEJO", "Caja", prefAutoShift ? "Pasa los cambios sola. También con F3 (X en el joystick)." : "Los cambios con Q y E (LB y RB). También con F3 (X).",
-           prefAutoShift ? "Automática" : "Manual", [this](int) {
-               prefAutoShift = !prefAutoShift;
-               if (PlayerDriving()) bike.engine.autoShift = prefAutoShift;
-               SavePrefs();
-           });
-    toggle("MANEJO", "Control de tracción", "Afloja el gas si la rueda de atrás patina de más; sin él, derrapa más. También con F6.", prefTraction, [this] {
-        prefTraction = !prefTraction;
-        if (PlayerDriving()) bike.tractionControl = prefTraction;
-        SavePrefs();
-    });
+
+    if (settingsPage == 0) {
+        // ---------------------------------------------------------------- GRÁFICOS: calidad (lo que cuesta rendimiento)
+        static const char* presetHints[Renderer::kPresets] = {
+            "Para compus modestas y notebooks: sombras cortas, pasto cerca y la imagen un poco más chica. Anda fluido casi en cualquier lado.",
+            "Equilibrado: sombras nítidas alrededor de la moto y pasto a media distancia.",
+            "Recomendado para una placa de video actual: sombras a lo lejos, pasto lejos y texturas bien nítidas.",
+            "Todo al máximo. Gasta bastante GPU: para placas potentes.",
+        };
+        const int p = g.preset;
+        choice("CALIDAD", "Calidad gráfica",
+               p >= 0 ? std::string(presetHints[p]) : std::string("Cambiaste algo suelto. \xE2\x86\x90 \xE2\x86\x92 vuelve a ") + Renderer::PresetName(g.customBase) + ".",
+               std::string(Renderer::PresetName(p)) + (g.autoPreset && p >= 0 ? " (auto)" : ""), [this](int d) {
+                   const int now = renderer.graphics.preset;
+                   if (now < 0) ApplyQualityPreset(renderer.graphics.customBase);   // ← → o Enter sobre Personalizado: vuelve al preset base
+                   else {                                                       // Enter o click sube; ninguno da la vuelta (tope en Bajo y Ultra)
+                       const int to = std::clamp(now + (d == 0 ? 1 : d), 0, Renderer::kPresets - 1);
+                       if (to != now) ApplyQualityPreset(to);
+                   }
+               });
+
+        // Sombras: el paquete de un preset (resolución, radios y filtro), o apagadas.
+        int shadowAt = -1;                                       // 0 apagadas, 1 a 4 los paquetes de Bajo a Ultra
+        if (g.shadowQuality == 0) shadowAt = 0;
+        else
+            for (int i = 0; i < Renderer::kPresets; ++i) {
+                const Renderer::Graphics t = presetOf(i);
+                if (t.shadowQuality == g.shadowQuality && t.shadowNear == g.shadowNear && t.shadowFar == g.shadowFar && t.shadowTaps == g.shadowTaps) shadowAt = i + 1;
+            }
+        static const char* shadowNames[] = {"Apagadas", "Bajas", "Medias", "Altas", "Ultra"};
+        choice("CALIDAD", "Sombras", "Qué tan nítidas son y hasta dónde llegan. Las Altas y Ultra piden bastante más a la placa de video.",
+               shadowAt >= 0 ? shadowNames[shadowAt] : "Personalizadas", [this, shadowAt, presetOf, wrap](int d) {
+                   auto& g = renderer.graphics;
+                   int to = shadowAt >= 0 ? wrap(shadowAt, 5, d) : 1;
+                   if (shadowAt < 0) {                          // sueltas: el paquete más parecido (la resolución pesa más)
+                       int best = 1 << 30;
+                       for (int i = 0; i < Renderer::kPresets; ++i) {
+                           const Renderer::Graphics t = presetOf(i);
+                           const int score = std::abs(t.shadowQuality - g.shadowQuality) * 1000 + std::abs(t.shadowFar - g.shadowFar) + std::abs(t.shadowNear - g.shadowNear);
+                           if (score < best) best = score, to = i + 1;
+                       }
+                   }
+                   if (to == 0) {
+                       g.shadowQuality = 0;
+                   } else {
+                       const Renderer::Graphics t = presetOf(to - 1);
+                       g.shadowQuality = t.shadowQuality;
+                       g.shadowNear = t.shadowNear;
+                       g.shadowFar = t.shadowFar;
+                       g.shadowTaps = t.shadowTaps;
+                   }
+                   QualityChanged();
+               });
+
+        // Distancia de dibujado: pasto, objetos sueltos y gente de las tribunas juntos.
+        int drawAt = -1;
+        for (int i = 0; i < Renderer::kPresets; ++i) {
+            const Renderer::Graphics t = presetOf(i);
+            if (t.grassDistance == g.grassDistance && t.propsRadius == g.propsRadius && t.detailRadius == g.detailRadius) drawAt = i;
+        }
+        static const char* drawNames[] = {"Corta", "Media", "Larga", "Muy larga"};
+        choice("CALIDAD", "Distancia de dibujado",
+               "Hasta dónde se dibuja el pasto, los objetos sueltos y la gente de las tribunas. La niebla y el fondo no cambian.",
+               drawAt >= 0 ? drawNames[drawAt] : "Personalizada", [this, drawAt, presetOf, wrap](int d) {
+                   auto& g = renderer.graphics;
+                   int to = drawAt >= 0 ? wrap(drawAt, Renderer::kPresets, d) : 0;
+                   if (drawAt < 0) {                            // suelta: hacia el lado que pidió el paso, por la distancia del pasto
+                       int grass[Renderer::kPresets];
+                       for (int i = 0; i < Renderer::kPresets; ++i) grass[i] = presetOf(i).grassDistance;
+                       const int target = StepList(grass, Renderer::kPresets, g.grassDistance, d);
+                       to = NearestIndex(grass, Renderer::kPresets, target);
+                   }
+                   const Renderer::Graphics t = presetOf(to);
+                   g.grassDistance = t.grassDistance;
+                   g.propsRadius = t.propsRadius;
+                   g.detailRadius = t.detailRadius;
+                   QualityChanged();
+               });
+
+        static const int kDensity[] = {0, 60, 85, 100};
+        static const char* densityNames[] = {"Apagado", "Poco", "Normal", "Denso"};
+        const int densityAt = NearestIndex(kDensity, 4, g.grassDensity);
+        choice("CALIDAD", "Pasto", "Cuántas matas de pasto hay. Poco alivia a la placa de video; Denso llena más el campo.",
+               g.grassDensity == kDensity[densityAt] ? std::string(densityNames[densityAt]) : std::to_string(g.grassDensity) + "%",
+               [this, densityAt, wrap](int d) {
+                   renderer.graphics.grassDensity = kDensity[wrap(densityAt, 4, d)];
+                   QualityChanged();
+               });
+
+        static const int kAniso[] = {1, 4, 8, 16};
+        static const char* anisoNames[] = {"Normal", "4x", "8x", "16x"};
+        options("CALIDAD", "Filtro de texturas", "Nitidez del suelo y de los carteles cuando se ven de costado.", anisoNames, 4,
+                NearestIndex(kAniso, 4, g.aniso), [this](int i) {
+                    renderer.graphics.aniso = kAniso[i];
+                    QualityChanged();
+                });
+
+        static const int kScale[] = {75, 85, 100};
+        static const char* scaleNames[] = {"75%", "85%", "100%"};
+        options("CALIDAD", "Resolución de imagen",
+                "Tamaño de la imagen 3D respecto de la ventana. Menos de 100% alivia a la placa de video y se ve más blando; el menú y los textos quedan nítidos.",
+                scaleNames, 3, NearestIndex(kScale, 3, g.renderScale), [this](int i) {
+                    renderer.graphics.renderScale = kScale[i];
+                    QualityChanged();
+                });
+
+        toggle("CALIDAD", "Suavizado de bordes (FXAA)", "Suaviza los bordes de la escena. Se aplica también con F7 apagado.", g.fxaa, [this] {
+            renderer.graphics.fxaa = !renderer.graphics.fxaa;
+            QualityChanged();
+        });
+        toggle("CALIDAD", "Pantalla completa", "Sin bordes, del tamaño del monitor. También con F11 o Alt+Enter.", fullscreen,
+               [this] { SetFullscreen(!fullscreen); });
+        choice("CALIDAD", "Restablecer calidad",
+               std::string("Vuelve a ") + Renderer::PresetName(detectedPreset) + ", el que le toca a tu placa" +
+                   (gpuName.empty() ? std::string() : " (" + ShortGpuName(gpuName) + ")") + ". No toca la imagen ni el terreno.",
+               "Restablecer", [this](int) {
+                   Renderer::ApplyPreset(renderer.graphics, detectedPreset);
+                   renderer.graphics.autoPreset = true;
+                   SavePrefs();
+               });
+
+        toggle("AVANZADAS", "Opciones avanzadas", "Muestra el ajuste fino de las sombras, el pasto y la tierra.", settingsAdvanced,
+               [this] { settingsAdvanced = !settingsAdvanced; });
+        if (settingsAdvanced) {
+            static const char* resNames[] = {"Apagadas", "1024", "2048", "4096"};
+            choice("AVANZADAS", "Detalle de sombras", "Resolución del mapa de sombras cercano. Más alta, más nítidas y más pesadas.",
+                   resNames[std::clamp(g.shadowQuality, 0, 3)], [this](int d) {
+                       auto& g = renderer.graphics;
+                       g.shadowQuality = d == 0 ? (g.shadowQuality + 1) % 4 : std::clamp(g.shadowQuality + d, 0, 3);
+                       QualityChanged();
+                   });
+            range("AVANZADAS", "Radio cercano de sombras", "Hasta dónde llegan las sombras finas alrededor de la moto. Más chico, más detalle.",
+                  g.shadowNear, 16, 40, 4, std::to_string(g.shadowNear) + " m", true);
+            // De a 10 m, más el 48 y el 96 de Bajo y Alto (el 80 de Medio y el 140 de Ultra ya caen en la grilla): sin ellos no
+            // se llegaría a mano a esos presets. El 128 (el Ultra de antes) queda para quien lo tenga guardado.
+            static const int kFar[] = {0, 48, 50, 60, 70, 80, 90, 96, 100, 110, 120, 128, 130, 140, 150, 160, 170, 180, 190, 200};
+            choice("AVANZADAS", "Distancia de sombras lejana",
+                   "Hasta dónde llegan las sombras grandes (dunas, edificios, árboles). Sin lejana, menos GPU; el radio cercano se ajusta solo.",
+                   g.shadowFar ? std::to_string(g.shadowFar) + " m" : "Sin lejana", [this](int d) {
+                       auto& g = renderer.graphics;
+                       g.shadowFar = StepList(kFar, (int)(sizeof(kFar) / sizeof(kFar[0])), g.shadowFar, d);
+                       // El radio cercano acompaña a la lejana (12 + lejana/8, de a 4 m, entre 16 y 32): pasa justo por los presets
+                       // (48 -> 20 de Bajo, 80 -> 24 de Medio, 96 -> 24 de Alto, 140 -> 28 de Ultra), así que llegar a mano a esos
+                       // valores da el preset y no Personalizado.
+                       // Ajustarlo a mano después con "Radio cercano" lo deja como se puso.
+                       if (g.shadowFar > 0) g.shadowNear = std::clamp((12 + g.shadowFar / 8 + 2) / 4 * 4, 16, 32);
+                       QualityChanged();
+                   });
+            choice("AVANZADAS", "Filtro de sombras", "Lecturas por píxel en el borde de las sombras: 9 es más suave y usa más GPU.",
+                   g.shadowTaps >= 9 ? "9 lecturas" : "5 lecturas", [this](int) {
+                       renderer.graphics.shadowTaps = renderer.graphics.shadowTaps >= 9 ? 5 : 9;
+                       QualityChanged();
+                   });
+            percent("AVANZADAS", "Suavidad de sombras", "Qué tan difuso es el borde de las sombras. Muy bajo se ve escalonado; muy alto se ve granulado.",
+                    g.shadowSoftness, 60, 130, 10);
+            range("AVANZADAS", "Distancia del pasto", "Radio desde la cámara. 0 apaga el pasto; lejos usa menor densidad.", g.grassDistance, 0, 120, 10,
+                  g.grassDistance ? std::to_string(g.grassDistance) + " m" : "Apagado", true);
+            percent("AVANZADAS", "Relieve fino", "Detalle de la superficie y las huellas, además del volumen de los surcos.", g.soilDetail, 0, 200, 20, true);
+            percent("AVANZADAS", "Partículas de rueda", "Terrones con volumen y polvo. 0 los apaga; más cantidad consume más GPU.", g.soilParticles, 0, 150, 10, true);
+        }
+    } else if (settingsPage == 1) {
+        // ---------------------------------------------------------------- IMAGEN: estilo (no cambia el preset de calidad)
+        static const char* styleNames[] = {"Natural", "Vívido", "Suave"};
+        options("COLOR", "Estilo de color", "Natural deja los colores sin retocar; Vívido les da más contraste y color; Suave, un aire más calmo.", styleNames, 3,
+                g.colorStyle, [this](int i) {
+                    renderer.graphics.colorStyle = i;
+                    SavePrefs();
+                });
+        percent("COLOR", "Brillo", "Brillo general de la imagen. 100 es el recomendado.", g.brightness, 70, 130, 5);
+        static const int kFog[] = {30, 60, 100, 150};
+        static const char* fogNames[] = {"Mínima", "Ligera", "Normal", "Densa"};
+        options("COLOR", "Niebla", "Qué tan lejos se pierde el paisaje en la bruma. Cada mapa trae su propio punto de partida.", fogNames, 4,
+                NearestIndex(kFog, 4, g.fog), [this](int i) {
+                    renderer.graphics.fog = kFog[i];
+                    SavePrefs();
+                });
+        static const int kVignette[] = {0, 20, 40, 60};
+        static const char* vignetteNames[] = {"Apagada", "Suave", "Media", "Fuerte"};
+        options("EFECTOS", "Viñeta", "Oscurece suavemente las esquinas. Apagada la saca.", vignetteNames, 4, NearestIndex(kVignette, 4, g.vignette),
+                [this](int i) {
+                    renderer.graphics.vignette = kVignette[i];
+                    SavePrefs();
+                });
+        percent("EFECTOS", "Grano", "Textura de película. 0 deja la imagen limpia.", g.grain, 0, 40, 10);
+        percent("EFECTOS", "Aberración cromática", "Separación de colores en los bordes con la velocidad. 0 la apaga.", g.aberration, 0, 50, 10);
+        toggle("EFECTOS", "Motion blur", "Los bordes de la pantalla se desenfocan cuando vas rápido.", motionBlur, [this] {
+            motionBlur = !motionBlur;
+            SavePrefs();
+        });
+        toggle("EFECTOS", "Sacudón de cámara", "La cámara se sacude al aterrizar y al chocar, y vibra a mucha velocidad.", camera.shakeEnabled, [this] {
+            camera.shakeEnabled = !camera.shakeEnabled;
+            SavePrefs();
+        });
+        choice("EFECTOS", "Restablecer imagen", "Vuelve el color, la niebla, la luz y los efectos a lo recomendado. No toca la calidad ni el terreno.", "Restablecer",
+               [this](int) {
+                   Renderer::ResetStyle(renderer.graphics);
+                   motionBlur = true;
+                   SavePrefs();
+               });
+        toggle("AVANZADAS", "Opciones avanzadas", "Muestra la luz del sol, la ambiental, la intensidad de las sombras y el viento del pasto.", settingsAdvanced,
+               [this] { settingsAdvanced = !settingsAdvanced; });
+        if (settingsAdvanced) {
+            percent("AVANZADAS", "Luz del sol", "Intensidad de la luz directa, relativa a la del mapa.", g.sunlight, 70, 130, 10);
+            percent("AVANZADAS", "Luz ambiental", "Aclara las zonas que no reciben sol directo.", g.ambient, 60, 140, 10);
+            percent("AVANZADAS", "Intensidad de sombra", "Cuánto se oscurece la luz del sol dentro de las sombras.", g.shadowStrength, 40, 100, 10);
+            percent("AVANZADAS", "Viento del pasto", "Movimiento de las hojas con ráfagas suaves.", g.grassWind, 0, 150, 25);
+        }
+    } else {
+        // ---------------------------------------------------------------- JUEGO Y SONIDO
+        {
+            Setting s;
+            s.group = "SONIDO";
+            s.label = "Volumen";
+            s.kind = Setting::Kind::Level;
+            s.level = volume;
+            s.levels = 10;
+            s.dim = muted;
+            s.value = muted ? std::string("Apagado") : std::to_string(volume * 10) + "%";
+            s.hint = muted ? "Apagado: Enter o M lo prende." : "El motor, los petardeos y las cubiertas. M lo apaga y lo prende.";
+            s.change = [this](int d) {
+                if (d == 0) muted = !muted;              // Enter: prende o apaga
+                else {
+                    volume = std::clamp(volume + d, 0, 10);
+                    muted = false;
+                }
+                ApplySound();
+                SavePrefs();
+            };
+            items.push_back(s);
+        }
+        const char* helpNames[] = {"Al empezar", "Siempre", "Nunca"};
+        const char* helpHints[] = {"Abajo a la izquierda los primeros segundos y en pausa. H la muestra o la esconde.",
+                                   "Siempre abajo a la izquierda. H la esconde.", "No aparece sola. H la muestra."};
+        choice("EN PANTALLA", "Ayuda de teclas", helpHints[(int)helpMode], helpNames[(int)helpMode], [this](int d) {
+            helpMode = (HelpMode)(((int)helpMode + (d == 0 ? 1 : d) + 3) % 3);
+            helpPinned = -1;
+            SavePrefs();
+        });
+        toggle("EN PANTALLA", "Datos técnicos", "Arriba a la izquierda: velocidad, motor, suspensión, agarre y cuadros por segundo. También con T.",
+               techData, [this] {
+                   techData = !techData;
+                   SavePrefs();
+               });
+        choice("MANEJO", "Caja", prefAutoShift ? "Pasa los cambios sola. También con F3 (X en el joystick)." : "Los cambios con Q y E (LB y RB). También con F3 (X).",
+               prefAutoShift ? "Automática" : "Manual", [this](int) {
+                   prefAutoShift = !prefAutoShift;
+                   if (PlayerDriving()) bike.engine.autoShift = prefAutoShift;
+                   SavePrefs();
+               });
+        toggle("MANEJO", "Control de tracción", "Afloja el gas si la rueda de atrás patina de más; sin él, derrapa más. También con F6.", prefTraction, [this] {
+            prefTraction = !prefTraction;
+            if (PlayerDriving()) bike.tractionControl = prefTraction;
+            SavePrefs();
+        });
+        // TERRENO: todo lo que toca la física del suelo (las huellas físicas y la colisión). Ni la calidad ni la imagen lo cambian.
+        const char* soilModes[] = {"Apagada", "Visual", "Física (local)"};
+        choice("TERRENO", "Deformación", "Surcos con volumen y colisión. En red se usan sólo huellas visuales.", soilModes[g.soilMode], [this](int d) {
+            renderer.graphics.soilMode = (renderer.graphics.soilMode + (d == 0 ? 1 : d) + 3) % 3;
+            deformation.physicalRuts = renderer.graphics.soilMode == 2;
+            SavePrefs();
+        });
+        percent("TERRENO", "Blandura", "Más blando: surcos más profundos, tierra húmeda y menos polvo.", g.soilSoftness, 0, 100, 10);
+        range("TERRENO", "Profundidad máxima", "Límite de excavación. Las pasadas acumulan surcos y levantan sus bordes.", g.soilDepth, 5, 35, 5,
+              std::to_string(g.soilDepth) + " cm", false);
+        choice("TERRENO", "Restaurar suelo", "Borra los surcos y las huellas de esta partida.", "Restaurar", [this](int) {
+            terrain.ResetDeformation(*physics);
+            deformation.Clear();
+            particles.Clear();
+        });
+        choice("TERRENO", "Restablecer terreno", "Deformación física, blandura 65% y profundidad 24 cm, como vienen de fábrica. Las huellas quedan: para borrarlas, Restaurar suelo.",
+               "Restablecer", [this](int) {
+                   auto& g = renderer.graphics;
+                   const Renderer::Graphics factory{};
+                   g.soilMode = factory.soilMode;
+                   g.soilSoftness = factory.soilSoftness;
+                   g.soilDepth = factory.soilDepth;
+                   deformation.physicalRuts = g.soilMode == 2;
+                   SavePrefs();
+               });
+    }
     return items;
+}
+
+// Cambia de página de Ajustes: la marcada vuelve a ser la primera fila (donde se estaba tocando ← →) y la lista, al principio.
+void Game::SetSettingsPage(int page)
+{
+    settingsPage = std::clamp(page, 0, 2);
+    menuSel = 0;
+    settingsScroll = 0;
 }
 
 void Game::OpenMenu(Menu m)
 {
     menu = m;
     menuSel = 0;
+    settingsScroll = 0;
+    if (m == Menu::Settings) {                       // siempre arranca en Gráficos, con las avanzadas escondidas
+        settingsPage = 0;
+        settingsAdvanced = false;
+    }
     menuTime = 0.0f;
     menuSelY = -1.0f;
     while (GetCharPressed() > 0) {}                  // que no se cuelen teclas de la pantalla anterior
@@ -2980,9 +3555,16 @@ void Game::HandleMenuKeys()
         if (up || IsKeyPressed(KEY_W)) menuSel = (menuSel + n - 1) % n;
         if (down || IsKeyPressed(KEY_S)) menuSel = (menuSel + 1) % n;
         const bool clicked = mousePick(n);
+        const float wheel = GetMouseWheelMove();
+        if (wheel != 0.0f) menuSel = std::clamp(menuSel - (int)wheel, 0, n - 1);
         const Setting& s = items[menuSel % n];
         const Vector2 mouse = GetMousePosition();
-        if (left || IsKeyPressed(KEY_A)) {
+        // LB y RB del joystick cambian de página desde cualquier fila.
+        if (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) {
+            SetSettingsPage((settingsPage + 2) % 3);
+        } else if (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) {
+            SetSettingsPage((settingsPage + 1) % 3);
+        } else if (left || IsKeyPressed(KEY_A)) {
             s.change(-1);
         } else if (right || IsKeyPressed(KEY_D)) {
             s.change(1);
@@ -2997,7 +3579,15 @@ void Game::HandleMenuKeys()
                 if (std::clamp(target, 0, s.levels) != s.level) s.change(std::clamp(target, 0, s.levels) - s.level);
             }
         } else if (clicked) {
-            s.change(0);
+            // Una de varias: la flecha de la izquierda baja; el resto de la fila, como Enter (sube y da la vuelta).
+            // Las páginas: el nombre de cada una la abre.
+            const bool decrease = menuSel < (int)settingDecreaseRects.size() && CheckCollisionPointRec(mouse, settingDecreaseRects[menuSel]);
+            int tab = -1;
+            if (s.kind == Setting::Kind::Tabs)
+                for (int i = 0; i < (int)settingTabs.size(); ++i)
+                    if (CheckCollisionPointRec(mouse, settingTabs[i])) tab = i;
+            if (tab >= 0) SetSettingsPage(tab);
+            else s.change(s.kind == Setting::Kind::Choice || s.kind == Setting::Kind::Tabs ? (decrease ? -1 : 0) : 0);
         } else if (back) {
             BackToMain("ajustes");
         }
@@ -3447,18 +4037,42 @@ void Game::DrawMenu()
         const std::vector<Setting> items = SettingsItems();
         const int n = (int)items.size();
         menuSel = std::clamp(menuSel, 0, n - 1);
-        y = std::min(y, H * 0.31f);
+        y = std::min(y, H * 0.29f);
         text(font, "Ajustes", x, y - 24.0f * scale, 44.0f * scale, alpha(kText, fade));
-        text(font, items[menuSel].hint, x, y + 34.0f * scale, 21.0f * scale, alpha(kTextDim, fade));
+        // La pista de la marcada, en hasta dos líneas (el espacio de las dos queda siempre reservado: las filas no saltan al recorrerlas).
+        {
+            const float hintSize = 20.0f * scale, hintW = std::max(360.0f * scale, W * 0.60f - x);
+            std::vector<std::string> lines(1);
+            for (size_t at = 0; at < items[menuSel].hint.size();) {
+                size_t end = items[menuSel].hint.find(' ', at);
+                if (end == std::string::npos) end = items[menuSel].hint.size();
+                const std::string word = items[menuSel].hint.substr(at, end - at);
+                at = end + 1;
+                const std::string next = lines.back().empty() ? word : lines.back() + " " + word;
+                if (!lines.back().empty() && width(font, next, hintSize) > hintW) lines.push_back(word);
+                else lines.back() = next;
+            }
+            for (size_t i = 0; i < lines.size() && i < 2; ++i)
+                text(font, lines[i], x, y + 34.0f * scale + (float)i * 24.0f * scale, hintSize, alpha(kTextDim, fade));
+        }
+        // Ventana de nueve filas: conserva tamaño legible con teclado, joystick y rueda.
+        constexpr int visibleRows = 9;
+        if (menuSel < settingsScroll) settingsScroll = menuSel;
+        if (menuSel >= settingsScroll + visibleRows) settingsScroll = menuSel - visibleRows + 1;
+        settingsScroll = std::clamp(settingsScroll, 0, std::max(0, n - visibleRows));
+        const int first = settingsScroll, last = std::min(n, first + visibleRows);
+        text(mono, TextFormat("%d-%d / %d", first + 1, last, n), x + 440.0f * scale, y - 8.0f * scale, 16.0f * scale, alpha(kTextDim, fade));
+        // Cada grupo lleva su encabezado; una fila sin grupo (la de la página) no.
+        auto headed = [&](int k) { return !items[(size_t)k].group.empty() && (k == first || items[(size_t)k].group != items[(size_t)k - 1].group); };
         int groups = 0;
-        for (int k = 0; k < n; ++k) groups += k == 0 || items[k].group != items[k - 1].group ? 1 : 0;
-        const float top = y + 76.0f * scale, headH = 28.0f * scale, gapH = 6.0f * scale;
-        const float rowH = std::min(46.0f * scale, (H - 100.0f * scale - top - (float)groups * headH - (float)(groups - 1) * gapH) / (float)n);
+        for (int k = first; k < last; ++k) groups += headed(k) ? 1 : 0;
+        const float top = y + 88.0f * scale, headH = 28.0f * scale, gapH = 6.0f * scale;
+        const float rowH = std::min(46.0f * scale, (H - 100.0f * scale - top - (float)groups * headH - (float)std::max(0, groups - 1) * gapH) / (float)(last - first));
         const float rowW = std::min(600.0f * scale, W * 0.46f);
         std::vector<float> rowY((size_t)n);
         float ry = top;
-        for (int k = 0; k < n; ++k) {
-            if (k == 0 || items[k].group != items[k - 1].group) ry += (k ? gapH : 0.0f) + headH;
+        for (int k = first; k < last; ++k) {
+            if (headed(k)) ry += (k != first ? gapH : 0.0f) + headH;
             rowY[(size_t)k] = ry;
             ry += rowH;
         }
@@ -3472,16 +4086,17 @@ void Game::DrawMenu()
             if (dir > 0) DrawTriangle({cx - 0.6f * r, cy - r}, {cx - 0.6f * r, cy + r}, {cx + 0.8f * r, cy}, c);
             else DrawTriangle({cx + 0.6f * r, cy - r}, {cx - 0.8f * r, cy}, {cx + 0.6f * r, cy + r}, c);
         };
-        menuRects.clear();
+        menuRects.assign(n, Rectangle{});
+        settingDecreaseRects.assign(n, Rectangle{});
         settingArrows.assign(3, Rectangle{0.0f, 0.0f, 0.0f, 0.0f});
+        settingTabs.assign(3, Rectangle{});
         const float right = x + rowW - 14.0f * scale;    // donde terminan los valores
-        for (int k = 0; k < n; ++k) {
+        for (int k = first; k < last; ++k) {
             const Setting& s = items[(size_t)k];
             const bool sel = k == menuSel;
-            const float a = mu::Smoothstep(0.04f * k, 0.04f * k + 0.3f, menuTime) * fade;
+            const float a = mu::Smoothstep(0.04f * (k - first), 0.04f * (k - first) + 0.3f, menuTime) * fade;
             const float cy = rowY[(size_t)k] + rowH * 0.5f;
-            if (k == 0 || s.group != items[(size_t)k - 1].group)
-                text(font, s.group, x, rowY[(size_t)k] - headH + 7.0f * scale, 14.0f * scale, alpha(kAccent, a), 2.0f);
+            if (headed(k)) text(font, s.group, x, rowY[(size_t)k] - headH + 7.0f * scale, 14.0f * scale, alpha(kAccent, a), 2.0f);
             const float size = std::min(rowH * 0.58f, 26.0f * scale), vs = size * 0.88f;
             text(font, s.label, x + (sel ? 10.0f * scale : 0.0f), cy - size * 0.56f, size, alpha(sel ? kText : Color{210, 214, 222, 170}, a));
             const Color valueColor = sel ? kText : Color{210, 214, 222, 200};
@@ -3500,6 +4115,26 @@ void Game::DrawMenu()
                 arrowTri(right - tri, cy, tri, 1, alpha(arrowColor, a));
                 text(font, s.value, right - 2.0f * tri - 10.0f * scale - vw, cy - vs * 0.56f, vs, alpha(valueColor, a));
                 arrowTri(right - 2.0f * tri - 20.0f * scale - vw - tri, cy, tri, -1, alpha(arrowColor, a));
+                settingDecreaseRects[k] = {right - 4.0f * tri - 28.0f * scale - vw, cy - rowH * 0.5f, 24.0f * scale, rowH};
+                break;
+            }
+            case Setting::Kind::Tabs: {
+                // ◀ Gráficos · Imagen · Juego y sonido ▶: la de ahora clara y subrayada, las otras apagadas; el nombre de cada una se clickea.
+                const float tri = 6.0f * scale, gap = 20.0f * scale;
+                float total = gap * (float)(s.tabs.size() - 1);
+                for (const std::string& t : s.tabs) total += width(font, t, vs);
+                float tx = right - 2.0f * tri - 18.0f * scale - total;
+                arrowTri(right - tri, cy, tri, 1, alpha(arrowColor, a));
+                arrowTri(tx - 12.0f * scale - tri, cy, tri, -1, alpha(arrowColor, a));
+                settingDecreaseRects[k] = {tx - 24.0f * scale - tri, cy - rowH * 0.5f, 24.0f * scale, rowH};
+                for (size_t i = 0; i < s.tabs.size(); ++i) {
+                    const float tw = width(font, s.tabs[i], vs);
+                    const bool current = (int)i == s.level;
+                    text(font, s.tabs[i], tx, cy - vs * 0.56f, vs, alpha(current ? kText : Color{210, 214, 222, 120}, a));
+                    if (current) DrawRectangle((int)tx, (int)(cy + vs * 0.62f), (int)tw, std::max(2, (int)(2.0f * scale)), alpha(kAccent, a));
+                    settingTabs[i] = {tx - gap * 0.5f, cy - rowH * 0.5f, tw + gap, rowH};
+                    tx += tw + gap;
+                }
                 break;
             }
             case Setting::Kind::Level: {
@@ -3518,15 +4153,17 @@ void Game::DrawMenu()
                     DrawRectangle((int)(barL + sw * (float)i), (int)(cy - segH * 0.5f), (int)(sw - 3.0f * scale), (int)segH, alpha(c, a));
                 }
                 const float hit = rowH * 0.5f;
-                settingArrows[0] = {minusX - hit * 0.7f, cy - hit, hit * 1.4f, hit * 2.0f};
-                settingArrows[1] = {plusX - hit * 0.7f, cy - hit, hit * 1.4f, hit * 2.0f};
-                settingArrows[2] = {barL, cy - hit, barW, hit * 2.0f};
+                if (sel) {
+                    settingArrows[0] = {minusX - hit * 0.7f, cy - hit, hit * 1.4f, hit * 2.0f};
+                    settingArrows[1] = {plusX - hit * 0.7f, cy - hit, hit * 1.4f, hit * 2.0f};
+                    settingArrows[2] = {barL, cy - hit, barW, hit * 2.0f};
+                }
                 break;
             }
             }
-            menuRects.push_back({x - 30.0f, rowY[(size_t)k], rowW + 38.0f, rowH});
+            menuRects[k] = {x - 30.0f, rowY[(size_t)k], rowW + 38.0f, rowH};
         }
-        footer("\xE2\x86\x91 \xE2\x86\x93  elegir      \xE2\x86\x90 \xE2\x86\x92  cambiar      Enter  cambiar      Esc  volver      (se guardan solos)");
+        footer("\xE2\x86\x91 \xE2\x86\x93  elegir / rueda      \xE2\x86\x90 \xE2\x86\x92  cambiar      Enter  cambiar      Esc  volver      (se guardan solos)");
         break;
     }
     case Menu::Controls: {
@@ -3611,5 +4248,25 @@ void Game::DrawMenu()
         break;
     }
     case Menu::None: break;
+    }
+
+    // Los avisos del juego (p. ej. "Renovamos los gráficos...") también se ven con el menú abierto: arriba a la derecha.
+    if (messageTime > 0.0f && !message.empty()) {
+        const float fs = 19.0f * scale, pad = 18.0f * scale, pw = std::min(470.0f * scale, W * 0.38f);
+        std::vector<std::string> lines(1);
+        for (size_t at = 0; at < message.size();) {
+            size_t end = message.find(' ', at);
+            if (end == std::string::npos) end = message.size();
+            const std::string word = message.substr(at, end - at);
+            at = end + 1;
+            const std::string next = lines.back().empty() ? word : lines.back() + " " + word;
+            if (!lines.back().empty() && width(font, next, fs) > pw - 2.0f * pad) lines.push_back(word);
+            else lines.back() = next;
+        }
+        const float a = mu::Clamp(messageTime * 2.0f, 0.0f, 1.0f) * fade, ph = 2.0f * pad + fs * 1.3f * (float)lines.size();
+        const float px = W - pw - std::max(40.0f, W * 0.05f), py = 30.0f * scale;
+        DrawRectangleRounded({px, py, pw, ph}, 0.10f, 6, alpha(Color{10, 12, 16, 210}, a));
+        DrawRectangle((int)px, (int)(py + 12.0f * scale), (int)(4.0f * scale), (int)(ph - 24.0f * scale), alpha(kAccent, a));
+        for (size_t i = 0; i < lines.size(); ++i) text(font, lines[i], px + pad + 4.0f * scale, py + pad + fs * 1.3f * (float)i, fs, alpha(kText, a));
     }
 }

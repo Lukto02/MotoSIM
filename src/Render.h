@@ -69,10 +69,66 @@ const BikeLivery& TrailLivery(int i);        // trilheira: colores de la calle (
 // color del cielo, todo en espacio lineal con tone mapping filmico. Un puñado de mallas primitivas
 // (caja, cilindro, esfera, neumático) que se dibujan con una matriz y un color.
 struct Renderer {
-    Shader lit{}, terrainShader{}, skyShader{}, depthShader{}, grassShader{}, skidShader{};
-    Material material{}, terrainMaterial{}, skyMaterial{}, depthMaterial{}, grassMaterial{}, skidMaterial{};
+    // Ajustes relativos al look de cada mapa; se aplican sin recargar la partida.
+    struct Graphics {
+        int shadowQuality = 2; // 0 apagadas, 1 1024, 2 2048, 3 4096 (resolución de la cascada cercana)
+        // Sombras en dos cascadas: la cercana (radio shadowNear, con todo lo que se mueve) y la lejana (radio
+        // shadowFar, 0 = sin lejana; sólo el mundo quieto, en caché). shadowTaps: lecturas del filtro (5 o 9).
+        int shadowNear = 24, shadowFar = 96, shadowTaps = 9;
+        int shadowDistance = 32;   // legado (era el radio del único mapa): lo reemplaza shadowNear, queda por compatibilidad
+        int shadowSoftness = 100, shadowStrength = 100;   // suavidad: separación de la grilla del filtro (60-130)
+        int sunlight = 100, ambient = 100, brightness = 100, fog = 100;
+        int vignette = 15, grain = 0, aberration = 0;
+        bool fxaa = true;
+        // Estilo de color del post (siempre encendido, ver DrawPost): 0 natural, 1 vívido, 2 suave.
+        int colorStyle = 1;
+        // Tamaño de la imagen 3D como % del alto de la ventana (se escala con filtro bilineal; el HUD queda nativo) y
+        // filtro anisotrópico de las texturas del suelo y de los atlas de carteles (1, 4, 8 o 16).
+        int renderScale = 100, aniso = 16;
+        int grassDistance = 70, grassWind = 100, grassDisplacement = 100;
+        // Cuánto pasto queda (%: multiplica la fracción de matas que se raleó con la distancia) y hasta dónde se
+        // dibujan los props sueltos (propsRadius, m; 0 = sin límite) y la gente de las tribunas (detailRadius, m).
+        int grassDensity = 100, propsRadius = 500, detailRadius = 350;
+        // Física del suelo: no entra en ningún preset (alimenta las huellas físicas). soilDetail y soilParticles son visuales.
+        int soilMode = 2, soilSoftness = 65, soilDepth = 24, soilDetail = 100, soilParticles = 100;
+        // Presets de calidad (ver ApplyPreset): los defaults de arriba son los de Alto. preset: 0 Bajo, 1 Medio, 2 Alto,
+        // 3 Ultra, -1 Personalizado (algo de calidad dejó de coincidir); customBase: el último preset aplicado, al que
+        // vuelve Personalizado; autoPreset: lo eligió el juego por la placa (y puede bajarlo solo si anda lento).
+        int preset = 2, customBase = 2;
+        bool autoPreset = false;
+    } graphics;
+
+    // Presets de calidad Bajo / Medio / Alto / Ultra. Fijan sólo los campos de CALIDAD (los que cuestan rendimiento):
+    // sombras (resolución, radios, filtro), pasto, props, gente de las tribunas, filtro de texturas, escala de la imagen,
+    // FXAA, relieve fino, partículas y desplazamiento del pasto. El estilo (luz, niebla, viñeta...) y la física del suelo
+    // (soilMode, soilSoftness, soilDepth) nunca entran. MatchPreset da el que coincide con `g` o -1 (Personalizado).
+    static constexpr int kPresets = 4;
+    static void ApplyPreset(Graphics& g, int preset);
+    static int MatchPreset(const Graphics& g);
+    static void ResetStyle(Graphics& g);                     // el estilo a sus defaults (no toca calidad ni suelo)
+    static const char* PresetName(int preset);               // "Bajo", "Medio", "Alto", "Ultra" ("Personalizado" si < 0)
+    static const char* PresetKey(int preset);                // "bajo"... "personalizado" (preferencias.ini)
+    static int PresetFromKey(const std::string& key);        // -1 si no es un preset
+    // Placa de video (glGetString) y el preset que le toca: hace falta el contexto de OpenGL (después de InitWindow).
+    static std::string GpuDescription(int* detectedPreset = nullptr);
+    bool ShadowsEnabled() const { return graphics.shadowQuality > 0 && shadowMap.id != 0; }
+    bool FarShadowEnabled() const { return ShadowsEnabled() && graphics.shadowFar > 0 && shadowMap1.id != 0; }
+    // Radio (m) de una cascada: 0 la cercana, 1 la lejana.
+    float ShadowHalfSize(int cascade = 0) const { return (float)(cascade == 0 ? graphics.shadowNear : graphics.shadowFar); }
+    // Sube cuando cambia algo que invalida lo dibujado en la cascada lejana (mapa, sol, resolución, radio).
+    int ShadowFarRevision() const { return shadowFarRevision; }
+    void UpdateGraphics();
+    // Filtro anisotrópico actual (graphics.aniso) en una textura que no es del Renderer (los atlas de Circuit y
+    // Favela). Sube AnisoRevision cuando cambia: quien la usa la reaplica si la revisión que vio es otra.
+    void ApplyAniso(Texture2D tex) const;
+    int AnisoRevision() const { return anisoRevision; }
+    Vector4 grassContacts[10]{}; // xyz contacto, w radio; w=0 desactiva el slot
+    void DrawSoilChunks(const Matrix* transforms, int count);
+    Shader lit{}, terrainShader{}, skyShader{}, depthShader{}, grassShader{}, skidShader{}, debrisShader{};
+    Material material{}, terrainMaterial{}, skyMaterial{}, depthMaterial{}, grassMaterial{}, skidMaterial{}, debrisMaterial{};
     Texture2D detail{}, dirtTex{}, grassTex{}, bladeTex{}, pavedTex{}, soilTex{}, sandTex{};
     Mesh box{}, cylinder{}, sphere{}, tire{}, rim{}, tuft{};
+    Mesh debris{};
     Mesh disc{};                                    // cilindro de muchas caras (plataformas grandes)
     Mesh rider[RiderMesh::Count]{};
     // Estilos de moto (BikeStyles.h): las piezas iguales para todos y las pintadas de cada esquema
@@ -103,16 +159,25 @@ struct Renderer {
     void DrawSky(const Camera3D& cam);         // dentro de BeginMode3D, antes que el resto
 
     // Sombras: entre BeginShadowPass y EndShadowPass se dibujan los objetos que proyectan sombra
-    // (con las mismas funciones de siempre) en un mapa de profundidad visto desde el sol,
-    // centrado en `focus`.
-    void BeginShadowPass(Vector3 focus);
+    // (con las mismas funciones de siempre) en un mapa de profundidad visto desde el sol, centrado en
+    // `focus`. cascade 0 = la cercana, 1 = la lejana.
+    void BeginShadowPass(Vector3 focus, int cascade = 0);
     void EndShadowPass();
     bool InShadowPass() const { return shadowPass; }
-    Vector3 ShadowFocus() const { return shadowFocus; }
-    static constexpr float kShadowHalfSize = 32.0f;   // m cubiertos alrededor del foco
+    Vector3 ShadowFocus(int cascade = -1) const { return shadowFocuses[cascade < 0 ? shadowCascade : cascade]; }
+    // ¿La caja lo..hi cae dentro del prisma de la luz de la cascada (cascade < 0: la de la pasada actual)?
+    // Descarta lo que no puede dejar sombra en el mapa: se proyecta la caja sobre los ejes derecha y arriba de
+    // la luz y se compara con el lado del mapa. Fuera de una pasada de sombras da siempre true.
+    bool InShadowPrism(Vector3 lo, Vector3 hi, int cascade = -1) const;
+    // ¿La caja lo..hi toca el frustum de la vista actual? Hay que estar dentro de BeginMode3D (sale de las matrices
+    // de rlgl). Conservador: queda afuera sólo si sus 8 esquinas caen del lado de afuera de un mismo plano del
+    // recorte. CameraPosition: dónde está esa cámara (para radios de dibujado).
+    bool BoxVisible(Vector3 lo, Vector3 hi) const;
+    Vector3 CameraPosition() const;
 
     // Post-proceso: la escena 3D se dibuja en una textura y pasa a pantalla con motion blur radial,
-    // aberración cromática, viñeta, grano y FXAA (al dibujar en una textura se pierde el MSAA).
+    // aberración cromática, estilo de color (graphics.colorStyle: siempre), viñeta, grano y FXAA (al dibujar en una
+    // textura se pierde el MSAA). El HUD se dibuja después del post: no recibe el estilo de color.
     struct PostFX {
         Vector2 focus{0.5f, 0.5f};             // punto nítido del motion blur (pantalla, 0..1 desde arriba)
         float speedBlur = 0.0f;                // largo del desenfoque en los bordes (fracción de pantalla)
@@ -128,7 +193,7 @@ struct Renderer {
     void DrawMeshColored(const Mesh& mesh, const Matrix& world, Color color);
     void DrawTerrain(const Mesh& mesh, Texture2D marks);
     // Malla con textura propia (modelos cargados). Sin culling: los modelos suelen ser de doble cara.
-    void DrawMeshTextured(const Mesh& mesh, const Matrix& world, Texture2D texture, bool twoSided = true);
+    void DrawMeshTextured(const Mesh& mesh, const Matrix& world, Texture2D texture, bool twoSided = true, bool riderSurface = false);
     // twoSided = false: sólo la cara del frente (calcomanías espalda con espalda no se pisan).
     // Matas de pasto: una matriz por mata (con el tono en la fila de abajo, ver kGrassVS).
     void DrawGrass(const Matrix* transforms, int count, Texture2D marks, float terrainOrigin, float terrainSize);
@@ -150,24 +215,31 @@ private:
     // Uniformes comunes a los shaders iluminados (lit, terreno, cielo).
     struct Locs {
         int sunDir = -1, sunColor = -1, skyZenith = -1, skyHorizon = -1, groundBounce = -1;
-        int fogDensity = -1, camPos = -1, exposure = -1, lightVP = -1, shadowTexel = -1;
+        int fogDensity = -1, camPos = -1, exposure = -1, lightVP = -1, lightVP1 = -1;
+        int ambientStrength = -1, shadowStrength = -1, shadowSoftness = -1, shadowWorldTexel = -1;
+        int shadowInvRes = -1, shadowFarOn = -1, shadowTaps = -1;
     };
     void FindLocs(Shader& sh, Locs& l);
     void SetCommon(Shader sh, const Locs& l, const Camera3D& cam);
 
-    Locs litLocs, terrainLocs, skyLocs, grassLocs, skidLocs;
+    Locs litLocs, terrainLocs, skyLocs, grassLocs, skidLocs, debrisLocs;
+    int grassDistanceLoc=-1, grassDensityLoc=-1, grassWindLoc=-1, grassDisplacementLoc=-1, grassCameraLoc=-1, grassContactsLoc=-1;
+    int soilDetailLoc=-1, soilWetnessLoc=-1;
     int skidPixelLoc = -1;
     int glossLoc = -1, skyTimeLoc = -1, grassTimeLoc = -1, grassOriginLoc = -1, grassSizeLoc = -1, pavedTintLoc = -1;
-    RenderTexture2D shadowMap{}, sceneRT{};
+    int riderSurfaceLoc = -1, postFxaaLoc = -1, postGradeLoc = -1, sheenOnLoc = -1;
+    int anisoApplied = 0, anisoRevision = 0;           // nivel aplicado a las texturas propias (0 = ninguno todavía)
+    int shadowResolution = 0, shadowResolution1 = 0;   // lado de cada mapa (la lejana: min(cercana, 3072))
+    RenderTexture2D shadowMap{}, shadowMap1{}, sceneRT{};
     Shader postShader{};
     int postResLoc = -1, postFocusLoc = -1, postBlurLoc = -1, postAberrationLoc = -1, postVignetteLoc = -1, postTimeLoc = -1, postGrainLoc = -1;
-    Matrix lightVP{};
+    Matrix lightVP{}, lightVP1{};
     bool shadowPass = false;
-    Vector3 shadowFocus{};
+    int shadowCascade = 0, shadowFarRevision = 0, shadowFarRadius = 0;
+    Vector3 shadowFocuses[2]{}, shadowRight{1.0f, 0.0f, 0.0f}, shadowUp{0.0f, 1.0f, 0.0f};
     Vector3 bodySteerHead[BikeStyle::Count]{}, bodyForkUp[BikeStyle::Count]{};
     bool bodyBuilt[BikeStyle::Count] = {};
     double savedNear = 0.08, savedFar = 900.0;
-    static constexpr int kShadowResolution = 2048;
 };
 
 // Generadores de mallas con normales y color de vértice blanco.

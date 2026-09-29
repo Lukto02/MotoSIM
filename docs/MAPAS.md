@@ -120,8 +120,10 @@ Lo aprendido:
   con:
   - tramos de barrera de 6 m;
   - árboles más livianos;
-  - el público sólo a menos de 260 m;
-  - saltearse los bloques fuera de la vista.
+  - el público sólo a menos de `graphics.detailRadius` (260 m entonces; hoy 350 con un fundido de 40 m, ver
+    [RENDER.md](RENDER.md), "Terreno, pasto y distancia de dibujado");
+  - saltearse los bloques fuera de la vista (`Renderer::BoxVisible`; lo usan también `Terrain::Draw` y `Favela::Draw`, que
+    guarda la caja `lo/hi` de cada bloque de 32 m).
 - **Cómo se validó**: el trazado se diseñó en Python como rectas y arcos, con el cierre de la vuelta
   resuelto solo, y se pasó por el mismo spline y suavizado de curvatura que `Track.cpp` (largo, radios,
   distancia mínima entre tramos: 59 m). En el juego:
@@ -156,6 +158,61 @@ Lo aprendido:
   favela (con la Trilheira, 3-9 en 45 min, la mitad o más ahí). El plan del bot en las calles (frenar a 2.5 m/s²) no
   cuenta la pendiente ni el vuelo de la loma. Visto en la revisión de las motos después de la v0.2.7 ([FISICA.md](FISICA.md),
   "La Trilheira: frenando fuerte hacía un trompo").
+
+### Looks por mapa después del pulido gráfico (septiembre de 2026)
+
+Sólo visual (`look` de los JSON y el preset `sunset` de `Maps.cpp`): no cambia geometría, `ground_textures` ni física.
+Contexto de render (estilo de color del post, `Ambient()` nuevo, colores de vértice del terreno) en
+[RENDER.md](RENDER.md).
+
+| Mapa | Cambio | Motivo |
+|---|---|---|
+| motocross | `fog` 0.0034 explícito (antes el default 0.0042) | el "100%" de niebla valía 4 veces distinto entre mapas; el look de día no se toca |
+| park y `park_*` | `fog` 0.0023 (antes 0.0028; 0.0026 en la primera pasada) | igual; la pared lejana se lavaba (ver "Revisión de los críticos" en [RENDER.md](RENDER.md)) |
+| circuito, valle | sin cambios (0.001, 0.0032) | |
+| favela y `favela_trial` | `look` explícito: `sun_dir [-0.52, 0.42, -0.74]`, `sun_color [2.6, 1.78, 1.02]`, `zenith [62, 108, 158]`, `horizon [232, 168, 122]`, `ground [126, 106, 90]`, `fog` 0.0024, `exposure` 1.0; el mismo en el preset `sunset` de `Maps.cpp` | sombras mauve y rojos oscuros |
+| medanos y `medanos_*` | `look` explícito: `sun_dir [-0.80, 0.46, -0.30]`, `sun_color [2.61, 1.85, 1.08]`, `zenith [66, 108, 178]`, `horizon [228, 178, 140]`, `ground [144, 108, 79]`, `fog` 0.0016, `exposure` 0.9 | arena quemada |
+
+- **La favela salía mauve.**
+  - *Por qué*: el preset `sunset` viejo tenía el rebote del suelo en (118, 86, 66) y el cenit a (64, 96, 168): las caras
+    a la sombra y el asfalto (a la sombra y a pleno sol) daban tono 355° (rosa violáceo). Con el estilo de color y el
+    `Ambient()` nuevo, además, `exposure` 1.05 sumaba una exposición de más.
+  - *Qué se hizo*: el `look` de la tabla (sol más alto y menos rasante, rebote más claro y cálido, cenit menos violeta),
+    escrito completo en el JSON y en el preset para que un cambio futuro del preset no lo mueva.
+  - *Se comprobó* (Alto y Medio, `--noprefs --size 1280 720 --nohud --test pose`, vistas `200 12 3`, `180 5 1.7`,
+    `200 25 12`, y el bot a los 12 s): asfalto a la sombra de (132, 88, 91), tono 356°, a (132, 101, 88), tono 17°; píxeles
+    con tono 270-345° y saturación > 0.10 (casas rosas y violetas incluidas) 4028 / 1026 / 10902 → **363 / 514 / 3412**;
+    luminancia media 0.47 / 0.35 / 0.48 → **0.50 / 0.43 / 0.52** (bot: 0.35 → 0.41-0.47 según la corrida; criterio ≥ 0.38); rojos quemados
+    (R > 0.95 y G < 0.35) 42 / 550 / 446 → 34 / 314 / 274; las paredes rojas siguen en (135, 43, 24).
+- **Los Médanos, arena blanquecina y sin volumen.**
+  - *Por qué*: con la arena nueva de `Terrain.cpp` (albedo más bajo) y el look viejo (`ground` 214, 164, 112, exposición
+    1.05) la luminancia daba p5 / p50 / p95 0.46 / 0.67 / 0.74 en la vista general y el bot 0.41 / 0.70 / 0.81: las
+    caras a la sombra casi tan claras como las del sol, poco relieve.
+  - *Qué se hizo*: el `look` de la tabla. Se pidió ±10% de `sun_color`, `ground` y `exposure` sobre lo de la
+    especificación (`sun_color [2.9, 2.05, 1.2]`, `ground [160, 120, 88]`, exposición 1.0): los tres al límite
+    (−10%). Un primer intento con sólo `sun_color` −7% y `ground` −10% casi no movía la luz (0.708 de mediana): la
+    curva ACES aplasta el sol, la exposición es la que la baja.
+  - *Se comprobó* (mismas vistas, Alto y Medio): p5 / p50 / p95 **0.40 / 0.68 / 0.74-0.77** (objetivo ≈ 0.35 / 0.66 /
+    0.75; con los valores de la especificación y `exposure` 1.0 daba 0.44 / 0.72 / 0.78-0.80), el bot 0.33 / 0.70 / 0.82 con cielo;
+    las caras de las dunas a contraluz y la sombra de la moto se leen. Alto y Medio dan lo mismo (las sombras cercanas no cambian la luz).
+    La curva de p5 queda algo por encima del objetivo: ir más abajo pedía pasar del −10%.
+- **Motocross, circuito, park y valle** (sin tocar el look de día): luminancia p95 del bot a los 12 s motocross 0.82 y circuito
+  0.90 (criterio ≥ 0.75, con píxeles blancos: 369 y 403); park 0.86; valle 0.70 (verde sin virar a lima, ver RENDER.md).
+  La niebla nueva casi no mueve los promedios (motocross 0.612 → 0.611).
+- **Regresión**: telemetría del bot y de las pruebas de `regresion.sh` **idéntica** contra un exe armado con las fuentes de
+  antes: `--flat` brakeslide, cuerpo, flip, whip y wheelie, `--test accel`, bot 40 s de motocross, favela (1052 casas, 48
+  postes, 132 cables), circuito, médanos, park y valle, y el bot de la motocross 150 s en **1:08.73 / 1:08.42**. El `look` no
+  entra a la física (con `--headless` `SetLook` ni se llama).
+- **Los generadores escriben el look**: `tools/medanos.py` (plantilla del JSON, para los `medanos_*` de prueba) y
+  `tools/parque.py` (`fog` del parque) llevan los valores nuevos; si no, regenerar los mapas de prueba los volvía a
+  dejar con el look viejo.
+- **Lecciones**: (1) sobre el estilo de color del post (exposición 1.05, saturación 1.08) y el `Ambient()` nuevo, un
+  `look` calibrado antes de ellos sale quemado: hay que recalibrar sunset, no sólo comprobarlo; (2) para bajar la luz de
+  un mapa con ACES la palanca es la `exposure`: bajar el `sun_color` un 7% casi no mueve la mediana; (3) el "mauve" se
+  mide con tono (270-345°) y saturación, no con `R-G` y `B-G`, que también agarra los rosas del cielo; (4) probar un
+  `look` sin tocar el proyecto: un `mods/<mod>/maps/<id>.json` en la carpeta desde donde se corre el exe (la carpeta
+  actual gana por id) y capturas antes / después con el mismo exe; (5) un nivel de niebla del jugador multiplica lo que
+  trae el mapa: la niebla base de cada mapa tiene que ser comparable (0.0016-0.0034).
 
 ### Los Médanos (dunas, andar libre)
 `mods/sandbox/maps/medanos.json`, generado por `tools/medanos.py` (los perfiles de los saltos están ahí,

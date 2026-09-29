@@ -89,12 +89,17 @@
   },
   "start": [65, 5],
 
+  // Golden-hour look, written out in full. The sand albedo lives in the terrain colours; "ground" is only the
+  // bounce light. exposure 0.9 (not 1.0): the post-process grade already lifts it, and the sand would burn.
   "look": {
     "preset": "sunset",
     "ground_textures": "sand",
-    "sun_dir": [-0.85, 0.42, -0.25],
-    "ground": [214, 164, 112],
-    "zenith": [78, 112, 180],
-    "fog": 0.0019
+    "sun_dir": [-0.80, 0.46, -0.30],
+    "sun_color": [2.61, 1.85, 1.08],
+    "zenith": [66, 108, 178],
+    "horizon": [228, 178, 140],
+    "ground": [144, 108, 79],
+    "fog": 0.0016,
+    "exposure": 0.9
   }
 }

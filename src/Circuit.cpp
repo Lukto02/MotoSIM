@@ -603,6 +603,17 @@ void Circuit::Generate(Geometry* geo)
             groundQuad(W(a, lat0(a)), W(a, lat1(a)), W(b, lat1(b)), W(b, lat0(b)), color(0.5f * (a + b), q), gloss, dy);
         }
     };
+    // Lo mismo pero sin dibujar: la banda de asfalto de una malla va sobre un terreno que es pasto, y las matas 3D lo
+    // atravesaban (la máscara de pista sólo cubre la pista; se toca sólo lo que se dibuja, no el agarre). 1.2 m de margen.
+    auto noGrass = [&](float s0, float s1, auto lat0, auto lat1) {
+        const int n = std::max(1, (int)std::ceil((s1 - s0) / 4.0f));
+        for (int q = 0; q < n; ++q) {
+            const float a = s0 + (s1 - s0) * (float)q / (float)n, b = s0 + (s1 - s0) * (float)(q + 1) / (float)n;
+            const Vector3 p0 = W(a, lat0(a)), p1 = W(a, lat1(a)), p2 = W(b, lat1(b)), p3 = W(b, lat0(b));
+            const float quad[8] = {p0.x, p0.z, p1.x, p1.z, p2.x, p2.z, p3.x, p3.z};
+            G.ExcludeGrass(quad, 1.2f);
+        }
+    };
 
     if (geo) {
         // Líneas blancas de los bordes, toda la vuelta.
@@ -850,20 +861,21 @@ void Circuit::Generate(Geometry* geo)
         const float laneIn = hw + 6.5f, laneOut = hw + 18.5f;
         if (geo) {
             auto ramp = [&](float s0, float s1, bool entry) {
-                band(s0, s1, 3.0f, 0.02f, 0.1f,
-                     [&](float s) {
-                         const float t = mu::Smoothstep(s0, s1, s), u = entry ? t : 1.0f - t;
-                         return p * std::max(hw + 0.35f, mu::Lerp(hw - 1.0f, laneIn, u));
-                     },
-                     [&](float s) {
-                         const float t = mu::Smoothstep(s0, s1, s), u = entry ? t : 1.0f - t;
-                         return p * mu::Lerp(hw + 6.0f, laneOut, u);
-                     },
-                     [&](float, int) { return kPitAsphalt; });
+                auto inner = [&](float s) {
+                    const float t = mu::Smoothstep(s0, s1, s), u = entry ? t : 1.0f - t;
+                    return p * std::max(hw + 0.35f, mu::Lerp(hw - 1.0f, laneIn, u));
+                };
+                auto outer = [&](float s) {
+                    const float t = mu::Smoothstep(s0, s1, s), u = entry ? t : 1.0f - t;
+                    return p * mu::Lerp(hw + 6.0f, laneOut, u);
+                };
+                band(s0, s1, 3.0f, 0.02f, 0.1f, inner, outer, [&](float, int) { return kPitAsphalt; });
+                noGrass(s0, s1, inner, outer);
             };
             ramp(sPit0 - 110.0f, sPit0, true);
             ramp(sPit1, sPit1 + 130.0f, false);
             band(sPit0, sPit1, 4.0f, 0.02f, 0.1f, [&](float) { return p * laneIn; }, [&](float) { return p * laneOut; }, [&](float, int) { return kPitAsphalt; });
+            noGrass(sPit0, sPit1, [&](float) { return p * laneIn; }, [&](float) { return p * laneOut; });
             // Líneas: el borde del lado del muro y la que separa la vía rápida de la de trabajo.
             band(sPit0, sPit1, 4.0f, 0.03f, 0.2f, [&](float) { return p * (laneIn + 0.1f); }, [&](float) { return p * (laneIn + 0.28f); }, [&](float, int) { return kWhite; });
             // La de trazos, sólo los trazos (los huecos eran otra capa de asfalto 1 cm arriba del asfalto).
@@ -967,9 +979,11 @@ void Circuit::Generate(Geometry* geo)
                 Bar(m, {c0.x, y0 + 19.6f, c0.z}, {c0.x, y0 + 25.0f, c0.z}, 0.06f, kSteel);   // antena
             }
             // Paddock: asfalto detrás de los garajes, camiones de los equipos y motorhomes.
-            if (geo)
+            if (geo) {
                 band(sG0 - 20.0f, sG1 + 30.0f, 6.0f, 0.02f, 0.1f, [&](float) { return p * w1; }, [&](float) { return p * (w1 + 44.0f); },
                      [&](float, int) { return Shade(kPitAsphalt, 1.08f); });
+                noGrass(sG0 - 20.0f, sG1 + 30.0f, [&](float) { return p * w1; }, [&](float) { return p * (w1 + 44.0f); });
+            }
             Rng tr{0x7A11E5u};
             int homes = 0;
             for (float s = sG0 + 6.0f; s < sG1 - 4.0f; s += 11.0f) {
@@ -1543,6 +1557,7 @@ void Circuit::BuildAtlas()
     UnloadImage(img);
     GenTextureMipmaps(&atlas);
     SetTextureFilter(atlas, TEXTURE_FILTER_TRILINEAR);
+    atlasAniso = -1;                                              // la anisotropía la aplica Draw (Renderer::ApplyAniso)
 }
 
 // ------------------------------------------------------------------------ mallas
@@ -1629,30 +1644,13 @@ void Circuit::CreateMeshes()
 void Circuit::Draw(Renderer& r) const
 {
     if (!meshes) return;
-    // Bloques fuera de la vista: afuera. La cámara y el frustum salen de las matrices de rlgl (estamos
-    // dentro de BeginMode3D); una caja queda afuera si sus 8 esquinas caen del lado de afuera de un
-    // mismo plano del recorte.
-    const Matrix view = rlGetMatrixModelview(), proj = rlGetMatrixProjection();
-    const Matrix vp = MatrixMultiply(view, proj);
-    const Matrix inv = MatrixInvert(view);
-    const Vector3 cam = {inv.m12, inv.m13, inv.m14};
-    auto visible = [&](const Chunk& c) {
-        int outside[6] = {0, 0, 0, 0, 0, 0};
-        for (int k = 0; k < 8; ++k) {
-            const Vector3 p = {k & 1 ? c.hi.x : c.lo.x, k & 2 ? c.hi.y : c.lo.y, k & 4 ? c.hi.z : c.lo.z};
-            const float x = vp.m0 * p.x + vp.m4 * p.y + vp.m8 * p.z + vp.m12, y = vp.m1 * p.x + vp.m5 * p.y + vp.m9 * p.z + vp.m13;
-            const float z = vp.m2 * p.x + vp.m6 * p.y + vp.m10 * p.z + vp.m14, w = vp.m3 * p.x + vp.m7 * p.y + vp.m11 * p.z + vp.m15;
-            outside[0] += x < -w;
-            outside[1] += x > w;
-            outside[2] += y < -w;
-            outside[3] += y > w;
-            outside[4] += z < -w;
-            outside[5] += z > w;
-        }
-        for (int o : outside)
-            if (o == 8) return false;
-        return true;
-    };
+    if (atlasAniso != r.AnisoRevision()) {                       // el atlas se filtra como el resto de las texturas
+        r.ApplyAniso(atlas);
+        atlasAniso = r.AnisoRevision();
+    }
+    // Bloques fuera de la vista: afuera (Renderer::BoxVisible; estamos dentro de BeginMode3D).
+    const Vector3 cam = r.CameraPosition();
+    auto visible = [&](const Chunk& c) { return r.BoxVisible(c.lo, c.hi); };
     auto distance = [&](const Chunk& c) {
         const float dx = std::max({c.lo.x - cam.x, 0.0f, cam.x - c.hi.x}), dz = std::max({c.lo.z - cam.z, 0.0f, cam.z - c.hi.z});
         return std::sqrt(dx * dx + dz * dz);
@@ -1665,9 +1663,20 @@ void Circuit::Draw(Renderer& r) const
     r.DrawMeshColored(backdrop, MatrixIdentity(), WHITE);
     for (const Chunk* c : shown)
         for (const Mesh& m : c->solid) r.DrawMeshColored(m, MatrixIdentity(), WHITE);
-    for (const Chunk* c : shown)
-        if (distance(*c) < 260.0f)
-            for (const Mesh& m : c->detail) r.DrawMeshColored(m, MatrixIdentity(), WHITE);
+    // La gente (cajitas de 36 cm: ~1 px a 300 m) hasta graphics.detailRadius (0 = sin límite). En los últimos 40 m se
+    // hunde en las gradas achatándose contra la base del bloque (las gradas y el terreno, opacos, la tapan): no salta.
+    const float detailRadius = (float)r.graphics.detailRadius;
+    for (const Chunk* c : shown) {
+        if (c->detail.empty()) continue;
+        Matrix sink = MatrixIdentity();
+        if (detailRadius > 0.0f) {
+            const float d = distance(*c);
+            if (d >= detailRadius) continue;
+            const float k = 1.0f - mu::Smoothstep(detailRadius - 40.0f, detailRadius, d);
+            if (k < 1.0f) sink = MatrixMultiply(MatrixMultiply(MatrixTranslate(0.0f, -c->lo.y, 0.0f), MatrixScale(1.0f, std::max(k, 0.02f), 1.0f)), MatrixTranslate(0.0f, c->lo.y, 0.0f));
+        }
+        for (const Mesh& m : c->detail) r.DrawMeshColored(m, sink, WHITE);
+    }
     for (const Chunk* c : shown)
         for (const Mesh& m : c->decal) r.DrawMeshColored(m, MatrixIdentity(), WHITE);
     r.SetGloss(0.12f);
@@ -1685,13 +1694,12 @@ void Circuit::Draw(Renderer& r) const
     r.SetGloss(0.3f);
 }
 
-void Circuit::DrawShadows(Renderer& r, Vector3 focus, float radius) const
+void Circuit::DrawShadows(Renderer& r) const
 {
     if (!meshes) return;
     for (const Chunk& c : chunks) {
         if (!c.hasSolid) continue;
-        const float dx = std::max({c.lo.x - focus.x, 0.0f, focus.x - c.hi.x}), dz = std::max({c.lo.z - focus.z, 0.0f, focus.z - c.hi.z});
-        if (dx * dx + dz * dz > radius * radius) continue;
+        if (!r.InShadowPrism(c.lo, c.hi)) continue;
         for (const Mesh& m : c.solid) r.DrawMeshColored(m, MatrixIdentity(), WHITE);
     }
 }

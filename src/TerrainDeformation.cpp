@@ -54,6 +54,9 @@ void TerrainDeformation::Clear()
     GenTextureMipmaps(&marks.texture);
     SetTextureFilter(marks.texture, TEXTURE_FILTER_TRILINEAR);
     pending.clear();
+    ResetWheelHistory();
+    commitTimer = 0.0f;
+    for (float& d : dwell) d = 0.0f;
     for (bool& h : hasLast) h = false;
     for (SkidEnd& e : skidEnd) e = SkidEnd{};
     skidNext = skidUsed = 0;
@@ -77,8 +80,9 @@ void TerrainDeformation::WheelContact(int wheel, float x, float z, bool grounded
     const float paved = terrain ? terrain->PavedAmount(x, z) : 0.0f;
     if (skid.vaoId > 0) Skid(wheel, x, z, grounded && onTerrain, load, slide, heading, paved, dt, edge);
 
-    if (!grounded) {
+    if (!grounded || !onTerrain || !visualRuts || paved > 0.6f) {
         hasLast[wheel] = false;
+        dwell[wheel] = 0.0f;
         return;
     }
     const Vector2 p = ToTexel(x, z);
@@ -88,7 +92,12 @@ void TerrainDeformation::WheelContact(int wheel, float x, float z, bool grounded
         return;
     }
     const float metersPerTexel = size / resolution;
-    if (Vector2Distance(p, last[wheel]) * metersPerTexel < 0.25f) return;   // un trazo cada 25 cm
+    const float traveled = Vector2Distance(p, last[wheel]) * metersPerTexel;
+    if (traveled > 3.0f) { last[wheel] = p; dwell[wheel] = 0.0f; return; }
+    dwell[wheel] += dt;
+    const bool stationary = traveled < 0.12f;
+    if (stationary && (slide < 1.5f || dwell[wheel] < 0.10f)) return;
+    dwell[wheel] = 0.0f;   // un trazo cada 25 cm
 
     const float dirt = 1.0f - mu::Smoothstep(0.2f, 0.6f, paved);          // 1 en la tierra y el pasto (como siempre)
     if (dirt > 0.0f) {
@@ -97,10 +106,13 @@ void TerrainDeformation::WheelContact(int wheel, float x, float z, bool grounded
         const float width = (0.12f + mu::Clamp(slip, 0.0f, 1.5f) * 0.12f) / metersPerTexel;
         const float alpha = mu::Clamp(30.0f + load / 45.0f + slip * 90.0f, 0.0f, 140.0f) * dirt;
         const float ridge = width + 0.12f / metersPerTexel;
-        pending.push_back({last[wheel], p, std::max(ridge, 2.0f), Color{240, 228, 212, (unsigned char)(alpha * 0.4f)}, true});
-        pending.push_back({last[wheel], p, std::max(width, 1.2f), Color{92, 70, 54, (unsigned char)alpha}, false});
+        const Vector2 a = stationary ? Vector2Add(p, Vector2Scale(Vector2{heading.x, -heading.y}, -0.11f / metersPerTexel)) : last[wheel];
+        const Vector2 b = stationary ? Vector2Add(p, Vector2Scale(Vector2{heading.x, -heading.y}, 0.11f / metersPerTexel)) : p;
+        pending.push_back({a, b, std::max(ridge, 2.0f), Color{240, 228, 212, (unsigned char)(alpha * 0.4f)}, true});
+        pending.push_back({a, b, std::max(width, 1.2f), Color{92, 70, 54, (unsigned char)alpha}, false});
     }
     last[wheel] = p;
+    if (pending.size() > 8192) pending.erase(pending.begin(), pending.begin() + 4096);
 }
 
 // ------------------------------------------------------------------------------------ goma
@@ -270,8 +282,33 @@ void TerrainDeformation::DigRut(Terrain& terrain, float x, float z, float spin, 
 
 void TerrainDeformation::CommitRuts(Terrain& terrain, PhysicsWorld& world, float dt)
 {
+    terrain.StepRide(dt);              // el suelo de las ruedas se hunde de a poco (Terrain::StepRide)
     commitTimer += dt;
-    if (commitTimer < 0.3f || !terrain.HasPendingDeformation()) return;
+    if (commitTimer < 0.06f || !terrain.HasPendingDeformation()) return;
     commitTimer = 0.0f;
     terrain.CommitDeformation(world);
+}
+
+void TerrainDeformation::ResetWheelHistory()
+{
+    for (bool& active : hasRutLast) active = false;
+}
+
+void TerrainDeformation::PressWheel(Terrain& terrain, int wheel, Vector2 at, Vector2 heading, bool contact,
+                                    float load, float spin, float slide, float softness, float depth, float dt)
+{
+    if (wheel < 0 || wheel >= 2) return;
+    if (!contact) { hasRutLast[wheel] = false; return; }
+    const float distance = hasRutLast[wheel] ? Vector2Distance(at, rutLast[wheel]) : 0.0f;
+    // Compactación por rodadura: proporcional a distancia, sin exigir resbale de la goma.
+    // Reaparecer no cuenta como atravesar la distancia entre las dos posiciones.
+    const float rollingSpeed=dt>0 && distance<=3.0f ? distance/dt : 0.0f;
+    if (!hasRutLast[wheel] || distance > 3.0f) rutLast[wheel] = at;
+    const int steps = std::clamp((int)std::ceil((distance <= 3.0f ? distance : 0.0f) / std::max(0.025f,terrain.SoilCell()*0.5f)),1,64);
+    for (int i=1; i<=steps; ++i) {
+        const Vector2 p = Vector2Lerp(rutLast[wheel],at,(float)i/steps);
+        terrain.PressSoil(p.x,p.y,heading.x,heading.y,load,std::hypot(spin,slide),softness,depth,dt/steps,rollingSpeed);
+    }
+    rutLast[wheel] = at;
+    hasRutLast[wheel] = true;
 }

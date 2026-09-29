@@ -18,6 +18,11 @@ namespace {
 
 constexpr int kChunk = 64;              // celdas por chunk de malla
 constexpr float kShoulder = 9.0f;       // m desde el borde de pista hasta el terreno natural
+constexpr float kGrassCell = 0.55f;     // m entre matas (grilla con jitter)
+constexpr int kGrassBlock = 32;         // celdas por bloque de la caché de matas
+// Tono del pasto (y del pasto seco): el color de vértice del terreno y el de las matas 3D salen de los mismos dos, así
+// el borde del campo de matas no contrasta. Verde de campo, no lima.
+constexpr Color kGrass = {80, 112, 62, 255}, kGrassDry = {124, 124, 80, 255};
 
 float Hash(int x, int z)
 {
@@ -276,6 +281,8 @@ float Terrain::Ground(float x, float z) const
 
 void Terrain::Build(const Track& track, const MapDef& map, bool flat)
 {
+    grassCache.reset();
+    noGrass.clear();
     def = map.terrain;
     terraces = map.terraces;
     streets = map.roadStyle == "street" && !flat;
@@ -334,7 +341,20 @@ void Terrain::Build(const Track& track, const MapDef& map, bool flat)
                 }
             }
     }
+    ClearFineSoil();
+    soilSubdivision = std::max(1, (int)std::ceil(Cell / 0.05f));
+    soilTileCells = 8;
+    while (soilTileCells > 1 && soilTileCells * Cell > 4.0f) soilTileCells /= 2;
+    // SubShapeID de Jolt tiene 32 bits en total, incluidos los dos niveles del compuesto.
+    // Sólo mapas enormes de mods requieren bajar el detalle para no desbordar esos IDs.
+    auto bits=[](int n) { int b=0; for (--n;n>0;n>>=1) ++b; return b; };
+    const int count=(N-2)/kChunk+1, children=kChunk/soilTileCells;
+    while (soilSubdivision>1 && bits(count*count)+bits(children*children)+
+           2*bits(((soilTileCells*soilSubdivision+4)/4)*4)+1>32) --soilSubdivision;
     original = heights;
+    pendingHeights = heights;
+    dirty = deformed = false;
+    deformationRevision = 0;
 }
 
 void Terrain::StampTrack(const Track& track)
@@ -569,12 +589,19 @@ void Terrain::CreateCollision(PhysicsWorld& world)
     }
     // Jolt entrega el shape como const; lo modificamos sólo entre pasos, desde el hilo principal.
     shape = static_cast<JPH::HeightFieldShape*>(const_cast<JPH::Shape*>(result.Get().GetPtr()));
+    baseShape = shape;
+    soilCollision = false;
     JPH::BodyCreationSettings bcs(result.Get(), JPH::RVec3::sZero(), JPH::Quat::sIdentity(), JPH::EMotionType::Static, Layers::STATIC);
     bcs.mFriction = 0.9f;
     body = world.Bodies().CreateAndAddBody(bcs, JPH::EActivation::DontActivate);
 }
 
 float Terrain::Height(float x, float z) const
+{
+    return BaseHeight(x,z) + SoilDelta(x,z);
+}
+
+float Terrain::BaseHeight(float x, float z) const
 {
     float fx = (x - origin) / Cell, fz = (z - origin) / Cell;
     int ix = std::clamp((int)std::floor(fx), 0, N - 2);
@@ -589,9 +616,14 @@ float Terrain::Height(float x, float z) const
 JPH::Vec3 Terrain::Normal(float x, float z) const
 {
     // Normal suave (diferencias centrales), sin el facetado de los triángulos.
-    const float e = Cell;
-    float hl = Height(x - e, z), hr = Height(x + e, z), hd = Height(x, z - e), hu = Height(x, z + e);
-    return JPH::Vec3(hl - hr, 2.0f * e, hd - hu).Normalized();
+    float dx=BaseHeight(x-Cell,z)-BaseHeight(x+Cell,z);
+    float dz=BaseHeight(x,z-Cell)-BaseHeight(x,z+Cell);
+    if (!soilHeights.empty()) {
+        const float e=SoilCell();
+        dx+=(SoilDelta(x-e,z)-SoilDelta(x+e,z))*Cell/e;
+        dz+=(SoilDelta(x,z-e)-SoilDelta(x,z+e))*Cell/e;
+    }
+    return JPH::Vec3(dx,2.0f*Cell,dz).Normalized();
 }
 
 float Terrain::TrackMask(float x, float z) const
@@ -604,19 +636,71 @@ float Terrain::TrackMask(float x, float z) const
     return mu::Lerp(a, b, tz);
 }
 
-void Terrain::GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& out) const
+void Terrain::ExcludeGrass(const float q[8], float margin) const
+{
+    const int side = (int)std::ceil(Size()) + 1;
+    if (noGrass.empty()) noGrass.assign((size_t)side * side, 0);
+    grassCache.reset();                    // las matas ya armadas no sabían de esta zona
+    float x0 = q[0], x1 = q[0], z0 = q[1], z1 = q[1], area = 0.0f;
+    for (int k = 0; k < 4; ++k) {
+        x0 = std::min(x0, q[k * 2]);
+        x1 = std::max(x1, q[k * 2]);
+        z0 = std::min(z0, q[k * 2 + 1]);
+        z1 = std::max(z1, q[k * 2 + 1]);
+        const int n = (k + 1) % 4;
+        area += q[k * 2] * q[n * 2 + 1] - q[n * 2] * q[k * 2 + 1];
+    }
+    if (std::fabs(area) < 1e-4f) return;
+    const float orient = area > 0.0f ? 1.0f : -1.0f;
+    const int i0 = std::max(0, (int)std::floor(x0 - margin - origin)), i1 = std::min(side - 1, (int)std::floor(x1 + margin - origin));
+    const int j0 = std::max(0, (int)std::floor(z0 - margin - origin)), j1 = std::min(side - 1, (int)std::floor(z1 + margin - origin));
+    for (int j = j0; j <= j1; ++j)
+        for (int i = i0; i <= i1; ++i) {
+            const float px = origin + (float)i + 0.5f, pz = origin + (float)j + 0.5f;
+            bool inside = true;
+            for (int k = 0; k < 4 && inside; ++k) {         // a lo sumo margin afuera de cada lado
+                const int n = (k + 1) % 4;
+                const float ex = q[n * 2] - q[k * 2], ez = q[n * 2 + 1] - q[k * 2 + 1];
+                const float len = std::sqrt(ex * ex + ez * ez);
+                if (len < 1e-4f) continue;
+                inside = orient * (ex * (pz - q[k * 2 + 1]) - ez * (px - q[k * 2])) / len >= -margin;
+            }
+            if (inside) noGrass[(size_t)j * side + i] = 1;
+        }
+}
+
+bool Terrain::GrassExcluded(float x, float z) const
+{
+    if (noGrass.empty()) return false;
+    const int side = (int)std::ceil(Size()) + 1;
+    const int i = (int)std::floor(x - origin), j = (int)std::floor(z - origin);
+    return i >= 0 && j >= 0 && i < side && j < side && noGrass[(size_t)j * side + i] != 0;
+}
+
+// Caché de las matas: el pasto se arma por bloques de kGrassBlock x kGrassBlock celdas de la grilla de matas (17.6 m),
+// una sola vez por mapa, y cada lista (Game::Draw, cada 6 m de cámara) se arma juntando los bloques que entran en el
+// radio: rehacer todo cada vez costaba 3 ms con 45 m de pasto y 8-10 con 100 (medido), un tirón cada pocos metros.
+struct Terrain::GrassCache {
+    struct Block {
+        std::vector<Matrix> tufts;     // ordenadas por hash de raleo (m15) ascendente
+        unsigned stamp = 0;            // última lista que la usó (para soltar las más viejas)
+    };
+    std::unordered_map<int64_t, Block> blocks;
+    unsigned stamp = 0;
+};
+
+// Las matas de un bloque, con lo que no depende de dónde esté la cámara: dónde caen, la pendiente, el tono y el hash
+// de raleo. El raleo con la distancia lo hace GrassTufts al juntar los bloques (y kGrassVS cada cuadro).
+void Terrain::GrassBlock(int bi, int bj, std::vector<Matrix>& out) const
 {
     out.clear();
-    constexpr float kCell = 0.55f;
-    const Color grass = {92, 116, 58, 255}, grassDry = {132, 128, 76, 255};
+    const Color grass = kGrass, grassDry = kGrassDry;
     const float lo = origin + 1.0f, hi = origin + Size() - 1.0f;
-    const int i0 = (int)std::floor((cx - radius) / kCell), i1 = (int)std::ceil((cx + radius) / kCell);
-    const int j0 = (int)std::floor((cz - radius) / kCell), j1 = (int)std::ceil((cz + radius) / kCell);
-    for (int j = j0; j <= j1; ++j) {
-        for (int i = i0; i <= i1; ++i) {
-            const float x = ((float)i + Hash(i, j)) * kCell, z = ((float)j + Hash(j + 71, i - 33)) * kCell;
-            const float dist = std::sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz));
-            if (dist > radius || x < lo || x > hi || z < lo || z > hi) continue;
+    for (int j = bj * kGrassBlock; j < (bj + 1) * kGrassBlock; ++j) {
+        for (int i = bi * kGrassBlock; i < (bi + 1) * kGrassBlock; ++i) {
+            const float x = ((float)i + Hash(i, j)) * kGrassCell, z = ((float)j + Hash(j + 71, i - 33)) * kGrassCell;
+            if (x < lo || x > hi || z < lo || z > hi) continue;
+            if (GrassExcluded(x, z)) continue;            // asfalto de una malla sobre el pasto (calle de boxes)
             const float patches = mu::Smoothstep(0.3f, 0.7f, ValueNoise(x * 0.18f + 3.0f, z * 0.18f - 7.0f));
             const float pick = Hash(i * 7 + 1, j * 13 + 5);
             if (sand) {                                   // arena: alguna mata seca suelta, sólo en lo plano
@@ -626,20 +710,88 @@ void Terrain::GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& 
                 const float density = streets && !grassOffRoad ? (1.0f - Sample(streetMask, x, z)) * 0.35f * patches
                                              : (1.0f - TrackMask(x, z)) * (0.25f + 0.75f * patches);
                 if (pick > density) continue;
+                // En las lomas empinadas (el borde del mapa) el pasto plano de las matas se pega como manchas
+                // brillantes: ralea con la pendiente (sólo se mira después de los filtros baratos, cuesta una normal).
+                if (pick > density * mu::Smoothstep(0.75f, 0.90f, Normal(x, z).GetY())) continue;
             }
-            const float s = (0.7f + 0.6f * Hash(i + 911, j - 177)) * (1.0f - mu::Smoothstep(radius * 0.65f, radius, dist));
+            const float lodH = Hash(i + 341, j - 829);   // hash de raleo: queda en m15 (ver GrassTufts y kGrassVS)
+            const float s = 0.7f + 0.6f * Hash(i + 911, j - 177);
             if (s < 0.05f) continue;
             Matrix m = MatrixMultiply(MatrixMultiply(MatrixScale(s, s * (0.75f + 0.6f * pick), s), MatrixRotateY(Hash(i - 5, j + 9) * 6.2832f)),
                                       MatrixTranslate(x, Height(x, z) - 0.02f, z));
             // Mismo tono que el color de vértice del terreno en ese lugar (va en la fila de abajo).
             const float t = mu::Clamp(ValueNoise(x * 0.15f, z * 0.15f) * 1.2f - 0.2f, 0.0f, 1.0f);
-            const float shade = 0.92f + ValueNoise(x * 1.3f + 5.0f, z * 1.3f - 3.0f) * 0.16f;
-            const Color a = sand ? Color{150, 138, 84, 255} : grass, b = sand ? Color{188, 166, 112, 255} : grassDry;   // arena: paja seca
-            m.m3 = mu::Lerp(a.r, b.r, t) * shade / 255.0f;
-            m.m7 = mu::Lerp(a.g, b.g, t) * shade / 255.0f;
-            m.m11 = mu::Lerp(a.b, b.b, t) * shade / 255.0f;
+            float shade = 0.92f + ValueNoise(x * 1.3f + 5.0f, z * 1.3f - 3.0f) * 0.16f;
+            const Color a = sand ? Color{126, 116, 72, 255} : grass, b = sand ? Color{158, 140, 96, 255} : grassDry;   // arena: paja seca
+            float r = mu::Lerp(a.r, b.r, t), g = mu::Lerp(a.g, b.g, t), bl = mu::Lerp(a.b, b.b, t);
+            if (!sand && !streets) {                      // el bake de pendiente del terreno (CreateMeshes), con la misma cuenta
+                const float slope = std::max(std::fabs(BaseHeight(x + Cell, z) - BaseHeight(x - Cell, z)),
+                                             std::fabs(BaseHeight(x, z + Cell) - BaseHeight(x, z - Cell))) / (2.0f * Cell);
+                const float steepT = mu::Smoothstep(0.35f, 0.9f, slope);
+                if (steepT > 0.0f) {
+                    const float k = steepT * 0.85f;
+                    r = mu::Lerp(r, mu::Lerp(grass.r, grassDry.r, 0.3f), k);
+                    g = mu::Lerp(g, mu::Lerp(grass.g, grassDry.g, 0.3f), k);
+                    bl = mu::Lerp(bl, mu::Lerp(grass.b, grassDry.b, 0.3f), k);
+                    shade = mu::Lerp(shade, 1.0f, steepT);
+                }
+            }
+            m.m15 = lodH;
+            m.m3 = r * shade / 255.0f;
+            m.m7 = g * shade / 255.0f;
+            m.m11 = bl * shade / 255.0f;
             out.push_back(m);
         }
+    }
+    std::sort(out.begin(), out.end(), [](const Matrix& a, const Matrix& b) { return a.m15 < b.m15; });
+}
+
+void Terrain::GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& out, float densityScale) const
+{
+    out.clear();
+    if (!grassCache) grassCache = std::make_shared<GrassCache>();
+    GrassCache& cache = *grassCache;
+    ++cache.stamp;
+    constexpr float kBlockSize = kGrassBlock * kGrassCell;
+    const int bi0 = (int)std::floor((cx - radius) / kBlockSize), bi1 = (int)std::floor((cx + radius) / kBlockSize);
+    const int bj0 = (int)std::floor((cz - radius) / kBlockSize), bj1 = (int)std::floor((cz + radius) / kBlockSize);
+    for (int bj = bj0; bj <= bj1; ++bj) {
+        for (int bi = bi0; bi <= bi1; ++bi) {
+            // Distancia del centro al bloque: si ni la más cercana entra en el radio, nada.
+            const float x0 = (float)bi * kBlockSize, z0 = (float)bj * kBlockSize;
+            const float dx = std::max({x0 - cx, 0.0f, cx - (x0 + kBlockSize)}), dz = std::max({z0 - cz, 0.0f, cz - (z0 + kBlockSize)});
+            const float nearest = std::sqrt(dx * dx + dz * dz);
+            if (nearest > radius) continue;
+            auto [it, fresh] = cache.blocks.try_emplace((int64_t)(((uint64_t)(uint32_t)bj << 32) | (uint64_t)(uint32_t)bi));
+            if (fresh) GrassBlock(bi, bj, it->second.tufts);
+            it->second.stamp = cache.stamp;
+            // Raleo con la distancia (~1/d² pasados los 30 m): kGrassVS funde cada mata con la distancia de AHORA (sin
+            // saltos); acá pasan las que van a entrar antes de la próxima vez que se rehaga la lista: la cámara se mueve
+            // hasta 6 m entre listas y el radio de la lista suma 10 m; +0.15 es el ancho del fundido. Como las de un
+            // bloque están ordenadas por hash, con el umbral de su punto más cercano se corta el recorrido.
+            auto threshold = [&](float dist) {
+                const float dm = std::max(1.0f, dist - 10.0f);
+                return std::min(1.0f, 900.0f / (dm * dm)) * densityScale + 0.15f;
+            };
+            const float limit = threshold(nearest);
+            for (const Matrix& m : it->second.tufts) {
+                if (m.m15 > limit) break;
+                const float dist = std::sqrt((m.m12 - cx) * (m.m12 - cx) + (m.m14 - cz) * (m.m14 - cz));
+                if (dist > radius || m.m15 > threshold(dist)) continue;
+                out.push_back(m);
+            }
+        }
+    }
+    // Con el suelo deformado, las matas de la caché pueden tener la altura de antes.
+    if (deformed || !soilHeights.empty())
+        for (Matrix& m : out) m.m13 = Height(m.m12, m.m14) - 0.02f;
+    // Un tope a la caché: se sueltan los bloques que hace más que no se usan.
+    constexpr size_t kMaxBlocks = 500;
+    if (cache.blocks.size() > kMaxBlocks) {
+        std::vector<std::pair<unsigned, int64_t>> age;
+        for (const auto& e : cache.blocks) age.push_back({e.second.stamp, e.first});
+        std::sort(age.begin(), age.end());
+        for (size_t k = 0; k < age.size() - kMaxBlocks * 3 / 4; ++k) cache.blocks.erase(age[k].second);
     }
 }
 
@@ -673,8 +825,8 @@ void Terrain::FillChunkGeometry(const Chunk& c) const
 
 void Terrain::CreateMeshes()
 {
-    const Color grass = {92, 116, 58, 255};
-    const Color grassDry = {132, 128, 76, 255};
+    const Color grass = kGrass;
+    const Color grassDry = kGrassDry;
 
     auto mixc = [](Color a, Color b, float t) {
         t = mu::Clamp(t, 0.0f, 1.0f);
@@ -686,6 +838,11 @@ void Terrain::CreateMeshes()
         for (int cx = 0; cx < N - 1; cx += kChunk) {
             const int x1 = std::min(cx + kChunk, N - 1), z1 = std::min(cz + kChunk, N - 1);
             Chunk c{new Mesh{}, cx, cz, x1 - cx + 1, z1 - cz + 1};
+            for (int z = cz; z <= z1; ++z)
+                for (int x = cx; x <= x1; ++x) {
+                    c.low = std::min(c.low, H(x, z));
+                    c.high = std::max(c.high, H(x, z));
+                }
             Mesh* m = c.mesh;
             m->vertexCount = c.w * c.h;
             m->triangleCount = (c.w - 1) * (c.h - 1) * 2;
@@ -713,16 +870,24 @@ void Terrain::CreateMeshes()
                         // Arena: dorada, más clara u ocre en manchones grandes (~80 m) y apenas manchada de
                         // cerca; la huella de una pista, apisonada y más oscura.
                         const float band = ValueNoise(wx * 0.012f + 3.7f, wz * 0.012f - 8.1f);
-                        const Color dune = mixc({234, 204, 158, 255}, {212, 170, 118, 255}, band * 1.5f - 0.25f);
+                        // (Albedo natural de la arena: con el albedo de antes, 0.75 lineal, las dunas salían casi blancas.)
+                        const Color dune = mixc({186, 158, 120, 255}, {166, 128, 88, 255}, band * 1.5f - 0.25f);
                         const float spot = 0.955f + 0.09f * noise;
                         g = mixc({(unsigned char)(dune.r * spot), (unsigned char)(dune.g * spot), (unsigned char)(dune.b * spot), 255},
-                                 {170, 138, 100, 255}, trackMask[z * N + x] * 0.85f);
+                                 {132, 104, 74, 255}, trackMask[z * N + x] * 0.85f);
                     } else if (streets) {
                         const Color soil = grassOffRoad ? g : mixc({150, 88, 58, 255}, {126, 96, 70, 255}, noise * 1.3f - 0.15f);
                         const Color paved = mixc({186, 170, 150, 255}, {78, 76, 78, 255}, streetTone[z * N + x]);
                         g = mixc(soil, paved, trackMask[z * N + x] * 1.4f);
                     }
-                    float shade = 0.92f + fine * 0.16f;
+                    // Taludes (el borde del mapa, laderas): el ruido del color, pensado para el plano, sale en rayas
+                    // verticales (el suelo se proyecta por x, z y se estira); con la pendiente se apaga hacia un tono
+                    // medio del pasto y el brillo se emparda. No en arena ni en calles (ahí el color es de otra cosa).
+                    const float slope = std::max(std::fabs(H(std::min(x + 1, N - 1), z) - H(std::max(x - 1, 0), z)),
+                                                 std::fabs(H(x, std::min(z + 1, N - 1)) - H(x, std::max(z - 1, 0)))) / (2.0f * Cell);
+                    const float steepT = mu::Smoothstep(0.35f, 0.9f, slope);
+                    if (steepT > 0.0f && !sand && !streets) g = mixc(g, mixc(grass, grassDry, 0.3f), steepT * 0.85f);
+                    float shade = mu::Lerp(0.92f + fine * 0.16f, 1.0f, steepT);
                     m->colors[v * 4 + 0] = (unsigned char)mu::Clamp(g.r * shade, 0.0f, 255.0f);
                     m->colors[v * 4 + 1] = (unsigned char)mu::Clamp(g.g * shade, 0.0f, 255.0f);
                     m->colors[v * 4 + 2] = (unsigned char)mu::Clamp(g.b * shade, 0.0f, 255.0f);
@@ -748,12 +913,25 @@ void Terrain::CreateMeshes()
 
 void Terrain::Draw(Renderer& r, const Texture& marks, float centerX, float centerZ, float radius) const
 {
+    for (const auto& entry : soilTiles) {
+        const Mesh* mesh=entry.second.mesh;
+        if (!mesh) continue;
+        if (radius > 0.0f) {
+            const float x=origin+(entry.first.first+0.5f)*soilTileCells*Cell;
+            const float z=origin+(entry.first.second+0.5f)*soilTileCells*Cell;
+            if (std::hypot(x-centerX,z-centerZ)>radius+soilTileCells*Cell) continue;
+        }
+        r.DrawTerrain(*mesh,marks);
+    }
     for (const Chunk& c : chunks) {
-        if (radius > 0.0f) {                       // sólo los chunks que tocan el círculo
-            const float x0 = origin + c.x0 * Cell, x1 = origin + (c.x0 + c.w - 1) * Cell;
-            const float z0 = origin + c.z0 * Cell, z1 = origin + (c.z0 + c.h - 1) * Cell;
-            const float dx = std::max({x0 - centerX, 0.0f, centerX - x1}), dz = std::max({z0 - centerZ, 0.0f, centerZ - z1});
-            if (dx * dx + dz * dz > radius * radius) continue;
+        if (c.mesh->triangleCount == 0) continue;
+        const float x0 = origin + c.x0 * Cell, x1 = origin + (c.x0 + c.w - 1) * Cell;
+        const float z0 = origin + c.z0 * Cell, z1 = origin + (c.z0 + c.h - 1) * Cell;
+        if (radius > 0.0f) {                       // sólo los chunks que pueden dejar sombra en el mapa de la luz
+            // ±1.5 m de altura: los surcos bajan el suelo 35 cm como mucho y los bordes lo suben unos cm.
+            if (!r.InShadowPrism({x0, c.low - 1.5f, z0}, {x1, c.high + 1.5f, z1})) continue;
+        } else if (!r.BoxVisible({x0, c.low - 2.0f, z0}, {x1, c.high + 2.0f, z1})) {
+            continue;                              // pasada principal: los que no tocan el frustum, afuera (±2 m: surcos)
         }
         r.DrawTerrain(*c.mesh, marks);
     }
@@ -761,6 +939,9 @@ void Terrain::Draw(Renderer& r, const Texture& marks, float centerX, float cente
 
 void Terrain::Unload()
 {
+    grassCache.reset();
+    noGrass.clear();
+    ClearFineSoil();
     for (Chunk& c : chunks) {
         UnloadMesh(*c.mesh);
         delete c.mesh;
@@ -782,14 +963,20 @@ void Terrain::Dig(float x, float z, float depth, float radius, float maxDepth)
             const float w = 1.0f - std::sqrt(dx * dx + dz * dz) / radius;
             if (w <= 0.0f) continue;
             const int i = iz * N + ix;
-            const float target = std::max(original[i] - maxDepth, heights[i] - depth * w);
-            if (target < heights[i]) {
-                heights[i] = target;
+            const float target = std::max(original[i] - maxDepth, pendingHeights[i] - depth * w);
+            if (target < pendingHeights[i]) {
+                pendingHeights[i] = target;
                 changed = true;
             }
         }
     }
     if (!changed) return;
+    DirtyRegion(x0, z0, x1, z1);
+}
+
+void Terrain::DirtyRegion(int x0, int z0, int x1, int z1)
+{
+    deformed = true;
     if (!dirty) {
         dirtyX0 = x0; dirtyZ0 = z0; dirtyX1 = x1; dirtyZ1 = z1;
         dirty = true;
@@ -799,11 +986,76 @@ void Terrain::Dig(float x, float z, float depth, float radius, float maxDepth)
     }
 }
 
+float Terrain::SoilAmount(float x, float z) const
+{
+    if (x < origin || z < origin || x > origin + Size() || z > origin + Size()) return 0.0f;
+    // El pavimento y los taludes casi verticales no son barro excavable.
+    const float ground = 1.0f - mu::Smoothstep(0.1f, 0.5f, PavedAmount(x, z));
+    return ground * (sand ? 0.8f : mu::Lerp(0.45f, 1.0f, streets ? 1.0f : TrackMask(x, z)));
+}
+
+void Terrain::ResetDeformation(PhysicsWorld& world)
+{
+    if (!deformed && soilTiles.empty()) return;
+    grassCache.reset();                    // las matas armadas con el suelo deformado tienen otra altura
+    if (soilRoot) world.Bodies().SetShape(body,baseShape,false,JPH::EActivation::DontActivate);
+    ClearFineSoil();
+    FilterCoarseMeshes();
+    ++deformationRevision;
+    pendingHeights = original;
+    DirtyRegion(0,0,N-1,N-1);
+    CommitDeformation(world);
+    if (soilCollision) {
+        shape = baseShape;
+        world.Bodies().SetShape(body,shape,false,JPH::EActivation::DontActivate);
+        soilCollision = false;
+    }
+    deformed = false;
+}
+
+void Terrain::SoilStats(float& excavated, float& deposited, float& highestBank) const
+{
+    excavated=deposited=highestBank=0.0f;
+    for (const auto& entry : soilHeights) {
+        const float d=entry.second;
+        excavated+=std::max(0.0f,-d)*SoilCell()*SoilCell();
+        deposited+=std::max(0.0f,d)*SoilCell()*SoilCell();
+        highestBank=std::max(highestBank,d);
+    }
+    for (size_t i=0; i<heights.size(); ++i) {
+        const float d=heights[i]-original[i];
+        excavated+=std::max(0.0f,-d)*Cell*Cell;
+        deposited+=std::max(0.0f,d)*Cell*Cell;
+        highestBank=std::max(highestBank,d);
+    }
+}
+
 void Terrain::CommitDeformation(PhysicsWorld& world)
 {
+    if (!soilDirty.empty()) CommitFineSoil(world);
     if (!dirty || !shape) return;
     dirty = false;
+    for (int z=dirtyZ0; z<=dirtyZ1; ++z)
+        std::copy(pendingHeights.begin()+z*N+dirtyX0, pendingHeights.begin()+z*N+dirtyX1+1, heights.begin()+z*N+dirtyX0);
+    ++deformationRevision;
 
+    // Reserva altura para los bordes sólo al excavar por primera vez. El collider original
+    // queda intacto: apagar el sistema y las pruebas antiguas conservan la misma física.
+    if (!soilCollision) {
+        JPH::HeightFieldShapeSettings settings(heights.data(),JPH::Vec3(origin,0,origin),JPH::Vec3(Cell,1,Cell),N);
+        settings.mMinHeightValue=*std::min_element(original.begin(),original.end())-1.0f;
+        settings.mMaxHeightValue=*std::max_element(original.begin(),original.end())+1.0f;
+        settings.mBitsPerSample=16;
+        auto result=settings.Create();
+        if (result.HasError()) {
+            heights=original; pendingHeights=original; deformed=false;
+            TraceLog(LOG_WARNING,"suelo: no se pudo crear el collider deformable");
+            return;
+        }
+        shape=static_cast<JPH::HeightFieldShape*>(const_cast<JPH::Shape*>(result.Get().GetPtr()));
+        world.Bodies().SetShape(body,shape,false,JPH::EActivation::DontActivate);
+        soilCollision=true;
+    }
     // Jolt exige regiones alineadas al tamaño de bloque del heightfield.
     const int block = (int)shape->GetBlockSize();
     const int x0 = (dirtyX0 / block) * block, z0 = (dirtyZ0 / block) * block;
@@ -825,6 +1077,10 @@ void Terrain::DeformationStats(int& samples, float& deepest) const
 {
     samples = 0;
     deepest = 0.0f;
+    for (const auto& entry : soilHeights) if (entry.second < -1e-4f) {
+        ++samples;
+        deepest=std::max(deepest,-entry.second);
+    }
     for (size_t i = 0; i < heights.size(); ++i) {
         float d = original[i] - heights[i];
         if (d > 1e-4f) {

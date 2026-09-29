@@ -333,7 +333,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     // maxLateralAccel es el límite en plano (~ μ·g). En un peralte a favor de la curva (θ) el suelo
     // también empuja hacia adentro y con el mismo grip se dobla más: g·(sen θ + μ cos θ)/(cos θ − μ sen θ).
     // En contra (off-camber) el límite baja. La inclinación máxima lo acota igual.
-    const Vec3 groundN = terrain.Normal(com.GetX(), com.GetZ());
+    const Vec3 groundN = terrain.BankNormal(com.GetX(), com.GetZ());
     const Vec3 rightFlat = Vec3(right.GetX(), 0.0f, right.GetZ()).NormalizedOr(Vec3::sAxisX());
     const float sinBank = mu::Clamp(groundN.Dot(rightFlat) * (in.steer >= 0.0f ? 1.0f : -1.0f) * P->bankTurnGain, -0.5f, 0.5f);
     const float cosBank = std::sqrt(1.0f - sinBank * sinBank);
@@ -463,7 +463,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             Vec3 groundPoint = ray.GetPointOnRay(hit.mFraction);
             const bool onTerrain = hit.mBodyID == terrain.BodyID();
             if (onTerrain) {
-                n = terrain.Normal(groundPoint.GetX(), groundPoint.GetZ());
+                n = terrain.RideNormal(groundPoint.GetX(), groundPoint.GetZ());
             } else {
                 JPH::BodyLockRead lock(world.System().GetBodyLockInterfaceNoLock(), hit.mBodyID);
                 if (lock.Succeeded()) n = lock.GetBody().GetWorldSpaceSurfaceNormal(hit.mSubShapeID2, groundPoint);
@@ -480,8 +480,8 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                 float e = solveExtension(groundPoint, n);
                 // Refinamiento: re-evaluar el suelo justo debajo del punto de contacto estimado.
                 Vec3 below = mount + axis * e - n * w.radius;
-                groundPoint = Vec3(below.GetX(), terrain.Height(below.GetX(), below.GetZ()), below.GetZ());
-                n = terrain.Normal(groundPoint.GetX(), groundPoint.GetZ());
+                groundPoint = Vec3(below.GetX(), terrain.RideHeight(below.GetX(), below.GetZ()), below.GetZ());
+                n = terrain.RideNormal(groundPoint.GetX(), groundPoint.GetZ());
                 if (-axis.Dot(n) > minAxisCos) e = solveExtension(groundPoint, n);
                 // Salvaguardas: si el tope de la rueda ya está bajo el suelo (moto volcada o
                 // clavada) la suspensión no aplica fuerza, y el sobre-recorrido se acota: de ahí
@@ -523,9 +523,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                         pr.hit = true;
                         pr.p = pray.GetPointOnRay(ph.mFraction);
                         pr.object = ph.mBodyID != terrain.BodyID();
-                        if (!pr.object) {
-                            pr.n = terrain.Normal(pr.p.GetX(), pr.p.GetZ());
-                        } else {
+                        if (pr.object) {
                             JPH::BodyLockRead lk(world.System().GetBodyLockInterfaceNoLock(), ph.mBodyID);
                             if (lk.Succeeded()) pr.n = lk.GetBody().GetWorldSpaceSurfaceNormal(ph.mSubShapeID2, pr.p);
                         }
@@ -542,6 +540,9 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                     anyObject = anyObject || (probes[k].hit && probes[k].object);
                 }
                 if (anyObject || !onTerrain) {
+                    // La normal del terreno de cada sonda se calcula sólo acá (con el surco suavizado, es cara).
+                    for (Probe& pr : probes)
+                        if (pr.hit && !pr.object) pr.n = terrain.RideNormal(pr.p.GetX(), pr.p.GetZ());
                     float bestE = groundFound ? groundExtension : 1e6f;
                     Vec3 bestN = n, bestP = contactPoint;
                     bool bestObject = false;
@@ -717,6 +718,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             // neumático perpendicular al eje (la toman rígidas la horquilla / el basculante).
             const float suspensionForce = tireNormal;               // carga del neumático (para el grip)
             w.grounded = true;
+            w.onTerrain = !groundIsObject;
             w.onObject = groundIsObject;
             w.contactPoint = contactPoint;
             w.contactNormal = n;
@@ -834,6 +836,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             applyAt(suspF + tireF, contactPoint);
         } else {
             w.grounded = false;
+            w.onTerrain = false;
             w.onObject = false;
             // En el aire la suspensión sólo empuja la rueda (fuerza interna): el chasis recibe la
             // reacción por el eje hasta que la rueda llega al tope de extensión.

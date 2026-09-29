@@ -1,0 +1,274 @@
+﻿MotoSim v0.3.2 - motos para jugar solo o con amigos en la red local
+===================================================================
+
+NOVEDADES DE LA v0.3.2
+(Junta todo lo hecho desde la v0.2.8: si venís de la v0.2.8, esto es lo que hay de nuevo.)
+- SUELO DE TIERRA QUE SE DEFORMA DE VERDAD:
+  * La moto hunde la tierra y deja la huella. Andando normal, sin patinar, ya queda marcada (unos 5 cm
+    en la tierra de la pista, unos 2 cm en el pasto); patinando cavás un surco más hondo (hasta 24 cm) y
+    la tierra que sacás se junta en los bordes.
+  * Los surcos son de verdad, no sólo dibujo: tienen volumen y colisión. De las ruedas saltan terrones que
+    rebotan y quedan en el suelo, el pasto se dobla y se aplasta donde pasás, y la tierra removida se ve más
+    húmeda y oscura. El asfalto no se deforma.
+  * El surco no maneja la moto: aunque el suelo esté hecho un surco, acelerás, frenás y doblás casi igual que
+    sobre suelo parejo (en las pruebas, el radio de una curva al límite cambia menos del 1,5 % y no hay
+    caídas). Las claves rut_ride* de tuning.ini son para tocarlo si querés que el surco pese más.
+  * Se maneja en Ajustes > Juego y sonido > Terreno: Deformación (apagada, visual o física), Blandura,
+    Profundidad máxima y Restaurar suelo. F8 alterna física y visual. Con la Blandura en 0 el suelo no se
+    hunde. En red los surcos son sólo huellas visuales (no cambian cómo anda ninguna moto).
+- CALIDAD GRÁFICA: cuatro niveles (Bajo, Medio, Alto y Ultra). Al abrir, el juego elige uno según tu placa
+  de video (Ajustes > Gráficos > Calidad gráfica; si tocás algo suelto pasa a "Personalizado"). Si con el
+  nivel elegido por el juego la compu anda a los tirones, baja sola un escalón y te avisa (una vez por
+  escalón); si lo elegís vos, no lo toca. Cada nivel cambia las sombras, la distancia del pasto y de los
+  objetos, el filtro de texturas y la resolución de la imagen.
+- AJUSTES EN TRES PÁGINAS (← → en la primera fila; LB y RB en el joystick): Gráficos (calidad, sombras,
+  distancia de dibujado, pasto, filtro de texturas, resolución de imagen, suavizado de bordes, pantalla
+  completa y "Opciones avanzadas"), Imagen (estilo de color, brillo, niebla, viñeta, grano, aberración,
+  motion blur y sacudón de cámara) y Juego y sonido (volumen, ayuda de teclas, datos técnicos, caja, control
+  de tracción y el terreno). Si tenías un preferencias.ini de una versión anterior, los gráficos vuelven a los
+  recomendados para tu placa (avisa al abrir), el resto (nombre, moto, volumen...) queda, y tu archivo viejo
+  se guarda como preferencias.ini.v1.bak.
+- SOMBRAS EN DOS CAPAS: cerca de la moto, nítidas (con Alto y Ultra se leen hasta los rayos de las ruedas) y,
+  más lejos, sombras de lo que no se mueve hasta unos 96 m (Alto) o 140 m (Ultra), sin las franjas negras
+  cortadas de antes ni sombras despegadas del pie de las cosas.
+- IMAGEN MÁS LIMPIA: los bordes salen sin escalones ni halos de color (antes, con el motion blur, quedaban
+  halos magenta); estilo de color Natural, Vívido (viene así) o Suave; el suelo lejano se ve más nítido con
+  el filtro de texturas.
+- PASTO: hasta 120 m de distancia (según el nivel), aparece y desaparece sin saltos, sin matas de color lima
+  en las lomas, y ya no crece sobre el asfalto de los boxes del autódromo. El polvo es redondo, sin cortes
+  rectos contra el suelo.
+- LOS MAPAS, MÁS BONITOS: la favela sin ese tono violeta, más cálida; Los Médanos con la arena dorada y con
+  más relieve; el Parque con la pared del fondo menos lavada; la niebla de todos los mapas más
+  pareja (el nivel de Ajustes vale parecido en cada uno). El autódromo anda más liviano porque no dibuja lo que no ves.
+- El piloto: la espalda de la campera sin el aro en relieve y el traje mejor terminado.
+- La física de la Motocross 450 es la misma de siempre (la pista de motocross se sigue dando en 1:08.73 y
+  1:08.42 con el bot).
+
+NOVEDADES DE LA v0.2.8
+- Menú AJUSTES: pantalla completa, motion blur, sacudón de cámara, volumen, la ayuda de teclas, los
+  datos técnicos, la caja y el control de tracción. Se guardan solos (y también tu nombre).
+- Menú CONTROLES: todas las teclas y los botones del joystick.
+- Pantalla más limpia: la ayuda de teclas sale los primeros segundos (H la muestra) y los datos
+  técnicos con T. En pantallas grandes todo se agranda, y sobre la arena se lee.
+- Joystick: Start abre el menú y el stick sirve para moverte en él. La pausa pasó a la P.
+- LOS MÉDANOS, renovado: los saltos van uno atrás del otro. La Cadena (seis saltos distintos
+  seguidos), El Serrucho y Los Dientes (lomas en serrucho), Los Montes (mesas redondas para saltar
+  para cualquier lado) y peraltes en las esquinas. Si te caés, R te deja ahí donde quedaste (en
+  suelo parejo, mirando para donde ibas), y arriba ves cuánto volaste en cada salto.
+- PARQUE DE FÍSICA, rediseñado: una línea de tierra con una mesa para mortales, una de cajones de
+  madera, un pump track, un bowl con las pelotas gigantes y una pared. Todas las rampas se suben.
+  Retroceso (volver a empezar) pone los tambores, cajas, bolos y pelotas otra vez en su lugar.
+- El piloto ya no se mete en la moto (asiento, tanque, manubrio) al inclinarte, saltar o tirarte
+  adelante y atrás.
+- Motos:
+  * TRILHEIRA 450: frenando fuerte con S ya no hace un trompo.
+  * DOS TIEMPOS 250: motor de dos tiempos de verdad: poca fuerza abajo y se despierta arriba.
+  * CARRERA 1000: pesada en el aire, como una de verdad (no da mortales).
+- Sin parpadeos en los boxes y las tribunas del autódromo ni en los carteles y grafitis de la favela.
+
+NOVEDADES DE LA v0.2.7
+- Mapa nuevo: LOS MÉDANOS, médanos de arena al atardecer para andar libre y saltar, con la Motocross:
+  * El Gigante, desde la largada: mesa de 6 m con una bajada larga; de 40 a 65 km/h volás hasta 3 s
+    y entra un mortal atrás entero.
+  * El Médano Grande: 22 m de alto; tirate atrás en el aire o clavás la trompa.
+  * La Escalera (tres mesas), Los Lomos (cuatro lomas seguidas), El Cráter (un bowl de 50 m que
+    se cruza volando) y La Ola (una pared de 6.5 m para subir casi vertical y volver).
+  Se elige en el menú: "Mapa".
+- Piloto nuevo, más prolijo, con los dedos que agarran el manubrio.
+- CARRERA 1000:
+  * Frena más fuerte: a fondo con S, ~1 g, y más de 1.1 g desde muy rápido.
+  * Frenando y doblando a la vez, dobla (antes casi no doblaba).
+  * Si venís inclinado y soltás la curva para frenar, se endereza y frena derecha (antes la cola se
+    salía y se iba para el otro lado).
+  * Si frenás en plena curva sin soltar la dirección, sigue la curva (antes se abría). El ABS no te
+    deja frenar a fondo muy acostado: frena lo que puede sin que se vaya la cola.
+- MOTOCROSS 450, DOS TIEMPOS 250 y TRIAL 300: frenando fuerte con S ya no hacen un trompo (antes la
+  cola se cruzaba hasta darse vuelta). El derrape con Espacio no cambia.
+- Motocross y Dos tiempos: la suspensión es más viva al aterrizar (vuelve enseguida, un poco de
+  rebote), en vez de quedarse hundida.
+- Choques en red:
+  * Si te pegan de costado o de atrás con más de ~15 km/h de diferencia, te caés. Un roce no tira a
+    nadie.
+  * Si embestís vos de trompa muy fuerte (más de ~38 km/h de diferencia), te caés vos también.
+  * De frente, se caen los dos.
+  Cada PC decide por su piloto, así que para que valga para los dos, los dos tienen que tener la v0.2.7.
+- Al caerte ya no reaparecés solo: mirás la caída y tocás R (Y en el joystick) para volver.
+- Menú: "Sacudón de cámara" y "Motion blur" se pueden apagar (vienen prendidos; el juego se acuerda).
+  El sacudón al aterrizar es más suave.
+
+NOVEDADES DE LA v0.2.6
+- CARRERA 1000:
+  * Frena derecha y fuerte en el asfalto. Antes, frenando a fondo, hacía un wobble raro y se
+    cruzaba; ahora con S frena derecha aunque vengas a 280 km/h.
+  * Tiene cubiertas lisas de pista: en la tierra y el pasto patina y casi no agarra.
+- Golpes fuertes: si te estrellás de frente o de costado contra algo firme (un muro, una casa, un
+  poste, una barrera) a más de 25 km/h, o caés a plomo desde muy alto, el piloto sale volando por
+  encima de la moto. Antes sólo te caías si la moto volcaba.
+- Derrape despacio con las motos de tierra (Motocross, Dos tiempos, Trilheira y Trial): a unos
+  15 km/h, doblando y con el freno trasero (Espacio), la cola sale de costado para dar vuelta en lo
+  cerrado.
+- Escaleras, cordones y cajas: la moto apoya y rueda por los cantos sin rebotar ni trabarse. La
+  escadaria de la favela se baja sin rebotes, aunque entres torcido (despacio: entrando a 30 km/h
+  o más volás de escalón en escalón y podés caer de trompa).
+- Arreglos:
+  * Ya no titilan el cartel y los textos de las paredes de la favela, ni los boxes y las tribunas
+    del autódromo.
+  * Eligiendo moto con la partida empezada, la cámara queda quieta en la vitrina (antes seguía a
+    tu moto mientras la de muestra giraba en otro lado).
+
+NOVEDADES DE LA v0.2.5
+- Elegí tu moto: menú -> "Moto". Se ven todas girando, con sus números (potencia, peso, velocidad
+  máxima, 0 a 100, agarre, suspensión y giro), y la que elegís vale para todos los mapas (el juego
+  se acuerda). Elegir la del mapa vuelve a "cada mapa con su moto".
+- Motos nuevas:
+  * CARRERA 1000: superbike de 4 cilindros, 245 hp y 330 km/h, con carenado. El piloto va
+    agachado detrás del parabrisas y en las curvas se cuelga con la rodilla al piso. Frená con la
+    moto derecha.
+  * TRIAL 300: de trial, liviana, gira en el lugar y trepa escalones de medio metro levantando la
+    rueda de adelante justo antes (flecha abajo y W de golpe). El piloto va siempre de pie.
+  * La DOS TIEMPOS 250 ahora tiene su propia pinta (amarilla de los 90, caño de expansión) y suena
+    a dos tiempos: chillona en la pipa y con el ring-ding-ding abajo.
+- Mapa nuevo: AUTÓDROMO SIERRA DE LOS VIENTOS, un circuito de velocidad de 3,7 km: recta de casi un
+  kilómetro, horquilla a fondo de frenos, chicana, eses y curvón final, con pianos, boxes, tribunas,
+  leca y muros. Se corre con la Carrera 1000.
+- Menú nuevo, con su propia cámara (un plano de cine alrededor de tu moto) y la tarjeta de lo que
+  estás corriendo.
+- En red cada uno corre con la moto que eligió (el otro tiene que tener esa moto en su carpeta
+  "mods"; si no, te ve con la suya).
+- Arreglos:
+  * El piloto, al caerse, dobla rodillas, codos, hombros y cadera sólo para donde corresponde: ya
+    no queda doblado para cualquier lado ni enroscado.
+  * Escaleras y escalones: la cubierta apoya en los cantos. La escadaria de la favela ya no
+    dispara la moto para todos lados.
+  * Haciendo wheelie y doblando, cualquier moto gira hacia donde va (antes quedaba cruzada).
+  * En el aire, tirándote adelante o atrás, el torso ya no atraviesa el manubrio.
+  * La cola raspando el piso suena sólo en el asfalto y el cemento (no en la tierra), y más suave.
+
+NOVEDADES DE LA v0.2.4
+- Freestyle de favela con la Trilheira (en la pista de motocross la moto no cambia nada):
+  * GRAU LENTO, como en los videos: flecha abajo (tirarte atrás) y W de golpe. Con la rueda
+    arriba, soltá W y el piloto la sostiene a paso de hombre (~8 km/h) en el punto de equilibrio,
+    con el gas y el pie en el freno trasero; con W apretado el grau va más rápido (~20 km/h).
+    Sale desde parado. Con A / D doblás en una rueda; soltando la flecha la rueda baja despacio.
+  * Relación corta (como la corona grande que se usa para dar grau) y el piloto se tira bien atrás:
+    la trompa sube mucho más fácil andando despacio.
+  * El "gas de golpe" ahora funciona también con el teclado y con el gatillo del joystick.
+  * El HUD cuenta el grau aunque vayas a paso de hombre.
+- Mapas nuevos: PARQUE DE FÍSICA (líneas de saltos, mesa, quarter pipe, pump track y cosas
+  sueltas para voltear: tambores, una pirámide de cajas, bolos y pelotas gigantes) y VALLE (bajada
+  por el fondo de un valle). Se corren con una moto nueva, la Dos tiempos 250 (más liviana y
+  chillona), y la de motocross. Se eligen en el menú: "Mapa".
+- Mods: los mapas y las motos ahora son archivos de texto en la carpeta "mods" (que tiene que
+  quedar al lado de MotoSim.exe). Cualquiera puede hacer mapas nuevos: trazado, terreno (hasta
+  desde una imagen), saltos, rampas, objetos fijos o sueltos, luz y cielo, y qué moto se usa. Cómo
+  se hace (en inglés): MODDING.md. Con el juego abierto, al guardar el archivo del mapa se rearma
+  solo; Shift+F5 relee todos los mods. En red, los dos tienen que tener el mismo mod.
+
+NOVEDADES DE LA v0.2.3
+- Cuerpo a los costados: flechas izquierda / derecha (stick derecho en el joystick). El piloto corre
+  el peso: con el cuerpo hacia adentro de la curva la moto va más derecha; con el cuerpo afuera
+  (el peso en la estribera de afuera) va más acostada debajo tuyo. Sin tocar la dirección, el cuerpo
+  solo también hace doblar la moto (despacio), y en el aire la tira de costado.
+- Rueda trasera clavada: si frenás fuerte y se traba, patina y la cola baila y se abre un poco,
+  como en la realidad. La cubierta chilla en el asfalto y arrastra en la tierra.
+
+NOVEDADES DE LA v0.2.2
+- Manejo callejero en el Morro do Grau (sólo con la Trilheira; en la pista de motocross nada cambia):
+  giros cerrados (zerinho y vueltas en U en el lugar), derrapes de calle (con gas a fondo en la
+  curva la cola sale de lado; con Espacio doblando la podés tirar casi cruzada: cavalo de pau) y el
+  grau (mejorado en la v0.2.4, arriba).
+- Pantalla completa: F11 o Alt+Enter (o en el menú); el juego se acuerda.
+
+NOVEDADES DE LA v0.2.1
+- Mapa nuevo: MORRO DO GRAU, una favela en un morro de Brasil. Se elige en el menú: "Mapa".
+  Largada arriba, escadaria, bajada por la ladeira cruzando calles (cada cruce es un salto),
+  quebra-molas, rampas de tierra y horquillas cerradas entre las casitas. Se puede andar por los
+  techos. En red, el mapa lo elige el que crea la partida y a los demás se les carga solo.
+- Moto nueva para la favela: la Trilheira 450 (manubrio alto, faro redondo, parrilla, escape
+  aberto que petardea al soltar el gas).
+- Derrape: frená sólo con el trasero (Espacio / A) mientras doblás y la cola sale de costado,
+  como se "cuadra" una curva cerrada en motocross. Cuando quedás alineado, soltá y acelerá.
+  Con S (los dos frenos) es una frenada normal.
+- De la v0.3.1 vieja (la de antes de la v0.2.1, con otra numeración): dobla más cerrado (42 grados de manubrio), la pata afuera en las curvas lentas y
+  el whip / scrub en el aire con A / D.
+
+CÓMO ABRIRLO
+- Descomprimí la carpeta entera (no lo abras desde adentro del zip) y ejecutá MotoSim.exe.
+  La carpeta "mods" tiene que quedar al lado del .exe: ahí están los mapas y las motos.
+- Si Windows muestra "Windows protegió su PC": tocá "Más información" y después
+  "Ejecutar de todas formas" (el juego no está firmado, es un prototipo).
+- Al abrir aparece el menú (flechas, mouse o joystick; Enter para elegir): Jugar solo,
+  Crear partida en red, Unirse a una partida, Mapa, Moto, tu Nombre (el que ven los demás), Ajustes
+  (gráficos, imagen, sonido, la caja, el terreno y lo que se ve en pantalla), Controles y Salir.
+  Con Esc lo volvés a abrir en cualquier momento.
+
+JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
+1. Uno crea la partida: menú -> "Crear partida en red". Aparece el CÓDIGO para invitar
+   (por ejemplo 60N00-VM07N); con C (o F10 corriendo) se copia para mandarlo por WhatsApp.
+2. La primera vez, Windows pregunta si deja pasar a MotoSim por el firewall: marcá
+   "Redes privadas" (y también "públicas" si tu wifi figura como pública) y "Permitir acceso".
+   Hacelo en las dos PCs.
+3. El otro abre el juego, menú -> "Unirse a una partida", escribe o pega (Ctrl+V) el código y Enter.
+4. En la sala se ven los pilotos conectados; Enter para correr. Aparecen en la largada, cada uno
+   con su moto, su color y su nombre arriba, y se ven las huellas y el polvo que deja cada uno (en red el suelo no se hunde de verdad: son sólo
+   huellas dibujadas).
+   Entran hasta 4 jugadores. El que creó la partida puede cambiar el mapa desde el menú (Esc):
+   todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
+
+SI NO CONECTA
+- Los dos tienen que tener la v0.3.2, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+  conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
+  "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
+  v0.2.1, v0.2 y v0.1) no juegan con esta.
+- Revisen que estén en la misma red. Algunos wifi de invitados, o routers con "aislamiento de
+  clientes", no dejan que las PCs se vean entre sí.
+- Revisá el firewall: Panel de control -> Firewall de Windows Defender -> Permitir una aplicación
+  -> MotoSim (privada y pública). El que crea la partida usa el puerto UDP 27015.
+- Si la PC del que crea la partida tiene varias redes (cable y wifi, VPN, máquinas virtuales),
+  el panel muestra "otra red: ..." con otros códigos: prueben con esos.
+
+CONTROLES
+  Acelerar ................ W  (RT en el joystick)
+  Freno delantero ......... S  (LT)    parado y con S apretado: marcha atrás lenta
+  Freno trasero / derrape . Espacio (A)   solo y doblando: la cola sale de costado
+  Doblar / inclinar ....... A / D (stick izquierdo)
+  Whip / scrub (en el aire) A / D (stick izquierdo al costado)
+  Piloto adelante / atrás . Flechas arriba / abajo (stick arriba / abajo)
+  Cuerpo a los costados ... Flechas izquierda / derecha (stick derecho); con la Carrera 1000,
+                            hacia adentro de la curva para colgarte
+  Grau (Trilheira) ........ flecha abajo + W de golpe; con la rueda arriba, W suelto = grau lento,
+                            W apretado = grau rápido; soltá la flecha para bajar la rueda
+  Cambios ................. Q / E (LB / RB)   F3 (X): caja automática o manual (se recuerda)
+  Reaparecer .............. R (Y)   al caerte no reaparecés solo; en Los Médanos, ahí donde quedaste
+  Volver a empezar ........ Retroceso (Back)   a la largada, y los objetos sueltos a su lugar
+  Cámara .................. arrastrá con el mouse para girarla, rueda para acercar; C cámara lateral
+  Menú .................... Esc (Start en el joystick)
+  Pausa ................... P
+  Ayuda de teclas ......... H   (sale sola los primeros segundos)
+  Datos técnicos .......... T   (velocidad, motor, suspensión, agarre y cuadros por segundo)
+  Sonido .................. M
+  Surcos de tierra ........ F8   físicos o sólo visuales (se recuerda; en red, siempre visuales)
+  Pantalla completa ....... F11 o Alt+Enter (o en el menú: Ajustes); el juego se acuerda
+  Mods .................... Shift+F5 relee la carpeta "mods" (mapas y motos nuevos)
+  Todas las teclas están en el menú: Controles.
+
+  Tirate adelante al acelerar fuerte (si no, la moto se para en una rueda) y atrás para caer de
+  los saltos. En el aire, adelante / atrás gira la moto y A / D la tira de costado. En la favela,
+  la escadaria del principio se baja despacio (subir escalones altos sin levantar la rueda no se
+  puede, como con una moto de verdad).
+
+SI ANDA LENTO O A LOS TIRONES
+Menú -> Ajustes -> Gráficos: bajá la "Calidad gráfica" (Bajo o Medio), y si hace falta la "Resolución de
+imagen" (75 %) y el "Pasto". El juego elige el nivel según tu placa de video y, si anda lento, baja solo.
+Los gráficos no cambian cómo maneja la moto. Lo del suelo (surcos, blandura) está aparte, en Ajustes ->
+Juego y sonido -> Terreno.
+
+CHOQUES ENTRE MOTOS
+Las motos chocan y se empujan. Si otro te pega de costado o de atrás con más de ~15 km/h de
+diferencia, te caés (un roce no tira a nadie); si embestís vos de trompa a más de ~38 km/h de
+diferencia, te caés vos también; si chocan de frente fuerte, se caen los dos. Y si te estrellás
+fuerte contra un muro o una casa, salís volando. En el Parque de física los tambores, cajas, bolos y pelotas se
+mueven cuando les pegás (cada PC mueve los suyos).
+
+REQUISITOS
+Windows 10 u 11 de 64 bits y una placa de video con OpenGL 3.3 (cualquiera de los últimos 10 años).

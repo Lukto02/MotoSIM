@@ -450,3 +450,157 @@ física en sí:
 - El tamaño y la resolución son por mapa (`terrain.size`, `terrain.resolution`). La cantidad de
   muestras por lado, N, se redondea a múltiplo de 8 y va de 64 a 2048 (`Terrain::Build`).
 - La simulación va a 120 Hz con 1 collision step.
+## Suelo deformable: verificación
+
+`motocross.exe --headless --flat --test soilcheck` verifica compactación, excavación por patinaje,
+conservación acotada de volumen, profundidad, bordes, contacto Jolt, restauración, independencia
+60/120 Hz, ruedas en el aire y teletransportes. Repetir con `--map base/circuito` verifica asfalto.
+Ambas variantes pasaron; error altura/colisión medido menor a 0.003 m.
+
+Las alturas pendientes se publican juntas a malla y colisión cada 0.06 s. El primer surco crea
+un heightfield con margen para elevar bordes; el collider original se conserva para restaurarlo.
+El 60% del volumen retirado como máximo se deposita en los bordes; el resto representa
+compactación y material expulsado. La profundidad depende de la resolución original del mapa.
+`PressWheel` usa los ajustes de Tierra; `rut_dig_rate` y `rut_max_depth` quedan sólo para `DigRut` legado.
+Juego manual: física local por defecto. Bot/pruebas/headless: activarla con `--ruts`.
+La telemetría de aceleración de cuatro segundos sin `--ruts` coincidió exactamente con el exe anterior.
+Las ruedas no leen este relieve tal cual sino una versión suavizada (ver "El surco no tiene que manejar la moto").
+
+### Suelo fino por sectores
+
+El sistema actual guarda sólo las muestras modificadas en una grilla local de 5 cm. Al deformar
+por primera vez, el mismo BodyID recibe un compuesto de heightfields: sectores originales de
+64 celdas, subdivididos sólo donde hace falta en sectores de hasta 4 m con colisión fina.
+Los bordes comparten las mismas muestras globales; cada heightfield se rellena con valores
+sin colisión fuera de su tamaño útil para satisfacer el múltiplo de cuatro de Jolt.
+Los cambios ocurren entre pasos físicos. Restaurar recupera el collider original y libera los sectores.
+
+La suma de bits de SubShapeID de los dos niveles y las celdas queda limitada a 32: en mapas
+enormes de mods se reduce la subdivisión si hace falta. Los mapas motocross y circuito mantienen
+5 cm. No se altera el terreno original ni la física cuando no se activa la deformación.
+`soilcheck` incluye 625 rayos distribuidos alrededor de una costura, comparación de la altura
+con Jolt, ancho de huella, volumen, restauración, 60/120 Hz, teletransportes y pavimento.
+
+### v0.3.0: la excavación se frenaba en su propio surco
+
+`PressSoil` rechazaba pendientes con normal Y menor a 0.55, pero medía la normal ya deformada.
+El borde de una huella profunda pasaba ese umbral y bloqueaba nuevas pasadas en tierra excavable.
+Ahora el filtro de taludes mide el terreno base. `soilcheck` busca tierra de pista, crea un surco
+profundo y vuelve a presionar su borde: fallaba antes del cambio y pasa después.
+
+Además, el apoyo de la rueda conserva `onTerrain` desde la consulta de suspensión. La excavación
+y los efectos locales usan ese dato, en vez de inferirlo por una diferencia de altura menor a 8 cm:
+el contacto tangente de una cubierta sobre una huella curva puede superar esa diferencia.
+Los apoyos sobre cajas y rampas siguen excluidos. El dato no se transmite por red; protocolo 7 intacto.
+
+### v0.3.1: huellas al rodar sin patinaje
+
+La compactación quieta estaba limitada a 2.5 cm antes de blandura/superficie y avanzaba a sólo
+0.04 m/s: en una pasada de pocos milisegundos casi no se notaba. `PressWheel` ahora calcula la
+velocidad recorrida (excluye teletransportes) y `PressSoil` suma compactación proporcional a la
+distancia. El límite rodando aumenta a 10 cm antes de blandura/superficie; parado conserva el
+límite de 2.5 cm. Derrapar sigue agregando excavación hasta la profundidad elegida.
+Con 65% de blandura, 1100 N y sin patinaje: 47.7 mm en pista y 21.5 mm fuera de ella por pasada
+a 18 y 36 km/h. Verificado a 60/120 Hz con `soilcheck`. No depende de subir el preset ni de
+borrar las preferencias anteriores; blandura cero sigue desactivándolo.
+
+### El surco no tiene que manejar la moto (suelo deformable)
+
+Pedido: "que la deformación de tierra no afecte tanto al grip y la conducción, porque se maneja raro cuando se
+deforma; visualmente me encanta". Es un cambio de física pedido a propósito, pero **sólo con la deformación
+física prendida** (`--ruts`, o Deformación "Física" manejando uno mismo): sin ella la regresión da idéntica.
+
+**Qué pasaba** (`--map prueba/plaza_tierra`, desde `pruebas/`, con `--ruts` contra sin surcos; motocross):
+
+| prueba | sin surcos | con surcos (antes) |
+|---|---|---|
+| `accel`: t a 60 km/h / velocidad a los 5 s / metros a los 5.5 s | 3.03 s / 95.5 / 75.0 | 3.71 s / 80.5 / 57.5 (rebotes, trasera en el aire 5%) |
+| `brakestraight` (freno trasero a 32 km/h) | frena derecho | se da vuelta a los 3 s (caída) |
+| `circleN`, N = 6 a 16 (dirección a fondo a los 4 s, roll ~47°) | radio 3.6 a 32.9 m, 0 caídas | **caída a los 5-6 s en todas** (al salir del surco recto de la arrancada) |
+| `bajada45` cruzando un surco de 14 cm a 10, 25, 60 y 90° | derecho | caída antes de llegar |
+| bot en la pista de motocross, 10 vueltas | 1:08.29 - 1:08.73 | 1:43, 1:57, 2:23, 2:10, 2:06 (caídas y reapariciones) |
+| bot en Los Médanos, 600 s | 6 vueltas de 97.7 - 98.0 s | ni una vuelta |
+
+**Por qué** (medido con `--wheel-log`, no supuesto):
+- La malla, la colisión de Jolt y lo que leía `BikePhysics` (`terrain.Height`/`Normal`, 3 sitios por rueda más
+  la normal bajo el centro de masa) eran el mismo relieve de 5 cm: surco de hasta 24 cm de hondo y 20 de ancho
+  con paredes casi verticales, más bancos de 8 cm. La cubierta se apoya en un plano tangente y veía normales
+  como `(-0.55, 0.83, 0.01)` (empuje de costado de miles de N: el surco "encarrila" y al doblar la rueda
+  trepa la pared) y alturas del punto de contacto que cambian 5-10 cm en un par de commits.
+- Aunque las paredes no estuvieran, la cubierta es un resorte de 400 kN/m (1 mm = 400 N; la carga estática son
+  2-3 mm) con 3500 N·s/m al comprimirse y **20000 al descomprimirse**, y la rueda pesa 11-14 kg: si el suelo se
+  aleja a más de ~5 cm/s (`carga / 20000`) la fuerza da 0, y rebota a ~27 Hz con casi nada de amortiguación
+  (2%). Una huella nueva baja el suelo bajo la cubierta 5-7 cm en 4 pasos (2 m/s) y su rugosidad (tacos de
+  10 cm, ruido de a mm por nodos, y la carga que fluctúa y se graba en la profundidad de la vuelta siguiente:
+  un lazo) la hacía rebotar (`cub` de 0 a 8000 N), y una moto al límite en una curva se caía.
+- No era la colisión de Jolt: con los bancos fuera de ella (o dentro) la moto se maneja igual una vez
+  arreglado lo anterior (medido: radios idénticos a 0.05 m), así que no se tocó.
+
+**Qué se hizo** (`Terrain::RideHeight/RideNormal/BankNormal/StepRide`, `TerrainSoil.cpp`; lo usa sólo `BikePhysics`):
+la rueda no lee el relieve de la malla sino una versión suya, y **la malla, el shader, las huellas, los
+terrones, el polvo y los ajustes de Tierra no cambian** (ni `PressSoil`, ni la colisión de Jolt, ni el protocolo):
+1. Sólo cuenta lo hundido: los bancos no los siente (`max(0, -altura)`).
+2. Se promedia con un núcleo gaussiano de 9x9 puntos, sigma `rut_ride_blur` = 25 cm: el surco es una
+   depresión suave y ancha, sin paredes ni rugosidad.
+3. Tope blando `rut_ride_depth` = 2 cm (`tanh`): la rueda se hunde como mucho eso, aunque el surco tenga 24.
+4. Con demora: el suelo de las ruedas (`soilRide`, una copia de `soilHeights`) sigue a la malla a
+   `rut_ride_sink` = 2 cm/s como mucho (`StepRide`, una vez por paso desde `TerrainDeformation::CommitRuts`):
+   pasando encima no se siente cómo se cava; la trasera siente la huella de la delantera, y parada, la moto se
+   hunde de a poco.
+5. La normal se saca por diferencias finitas a ±10 cm de ese suelo (la derivada exacta de la suma de muestras
+   lineales salta en cada borde de triángulo y devolvió las caídas), y la del centro de masa (peralte para el
+   límite de la curva, `bank_turn_gain`) es la del terreno sin surcos (`BankNormal`): un surco no es un peralte.
+6. En las sondas de los objetos (escaleras, rampas) la normal del terreno se calcula sólo si hay algún objeto
+   (era cara con el surco suavizado; sin surcos da lo mismo).
+
+`rut_ride = 0` devuelve todo lo de antes (la rueda ve la malla tal cual). Con `soilHeights` vacío (sin surcos) o
+`rut_ride = 0`, `RideHeight` y `RideNormal` dan exactamente `Height` y `Normal` (bit a bit); comprobado: con
+`rut_ride = 0` `circle12 --ruts` vuelve a caerse a los 5 s y `accel --ruts` da 3.71 s a 60 km/h y 57.49 m, como antes.
+Claves (comentadas con su valor por defecto) en `tuning.ini` y en la tabla de `MODDING.md`.
+
+**Cómo se comprobó** (con y sin `--ruts`, misma moto y mapa; R = radio, de `v / (wy / cos roll)` en la vuelta
+8-60 s; "surcos previos" = N pasadas patinando hechas antes de la prueba, sólo con una copia de medición, no
+está en el código):
+- `circleN` 60 s, N = 6, 8, 10, 12, 14, 16: 0 caídas (antes 6 de 6); radio contra sin surcos +3.0, +1.4, +0.8,
+  +0.7, -0.3, -0.5 %; sin ratos en el aire.
+- `accel`: 3.06 s a 60 km/h (3.03), 74.94 m a los 5.5 s (75.01), frenada 57.42 m (57.47); con 6 pasadas previas de
+  surco de 14 cm, 74.98 / 57.47; con 20 pasadas patinando (24 cm), 75.04 m y 56.54 m (-1.6%).
+- `brakestraight` y `brakeslide` con surcos: igual que sin ellos (giro del derrape -84.0° contra -83.6°; con 6
+  pasadas previas debajo, -103°: la moto cruza el surco de costado).
+- `bajada45` cruzando el surco a 10, 25, 60 y 90°: 187.9 m en 16 s como sin surco, balanceo máximo 0.2°.
+- Otras motos (`circle6`, `circle10` de la de carreras, la Trilheira y la trial): radio +0 a +4%, 0 caídas.
+- Bot, motocross, 10 vueltas con `--ruts` (surco de hasta 15.6 cm): 1:08.34 - 1:08.93 (sin surcos 1:08.29 -
+  1:08.73). Bot en Los Médanos, 6 vueltas: 97.47 - 98.00 s (97.74 - 98.02).
+- Sin surcos, `tools/regresion.sh` contra el exe anterior: idéntico en las 9 pruebas de la lista de siempre
+  y en el bot de 150 s, `accel`, `airlean`, `crashloop`, la favela, el circuito con la de carreras, Médanos y el
+  Valle. `--test soilcheck` (`--flat`, `base/circuito`, `base/motocross`, `sandbox/medanos`, `base/favela`): 0
+  fallos; se le agregaron chequeos: las ruedas hunden como mucho `rut_ride_depth`, no sienten los bancos (16-37
+  mm en la malla), su normal no se inclina en el surco (0.9995 contra 0.4-0.7 la de la malla) y sin surcos ven
+  exactamente `Height` y `Normal`. El resto de la prueba no cambió (la colisión sigue igual a la malla).
+- Costo: `RideDelta` 7 us por llamada, ~20 llamadas por paso con surcos (~2% de un cuadro); 5.6 ms por cuadro
+  sin `--ruts` y 5.8 con (5.7 con la versión anterior).
+- Lo que se ve: capturas de la rueda en un surco de 24 cm (20 pasadas) contra la versión anterior, lateral,
+  de atrás y en marcha: la rueda queda en el surco (2-3 cm más arriba de donde se hundía antes), sin flotar ni
+  enterrarse.
+
+**Qué mide cada parte** (`circleN` 6-16 con la versión final, quitando una cosa a la vez): sin demora
+(`rut_ride_sink = 0`) no cae pero rebota (aire 0.4-4%, roll hasta 51°); sin tope (`rut_ride_depth = 0`) 1
+caída de 6 y radio +8.9%; sin las dos, 6 caídas; con sigma 15 cm en vez de 25, 0 caídas pero +4.5% en el
+círculo más chico (25 cm da +3.0%). Al principio, con sigma de 10 cm (7x7 puntos) seguía cayendo aun con el
+tope de 3 cm y la demora de 2 cm/s, y con 15 cm sin tope caían 4 de 6.
+
+**Lecciones**
+- La cubierta de esta moto es un sensor de altura de 400 N/mm: lo que se le muestre como suelo tiene que ser
+  liso a nivel de mm y no alejarse a más de ~5 cm/s. Un relieve "que se ve bien" a 5 cm de resolución no sirve
+  para la física de la rueda, aunque no tenga paredes.
+- `circleN` (dirección a fondo, roll de 47°) es el detector: al límite de agarre cualquier rebote es una caída.
+  Sirve para probar cualquier cosa que toque el suelo que ven las ruedas.
+- Probar de a una cosa: la primera hipótesis (paredes y normales) sólo arregló la línea recta; los círculos
+  necesitaron el tope y la demora. Y la colisión de los bancos, que parecía culpable, no lo era.
+- Trampas al editar: un `\n` dentro de un heredoc de bash o de Python llega como salto de línea de verdad
+  (usar la herramienta de archivos); tras tocar `Terrain.h`, tocar todos los `.cpp` antes de compilar.
+- `StepRide` se llama desde `CommitRuts`: quien use `PressSoil` sin él (como `soilcheck`) tiene que llamarlo.
+
+**Pendiente / dudoso**: los surcos ya no "encarrilan" la moto ni la frenan (era lo que se pidió); si se quisiera
+un poco de eso, subir `rut_ride_depth` (2 cm da +3% de radio al límite; 4.5 cm, +6%). El suelo de las ruedas
+sólo existe con la deformación física prendida; no viaja por red. No se compiló en Mac (código C++17 estándar).

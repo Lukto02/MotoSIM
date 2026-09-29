@@ -280,8 +280,13 @@ fit in their straight are dropped.
 
 The `sunset` preset also switches the ground to `street`; set `ground_textures` after it to change
 that (for example `"preset": "sunset", "ground_textures": "sand"`). On sand the light bounced from
-the ground is bright: a sand-colored `ground` (like `[214, 164, 112]`) keeps the shaded dune faces
+the ground is bright: a sand-colored `ground` (like `[160, 120, 88]`) keeps the shaded dune faces
 warm instead of purple.
+
+The game also applies a colour grade to the final image (a little more exposure, saturation and contrast,
+and the player can pick the style in the menu), so do not brighten or saturate a `day` look to compensate:
+the grade already does it. The `fog` of each map is its starting point; the player's fog level (25% to 150%)
+multiplies it.
 
 ### Advanced
 
@@ -367,6 +372,16 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 
 Wheelies: while turning on the rear wheel the bike yaws along its path (`wheelie_turn`, Nm per rad/s,
 default 900; `wheelie_align`, 1/s, default 4). 0 turns it off.
+
+Deformable dirt (ruts, Settings > Terrain): what you see (mesh, ruts, berms) is the full rut, but the wheels
+feel a smoothed version of it so a rut does not steer the bike. These go in `tuning.ini` (or a bike's `tuning`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `rut_ride` | 1 | 0 = the wheels feel the rut as it is (the old behaviour: they get trapped in the walls); 1 = smoothed |
+| `rut_ride_depth` | 0.02 | m: soft cap on how far a wheel sinks into a rut (0 = no cap) |
+| `rut_ride_blur` | 0.25 | m: radius (sigma) of the average of the rut under the wheel |
+| `rut_ride_sink` | 0.02 | m/s: how fast the ground under the wheels follows a new rut (0 = instantly) |
 
 ---
 

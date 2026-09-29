@@ -396,3 +396,37 @@ del proyecto (ahí están el modelo y `mods/`). Si `Game.cpp` cambia y el enganc
 - **Red con versiones mezcladas**: las partes del ragdoll de otro jugador llegan armadas con el modelo de
   su PC; el nuestro se pega a ellas con nuestro `JointPose`. Con modelos distintos (v0.2.6 con el 2 y
   una nueva con el 3) los huesos quedan corridos unos centímetros respecto de sus partes. Es sólo dibujo.
+
+## Espalda lisa y material del traje (septiembre de 2026)
+
+El modelo 3 tenía un aro en relieve en el centro de la espalda, además de una marca blanca en la
+textura. Aplanar sus vértices solamente dejaba caras superpuestas. Al cargar ese modelo se retiran
+las 74 caras del aro y se cierra su contorno de diez aristas con diez triángulos, reutilizando un
+vértice interior. Se ajusta el perfil hacia el de la campera y se recalculan las normales por área,
+compartidas en las costuras de UV. Otra causa del bulto eran pesos de los brazos en la espalda
+central: una transición suave la vincula a las vértebras correspondientes a su altura.
+
+El cambio se hace antes del skinning y de construir las muestras de holgura; conserva el rig, las
+manos y el ragdoll. Se limita a `Low_Poly_Motorcyclist_3_rigged.gltf`; el modelo 2 de respaldo y los
+archivos originales quedan intactos. Para otro modelo se debe revisar el contorno y las coordenadas.
+
+El shader del piloto usa el atlas original como máscara de paneles rojos, oscuros, blancos y piel;
+reduce la iluminación pintada del atlas y agrega trama fina filtrada por derivadas. Una máscara
+en el alfa de los colores de vértice unifica la zona reparada; en este material no representa
+transparencia. Se carga su VBO de colores (raylib no lo había creado), se baja el brillo a 0.08 y
+se habilitan mipmaps/trilineal y anisotropía 8x cuando el driver la soporta. El uniforme del material
+se restablece después de cada dibujo para no afectar motos ni carteles. No se reemplaza el PNG.
+
+Comprobado con el glTF principal: capturas antes/después de atrás (`--view 25 5 0.4`), de frente
+y costado, y en el aire (`--flat --drop 3 --test airlean`); sin aro, sin caras superpuestas y con
+sombras del piloto. Compilación Release y prueba básica de aceleración sin ventana completadas.
+
+### Corrección del traje con manchas dentadas
+
+La clasificación del atlas por umbrales RGB convertía sus degradados y sombras pintadas en
+manchas negras con bordes irregulares. Se reemplazó por paneles de campera, laterales, mangas,
+vivos claros y pantalón definidos en coordenadas de reposo. Esas coordenadas viajan en RGB de
+vértice y siguen el skinning: no se deslizan al mover el cuerpo. El casco y el cuello conservan
+su atlas; el traje usa tejido fino filtrado y la luz real. Las normales de la ropa se recalculan
+soldadas por posición para eliminar cortes de iluminación entre islas UV. El arreglo del aro sigue.
+Verificado desde atrás y de costado con el glTF principal: `build/soil-checks/rider-clean.png`.

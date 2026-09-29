@@ -76,7 +76,9 @@ add_executable(motocross
     src/Suspension.cpp
     src/Tire.cpp
     src/Terrain.cpp
+    src/TerrainSoil.cpp
     src/TerrainDeformation.cpp
+    src/SoilChecks.cpp
     src/Track.cpp
     src/Camera.cpp
     src/Particles.cpp
@@ -100,7 +102,9 @@ if(MINGW)
     target_link_options(motocross PRIVATE -static $<$<CONFIG:Release>:-s>)
 endif()
 if(MSVC)
-    target_compile_options(motocross PRIVATE /W3 /permissive-)
+    # /utf-8: los fuentes son UTF-8 sin BOM (textos con tildes y escapes \xE2\x86\x92 de flechas); sin esto MSVC los lee con la
+    # página de códigos de la PC (en una china o japonesa, un byte de una tilde puede comerse la comilla que cierra el texto).
+    target_compile_options(motocross PRIVATE /W3 /permissive- /utf-8)
     target_compile_definitions(motocross PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(motocross PRIVATE -Wall -Wno-missing-field-initializers)

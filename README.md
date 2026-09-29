@@ -21,10 +21,10 @@ controles y cómo jugar en red.
 | 4 | Dirección, inclinación, balance automático, grip lateral | Hecha (el bot da vueltas sin caerse) |
 | 5 | Saltos, peso del piloto, control en el aire, aterrizajes | Hecha |
 | 6 | Circuito completo, partículas, polvo, huellas | Hecha |
-| 7 | Surcos con efecto físico, superficies distintas | Hecha, **apagada por defecto** (F8) |
+| 7 | Surcos con efecto físico, superficies distintas | Hecha, activa por defecto en juego local (F8) |
 | 8 | Multijugador LAN: código de invitación, hasta 4, choques entre motos | Hecha (v0.2; protocolo actual: el de la v0.2.1) |
 | 9 | Mapas: selector en el menú y la favela "Morro do Grau" con la Trilheira 450 | Hecha (v0.2.1) |
-| 10 | Mods (mapas y motos en archivos), selector de motos, motos de carreras y trial, circuito de velocidad | Hecha (v0.2.4-v0.2.8; protocolo 7) |
+| 10 | Mods (mapas y motos en archivos), selector de motos, motos de carreras y trial, circuito de velocidad | Hecha (v0.2.4-v0.3.2; protocolo 7) |
 
 ## Compilar
 
@@ -60,7 +60,9 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.2.8 de `dist/MotoSim-v0.2.8.zip`, posterior a la v0.3.1): con MSVC, compilar con el runtime
+**Versión para compartir** (la v0.3.2, `dist/MotoSim-v0.3.2.zip`, que se publica en
+[GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
+cuando `src/Version.h` cambia en `main`): con MSVC, compilar con el runtime
 estático para que el .exe no pida instalar el "Visual C++ Redistributable" en la otra PC
 (`dumpbin /dependents` sólo debe listar DLLs de Windows):
 
@@ -69,10 +71,11 @@ cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMOTOSIM_STATIC
 cmake --build build-release
 ```
 
-y armar la carpeta con `MotoSim.exe` (el `motocross.exe` renombrado), `tuning.ini`, la carpeta `mods/`
-(sin `pruebas/`), `MODDING.md`, `Low_Poly_Motorcyclist_3_rigged.gltf` + `Low_Poly_Motorcyclist_3_rigged_deps/`
-y `LEEME.txt` (instrucciones para el que lo recibe, con las novedades arriba; UTF-8 con BOM y CRLF). La
-versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`kProtocol`).
+y armar la carpeta y el zip con `python tools/package_release.py build-release/motocross.exe` (en el workflow, `build-release/Release/`): `MotoSim.exe`
+(el `motocross.exe` renombrado), `tuning.ini`, la carpeta `mods/` (sin `pruebas/`), `MODDING.md`,
+`Low_Poly_Motorcyclist_3_rigged.gltf` + `Low_Poly_Motorcyclist_3_rigged_deps/` y `LEEME.txt` (el de la raíz del repo: las
+instrucciones para el que lo recibe, con las novedades arriba; se escribe en UTF-8 con BOM y CRLF). `RELEASE_NOTES.md` es
+el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`kProtocol`).
 
 ## Controles
 
@@ -108,15 +111,26 @@ lo copia, y los pilotos conectados), unirse (el código en casilleros, Ctrl+V lo
 Corriendo, F10 copia el código de invitación (anfitrión).
 
 **Ajustes** (en el menú principal y en el de la partida en red; se guardan solos en `preferencias.ini`, se
-cambien ahí o con su tecla): pantalla completa, motion blur, sacudón de cámara, volumen (M lo apaga), la
-ayuda de teclas (al empezar, siempre o nunca), los datos técnicos (T), la caja (F3) y el control de
-tracción (F6). ↑ ↓ eligen, ← → o Enter cambian.
+cambien ahí o con su tecla), en **tres páginas** (la primera fila, Sección, las cambia con ← →; LB y RB en el joystick):
+**Gráficos** (Calidad gráfica Bajo / Medio / Alto / Ultra, que elige el juego según tu placa de video y que pasa a
+"Personalizado" si tocás algo suelto; sombras, distancia de dibujado, pasto, filtro de texturas, resolución de imagen,
+FXAA, pantalla completa y unas opciones avanzadas), **Imagen** (estilo de color, brillo, niebla, viñeta, grano, aberración,
+motion blur, sacudón de cámara y, en avanzadas, luz del sol y ambiental, intensidad de sombra y viento del pasto) y **Juego y
+sonido** (volumen (M lo apaga), ayuda de teclas (al empezar, siempre o nunca), datos técnicos (T), caja (F3), control de
+tracción (F6) y la deformación del terreno). ↑ ↓ eligen, ← → o Enter cambian. Si hay un `preferencias.ini` de una versión
+anterior a los presets, se copia a `preferencias.ini.v1.bak` y los gráficos vuelven a los recomendados para tu placa.
 
 En los mapas libres (pista `guide`, como Los Médanos) no hay cronómetro de vuelta: arriba se ve cuánto
 volás en cada salto y el mejor.
 
 Debug: **F1** vectores físicos (suspensión verde, neumático rojo, normal azul, COM naranja),
-F2 esconde todo el HUD, F11 / Alt+Enter pantalla completa (sin bordes, del tamaño del monitor; `--fullscreen` y `--windowed` la fuerzan sin guardarla), F4 cámara lenta, **F5 recarga `tuning.ini`** (Shift+F5: los mods), F6 control de tracción, F7 efectos de cámara (motion blur, viñeta, grano), F8 surcos físicos, F9 piloto modelo/generado
+F2 esconde todo el HUD, F11 / Alt+Enter pantalla completa (sin bordes, del tamaño del monitor; `--fullscreen` y `--windowed` la fuerzan sin guardarla), F4 cámara lenta, **F5 recarga `tuning.ini`** (Shift+F5: los mods), F6 control de tracción, F7 efectos de cámara (motion blur, viñeta, grano), F8 surcos físicos/visuales (física local activa por defecto; en red sólo visual), F9 piloto modelo/generado
+
+En Ajustes, Gráficos (con "Opciones avanzadas") están los controles de sombras (detalle, radios de las dos
+cascadas, filtro y suavidad) y la distancia del pasto (0–120 m); en Imagen, la iluminación y el viento del pasto. En
+Juego y sonido, el grupo Terreno permite regular blandura y profundidad, o restaurar el suelo; el relieve fino y
+las partículas están en las avanzadas de Gráficos. Los surcos modifican geometría y colisión; los terrones salen de la rueda y rebotan.
+El detalle local usa muestras de 5 cm en los mapas incluidos. Bot y pruebas requieren `--ruts` para deformar el suelo.
 (F4 y P no andan en red). `[` `]` mueven el centro de masa adelante/atrás, `-` `=` lo suben/bajan, `0` lo resetea.
 
 Consejos: el piloto adelante (↑ / stick arriba) mantiene la rueda delantera abajo al acelerar
@@ -376,9 +390,11 @@ Todo es generado por código, salvo el modelo opcional del piloto (glTF con su t
   puños y levas; tanque, asiento, cachas con calcos, laterales y porta número con el 21. Todo se
   mueve con la física: ruedas girando, basculante siguiendo al eje trasero, amortiguador cuyo
   resorte se comprime, botellas que se hunden, adelante girando con la dirección.
-- **Sombras**: shadow map ortográfico de 2048² desde el sol, 64 m alrededor de lo que mira la
-  cámara (ajustado a la grilla de texels para que no titile), filtro bilineal 4x4. Proyectan la
-  moto, el piloto, los postes y el propio terreno (los saltos hacen sombra).
+- **Sombras**: dos cascadas ortográficas desde el sol, cada una en su textura: la cercana (2048² con 24 m de
+  radio en Alto; todo lo que se mueve) y la lejana (96 m en Alto, sólo el mundo quieto, en caché), ajustadas a la grilla de
+  texels para que no titilen, con comparación por hardware (filtro de 5 o 9 lecturas) y sesgo en metros del mundo.
+  Proyectan la moto, el piloto, los postes y el propio terreno (los saltos hacen sombra). Los presets Bajo / Medio
+  llevan la lejana más corta (48 y 80 m; Alto 96, Ultra 140). Detalle en `docs/RENDER.md`.
 - **Cielo**: degradé, halo y disco del sol, nubes procedurales que se mueven. La niebla toma el
   color del cielo en la dirección de la mirada.
 - **Terreno**: texturas de tierra (con piedras) y pasto mezcladas por altura en el borde de la
@@ -412,7 +428,7 @@ Todo es generado por código, salvo el modelo opcional del piloto (glTF con su t
   el pecho con franjas y el panel del número; brazos y piernas torneados que se afinan en codos,
   rodillas y muñecas; rodilleras, botas con correas y hebillas, guantes y collarín.
 - **Post-proceso** (F7): motion blur radial con la velocidad (la moto queda nítida), aberración
-  cromática, viñeta, grano y FXAA. La cámara tiembla con giro y golpe de zoom al aterrizar o chocar.
+  cromática, viñeta, grano, FXAA y un estilo de color (vívido, natural o suave) que F7 no apaga. La cámara tiembla con giro y golpe de zoom al aterrizar o chocar.
 - **Petardeos**: al subir un cambio con el motor arriba de 5500 rpm (el corte de encendido deja
   nafta sin quemar que explota en el escape), casi siempre al reducir y a veces al soltar el gas de
   golpe con muchas vueltas: ráfagas de 2 a 4 explosiones. Cada una tira fuego aditivo (en el espacio
@@ -547,7 +563,9 @@ normal) y `--norider` dibuja la moto sola; p. ej. `--test pose --flat --side --n
 Menú: `--menu join|name|lobby|maps|bikes|ajustes|controles|principal` abre esa pantalla al arrancar (con `--host`
 para ver la sala o, con `principal`, el menú de la partida en red); `--menu no` arranca corriendo, como "Jugar
 solo" (con la ayuda de teclas del principio). `--datos` muestra los datos técnicos (T) sin tocar
-`preferencias.ini`. `--respawn-here`: en un mapa libre, las pruebas reaparecen donde quedaron, como el
+`preferencias.ini`. `--gfx bajo|medio|alto|ultra` aplica ese preset de calidad encima de lo leído y no guarda nada
+(mientras dura, el archivo de preferencias no se escribe); `--noprefs` ni lee ni escribe `preferencias.ini` (capturas que no
+dependen de la PC). `--respawn-here`: en un mapa libre, las pruebas reaparecen donde quedaron, como el
 jugador con R (con `--telemetry` imprime `REAPARECE`: dónde, a cuánto y con qué pendiente).
 `--bike mod/archivo` corre cualquier mapa con esa moto (p. ej. `--map favela --bike base/motocross`).
 `--map favela` arranca en el Morro do Grau (acepta el id `mod/archivo`, el nombre del archivo o el
@@ -594,7 +612,8 @@ src/
   Rider.cpp/.h           dibujo del piloto generado y ragdoll de las caídas
   RiderModel.cpp/.h      piloto con modelo glTF: pose por IK, dedos, pegado al ragdoll, skinning
   EngineSound.cpp/.h     sonido de motor procedural
-  Render.cpp/.h          shaders (luz, sombras, cielo, terreno, pasto, post-proceso), texturas generadas, mallas
+  Render.cpp/.h          shaders (luz, sombras en dos cascadas, cielo, terreno, pasto, post-proceso con estilo de color), texturas generadas, mallas, presets de calidad
+  GpuPreset.h            qué preset de calidad le toca a una placa de video según lo que dice OpenGL (sin dependencias)
   BikeStyles.cpp/.h      estilos de moto: piezas, pose del piloto y escape de cada uno (BikeStyleDef.h)
   BikeMeshes.cpp         piezas de las motos (cada estilo: primitivas, tubos barridos, placas, números)
   Circuit.cpp/.h         circuito de velocidad ("generator": "circuit"): pianos, boxes, tribunas, barreras, carteles

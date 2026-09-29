@@ -40,6 +40,7 @@ public:
 
 private:
     friend struct RiderClearance;            // pruebas: cuánto se mete el piloto en la moto (no va en el juego)
+    bool polishedSuit = false;
     int Bone(const char* name) const;
 
     // Para no meterse en la moto (ver docs/PILOTO.md, "El piloto se metía en la moto"). La forma del chasis

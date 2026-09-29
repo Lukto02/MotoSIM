@@ -36,5 +36,5 @@
     ["rollers", "kicker"]
   ],
 
-  "look": { "preset": "day" }
+  "look": { "preset": "day", "fog": 0.0034 }
 }

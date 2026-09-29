@@ -69,6 +69,8 @@ struct GameOptions {
     int fullscreen = -1;             // --fullscreen / --windowed (-1: lo que se eligió la última vez)
     bool sizeGiven = false;          // --size: ventana de ese tamaño (pruebas: no se va a pantalla completa)
     std::string soundLog;            // --sound-log archivo.wav: sin ventana, graba el sonido de la moto propia (motor y cubiertas)
+    std::string gfx;                 // --gfx bajo|medio|alto|ultra: ese preset de calidad (después de leer preferencias.ini; no guarda nada)
+    bool noPrefs = false;            // --noprefs: no lee ni escribe preferencias.ini (las capturas no dependen de la PC)
 };
 
 class Game {
@@ -168,10 +170,27 @@ private:
     void SetFullscreen(bool on, bool remember = true);   // remember: guardarlo (no cuando lo pide la línea de comandos)
     void LoadPrefs();
     void SavePrefs() const;
+    bool PrefsLocked() const { return opt.noPrefs || !opt.gfx.empty(); }   // --noprefs y --gfx: ni se lee ni se escribe el archivo
     bool fullscreen = false;
+    // Presets de calidad (Renderer::ApplyPreset): el que le toca a la placa (autodetectado al leer las preferencias), cómo se
+    // llama la placa, y la red de seguridad de fps (PerfWatch: si el preset lo eligió el juego y anda lento, baja un escalón).
+    int detectedPreset = 2;
+    std::string gpuName;
+    std::string startNotice;                        // aviso del primer cuadro (LoadPrefs lo arma, Init lo muestra)
+    void QualityChanged();                          // tras tocar un campo de calidad: recalcula el preset, deja de ser automático y guarda
+    void ApplyQualityPreset(int preset);            // un preset entero (a mano: el jugador lo eligió)
+    void PerfWatch(float frameDt);
+    float perfSkip = 0.0f, perfTime = 0.0f;         // s de manejo ya salteados (carga de shaders) y medidos
+    int perfFrames = 0;
+    bool perfChecked[Renderer::kPresets] = {};      // una sola vez por preset
 
     void Draw();
     void DrawScene(bool shadowCasters);
+    // Cascada lejana de sombras (en caché): DrawScene la dibuja sin lo que se mueve; se rehace sólo cuando la
+    // cámara se alejó de donde se dibujó, o cuando cambia el mapa, el sol, la resolución o el radio.
+    bool shadowFarPass = false;
+    Vector3 shadowFarCenter{};
+    int shadowFarRevision = -1, shadowFarAge = 0;      // revisión del renderer con la que se dibujó; cuadros desde entonces
     void BuildTrackDressing();
     void DrawHUD();
 
@@ -217,6 +236,8 @@ private:
     JPH::Vec3 ExhaustTip() const;
     JPH::Vec3 ExhaustDir() const;
     std::vector<Matrix> grassTufts;                // matas de pasto 3D alrededor de la cámara
+    int grassRadius = -1, grassDensityBuilt = -1;   // distancia y densidad (%) con las que se armó la lista
+    unsigned grassRevision = 0;
     Vector3 grassCenter{1e9f, 0.0f, 1e9f};
 
     static constexpr float kDt = 1.0f / 120.0f;    // física a 120 Hz, 1 collision step
@@ -256,7 +277,7 @@ private:
     // Efectos
     // Por moto (0 = la propia, 1 + id = la del jugador id) y por rueda (2 * moto + rueda).
     static constexpr int kBikeSlots = 1 + Multiplayer::kMaxPlayers;
-    float roostAccum[kBikeSlots] = {}, dustAccum[2 * kBikeSlots] = {};
+    float roostAccum[2 * kBikeSlots] = {}, dustAccum[2 * kBikeSlots] = {};
     float sparkAccum = 0.0f;                        // chispas de la cola raspando (la moto propia)
     bool wasGrounded[2 * kBikeSlots] = {};
     static_assert(2 * kBikeSlots <= TerrainDeformation::kWheelSlots, "huellas: faltan lugares para las ruedas de todos");
@@ -294,7 +315,8 @@ private:
     // Ajustes: sí/no, una opción de varias o un nivel (el volumen). change(+1 / -1): Enter y → adelante, ← atrás.
     struct Setting {
         std::string group, label, hint, value;
-        enum class Kind { Toggle, Choice, Level } kind = Kind::Toggle;
+        enum class Kind { Toggle, Choice, Level, Tabs } kind = Kind::Toggle;
+        std::vector<std::string> tabs;   // Tabs: los nombres de las páginas (level = la de ahora)
         bool on = false;             // Toggle
         int level = 0, levels = 10;  // Level
         bool dim = false;            // Level apagado (M)
@@ -303,6 +325,14 @@ private:
     std::vector<Setting> SettingsItems();
     struct Stick { int dir = 0; float held = 0.0f; };   // el stick del joystick como la cruz, con repetición
     Stick stickY, stickX;
+    int settingsScroll = 0;
+    // Ajustes en tres páginas (0 Gráficos, 1 Imagen, 2 Juego y sonido); la primera fila cambia de página. settingsAdvanced
+    // muestra las filas avanzadas de Gráficos y de Imagen.
+    int settingsPage = 0;
+    bool settingsAdvanced = false;
+    void SetSettingsPage(int page);
+    std::vector<Rectangle> settingTabs;             // Ajustes: dónde quedó el nombre de cada página (para el mouse)
+    std::vector<Rectangle> settingDecreaseRects;
     std::vector<Rectangle> settingArrows;           // Ajustes: ◀ y ▶ del nivel (para el mouse)
     void LeaveSession();
     Menu menu = Menu::None;

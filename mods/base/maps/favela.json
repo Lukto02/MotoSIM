@@ -63,5 +63,16 @@
     "half": 4.5
   },
 
-  "look": { "preset": "sunset" }
+  // Sunset written out (same values as the "sunset" preset) so a change of the preset does not move it.
+  // exposure 1.0: the post-process colour grade already lifts it by 5%.
+  "look": {
+    "preset": "sunset",
+    "sun_dir": [-0.52, 0.42, -0.74],
+    "sun_color": [2.6, 1.78, 1.02],
+    "zenith": [62, 108, 158],
+    "horizon": [232, 168, 122],
+    "ground": [126, 106, 90],
+    "fog": 0.0024,
+    "exposure": 1.0
+  }
 }

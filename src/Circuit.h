@@ -31,7 +31,7 @@ public:
     void CreateCollision(PhysicsWorld& world);
     void CreateMeshes();                                                       // requiere contexto GL
     void Draw(Renderer& r) const;
-    void DrawShadows(Renderer& r, Vector3 focus, float radius) const;
+    void DrawShadows(Renderer& r) const;      // los bloques que caen en el prisma de la luz de la pasada
     void Unload();
     bool Active() const { return built; }
 
@@ -71,6 +71,7 @@ private:
     float origin = 0.0f, size = 1.0f, chunkSize = 160.0f;
     Mesh backdrop{};
     Texture2D atlas{};
+    mutable int atlasAniso = -1;          // revisión del filtro anisotrópico (Renderer::AnisoRevision) aplicada al atlas
     // Cuántas cosas armó (se imprime en Build).
     int kerbs = 0, stands = 0, signs = 0, trees = 0, posts = 0;
     float barrierLength = 0.0f, gravelArea = 0.0f;

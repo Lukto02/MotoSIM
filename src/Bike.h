@@ -199,6 +199,7 @@ struct Wheel {
     float tireDelta = 0.0f;          // compresión del neumático (m)
     float groundExtension = 1e6f;    // extensión a la que tocaría el suelo (paso anterior)
     bool grounded = false;
+    bool onTerrain = false;               // tipo del apoyo real; no inferirlo por altura en surcos
     bool onObject = false;           // apoya en un objeto (rampa, caja, escalón, casa), no en el terreno: duro como el
                                      // pavimento. Sólo informativo (sonido, efectos): la física usa su propia copia
     bool locked = false;

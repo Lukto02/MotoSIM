@@ -2,10 +2,17 @@
 #include <Jolt/Jolt.h>
 #include <Jolt/Physics/Body/BodyID.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
+#include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
 
 #include "Maps.h"
 
+#include <cstdint>
+#include <memory>
 #include <vector>
+#include <map>
+#include <set>
+#include <unordered_map>
+#include <unordered_set>
 
 class Track;
 class PhysicsWorld;
@@ -25,7 +32,10 @@ public:
     void Build(const Track& track, const MapDef& def, bool flat = false);   // flat: plano, para pruebas
     void CreateCollision(PhysicsWorld& world);
     void CreateMeshes();                   // requiere contexto GL
-    // radius > 0: sólo los chunks a menos de radius de (centerX, centerZ) (pasada de sombras).
+    // radius > 0 (pasada de sombras): sólo los chunks que caen en el prisma de la luz de la cascada (ver
+    // Renderer::InShadowPrism) y las baldosas finas a menos de radius de (centerX, centerZ). radius <= 0 (pasada
+    // principal): sólo los chunks que tocan el frustum de la cámara (Renderer::BoxVisible); las baldosas finas
+    // se dibujan todas.
     void Draw(Renderer& r, const Texture& marks, float centerX = 0.0f, float centerZ = 0.0f, float radius = -1.0f) const;
     void Unload();
 
@@ -44,13 +54,38 @@ public:
     bool Streets() const { return streets; }   // calles (pavimento y tierra) en vez de pista y pasto
 
     // Matas de pasto 3D a menos de radius de (cx, cz): posiciones fijas en el mundo (grilla con
-    // jitter), sólo fuera de la pista y en manchones; se achican hacia el borde del radio.
-    void GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& out) const;
+    // jitter), sólo fuera de la pista y en manchones, y no en las pendientes fuertes; se achican hacia el borde
+    // del radio. El hash de raleo de cada mata viaja en m15 de su matriz (kGrassVS funde con la distancia de
+    // cada cuadro); density (0..1, grassDensity) sólo deja pasar las que van a entrar a esa densidad.
+    void GrassTufts(float cx, float cz, float radius, std::vector<Matrix>& out, float density = 1.0f) const;
+    // Zona sin matas: el cuadrilátero q (x, z de sus 4 vértices en orden) más margin m alrededor. Es para el asfalto que
+    // una malla pone sobre el pasto (calle de boxes del circuito): el terreno de abajo es pasto y sus matas lo atraviesan.
+    // Sólo afecta lo que se dibuja (la máscara de pista, el agarre y el polvo no cambian). Se limpia en Build y Unload.
+    void ExcludeGrass(const float q[8], float margin) const;
 
     // Deformación física (surcos): baja el terreno alrededor de (x, z) sin pasar maxDepth por
     // debajo del terreno original. Los cambios se acumulan hasta CommitDeformation().
     void Dig(float x, float z, float depth, float radius, float maxDepth);
-    bool HasPendingDeformation() const { return dirty; }
+    // Huella orientada: presión, cizallamiento y tierra desplazada a los costados.
+    void PressSoil(float x, float z, float headingX, float headingZ, float load, float slipSpeed,
+                   float softness, float maxDepth, float dt, float rollingSpeed = 0.0f);
+    float SoilAmount(float x, float z) const;
+    // Suelo que sienten las ruedas: lo mismo que Height/Normal pero con el surco suavizado (ver TerrainSoil.cpp).
+    // Sin surcos, o con rideSoil = 0 (rut_ride), dan exactamente Height y Normal.
+    float RideHeight(float x, float z) const;
+    JPH::Vec3 RideNormal(float x, float z) const;
+    JPH::Vec3 BankNormal(float x, float z) const;   // el peralte del terreno sin surcos (para el limite de la curva)
+    float rideSoil = 1.0f;                 // 0: las ruedas ven el surco tal cual (como antes); otro valor: suavizado (rut_ride)
+    float rideDepth = 0.02f;               // tope blando de cuanto se hunde una rueda en el surco, m (0: sin tope; rut_ride_depth)
+    float rideBlur = 0.25f;                // radio (sigma) del promedio del surco bajo la rueda, m (rut_ride_blur)
+    float rideSink = 0.02f;                // m/s a los que el suelo de las ruedas sigue al surco; 0: al instante (rut_ride_sink)
+    void StepRide(float dt);               // una vez por paso de fisica: el suelo que sienten las ruedas se va hundiendo de a poco
+    void ResetDeformation(PhysicsWorld& world);
+    unsigned DeformationRevision() const { return deformationRevision; }
+    void SoilStats(float& excavated, float& deposited, float& highestBank) const;
+    bool HasPendingDeformation() const { return dirty || !soilDirty.empty(); }
+    float SoilCell() const { return Cell / soilSubdivision; }
+    void UpdateSoilVisibility(float x,float z);
     // Aplica los cambios acumulados al HeightFieldShape de Jolt y a las mallas de render.
     void CommitDeformation(PhysicsWorld& world);
     void DeformationStats(int& samples, float& deepest) const;
@@ -61,9 +96,39 @@ public:
     JPH::BodyID BodyID() const { return body; }
 
 private:
+    using SoilKey = std::pair<int,int>;
+    struct SoilHash { size_t operator()(const SoilKey& p) const {
+        return (size_t)((uint64_t)(uint32_t)p.first*0x9e3779b185ebca87ULL ^ (uint64_t)(uint32_t)p.second*0xc2b2ae3d27d4eb4fULL);
+    } };
+    struct SoilTile { Mesh* mesh = nullptr; };
+    int soilSubdivision = 10, soilTileCells = 8;
+    std::unordered_map<SoilKey,float,SoilHash> soilPending, soilHeights;
+    std::set<SoilKey> soilDirty;
+    std::set<SoilKey> soilChanged;
+    std::map<SoilKey,SoilTile> soilTiles;
+    JPH::Ref<JPH::MutableCompoundShape> soilRoot;
+    std::map<SoilKey,JPH::Ref<JPH::MutableCompoundShape>> soilBranches;
+    float BaseHeight(float x,float z) const;
+    float SoilDelta(float x,float z) const;
+    float RideDelta(float x,float z) const;   // el hundido suavizado bajo (x, z), <= 0 (como SoilDelta)
+    std::unordered_map<SoilKey,float,SoilHash> soilRide;   // copia de soilHeights que sigue a la real con demora
+    std::unordered_set<SoilKey,SoilHash> rideActive;       // nodos de soilRide que todavia no llegaron
+    float SoilNode(int x,int z,bool pending) const;
+    void MarkSoilNode(int x,int z);
+    JPH::Ref<JPH::HeightFieldShape> SoilShape(int x,int z,int width,int height,int subdiv,bool pending) const;
+    void CommitFineSoil(PhysicsWorld& world);
+    void UpdateSoilMesh(SoilKey key);
+    void FilterCoarseMeshes();
+    void ClearFineSoil();
+    struct GrassCache;                     // matas ya armadas por bloques (Terrain.cpp)
+    void GrassBlock(int bi, int bj, std::vector<Matrix>& out) const;
+    mutable std::shared_ptr<GrassCache> grassCache;
+    mutable std::vector<uint8_t> noGrass;  // grilla de 1 m con 1 donde no van matas (ExcludeGrass); vacía si no hay
+    bool GrassExcluded(float x, float z) const;
     struct Chunk {
         Mesh* mesh;
         int x0, z0, w, h;                  // rango de muestras que cubre
+        float low = 1e9f, high = -1e9f;    // altura mínima y máxima de sus muestras al armar la malla (culling)
     };
 
     // Forma esculpida lista para evaluar: el perfil ya suavizado en una tabla cada kShapeStep m.
@@ -95,6 +160,10 @@ private:
     void FillChunkGeometry(const Chunk& c) const;   // posiciones y normales desde heights
 
     std::vector<float> heights;
+    std::vector<float> pendingHeights; // física y render ven heights hasta el mismo commit
+    unsigned deformationRevision = 0;
+    bool deformed = false;
+    void DirtyRegion(int x0, int z0, int x1, int z1);
     std::vector<float> original;           // alturas iniciales (límite de profundidad de surcos)
     std::vector<float> trackMask;
     std::vector<float> streetMask;         // calles: 1 sobre la calle (pavimentada o de tierra)
@@ -113,7 +182,8 @@ private:
     int imageW = 0, imageH = 0;
     float origin = 0.0f;
     JPH::BodyID body;
-    JPH::Ref<JPH::HeightFieldShape> shape;
+    JPH::Ref<JPH::HeightFieldShape> shape, baseShape;
+    bool soilCollision = false;
     bool dirty = false;
     int dirtyX0 = 0, dirtyZ0 = 0, dirtyX1 = 0, dirtyZ1 = 0;   // inclusive
 };

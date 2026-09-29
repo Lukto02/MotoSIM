@@ -30,7 +30,7 @@ public:
     void CreateCollision(PhysicsWorld& world);
     void CreateMeshes(const Font& font);                     // requiere contexto GL
     void Draw(Renderer& r, float time) const;
-    void DrawShadows(Renderer& r, Vector3 focus, float radius) const;
+    void DrawShadows(Renderer& r) const;      // los bloques que caen en el prisma de la luz de la pasada
     void Unload();
     bool Active() const { return built; }
 
@@ -77,6 +77,7 @@ private:
         Mesh solid{}, decal{}, twoSided{};
         bool hasSolid = false, hasDecal = false, hasTwoSided = false;
         Vector3 center{};
+        Vector3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};   // caja de todo lo del bloque (Renderer::BoxVisible)
     };
 
     void PlaceHouses(const Track& track, const Terrain& terrain);
@@ -105,6 +106,7 @@ private:
     Chunk chunks[kChunks * kChunks];
     Mesh backdrop{}, kiteMesh{}, kiteTail{};
     Texture2D atlas{};
+    mutable int atlasAniso = -1;           // revisión del filtro anisotrópico (Renderer::AnisoRevision) aplicada al atlas
     std::vector<Rectangle> atlasRects;     // UV de cada cartel (0..1)
     Vector3 startA{}, startB{};           // postes del pórtico de largada
 };

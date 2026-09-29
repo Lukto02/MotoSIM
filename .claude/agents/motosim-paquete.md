@@ -30,8 +30,11 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
    - `Low_Poly_Motorcyclist_3_rigged.gltf` con `Low_Poly_Motorcyclist_3_rigged_deps/` (el modelo del piloto; el 2 ya no va);
    - `LEEME.txt`.
    - **Sin `preferencias.ini`**.
+   - Todo eso (carpeta y zip) lo arma `python tools/package_release.py <exe>` (el mismo script del workflow de GitHub); corrélo
+     para probar desde la carpeta y otra vez al final.
 4. **LEEME**:
-   - el del último paquete (`dist/<último>/LEEME.txt`) con un bloque "NOVEDADES DE LA vX" arriba, en el lenguaje del jugador;
+   - `LEEME.txt` de la raíz del repo (es la fuente: el script lo copia al paquete y no deja seguir si no dice la versión de
+     `Version.h`) con un bloque "NOVEDADES DE LA vX" arriba, en el lenguaje del jugador; y `RELEASE_NOTES.md` (cuerpo de la release);
    - actualizá "Los dos tienen que tener la vX" y la lista de versiones que no juegan;
    - UTF-8 **con BOM** y **CRLF**: verificalo con Python contando `\r\n` (el `grep -c $'\r'` de Git Bash da 0 aunque esté).
 5. **Probar desde la carpeta del paquete**, con la carpeta actual ahí:
@@ -41,7 +44,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
    - un par en red con motos distintas (`python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>`, ver `docs/RED.md`), y si el protocolo no cambió, también contra el paquete anterior en los dos sentidos.
    - **Cada cosa que diga el LEEME, volvé a medirla con este exe**: en la v0.2.5 la trial ya no subía el escalón de 0.5 m a fondo y hubo que cambiar el texto.
    - **Revisá que no haya `preferencias.ini` justo antes del zip** (en la v0.2.6 apareció uno antes de las capturas con ventana y no se supo de dónde).
-6. **Zip**: `Compress-Archive -Path dist\MotoSim-vX -DestinationPath dist\MotoSim-vX.zip` (con `-Force` si rehacés). Revisá la lista de archivos del zip.
+6. **Zip**: lo hace `tools/package_release.py` (rehace la carpeta y el zip). Revisá la lista de archivos del zip.
 7. **Historial**: actualizá en `docs/PRUEBAS.md` y en el README ("Versión para compartir") qué paquete es el último.
 8. **GitHub Releases**: después de que se mergee el PR, quien te lanzó etiqueta el commit (`vX`) y publica
    la release con el zip. El procedimiento está en `docs/PRUEBAS.md` ("Paquete para compartir", paso 6).

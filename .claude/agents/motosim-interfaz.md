@@ -45,6 +45,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
     - vitrina fija donde estaba la moto al entrar (`showroomAnchor`), la moto de vista previa sin piloto girando sobre un `Disc` de 72 caras con aro;
     - ficha abajo a la derecha con barras relativas a la mejor.
   - **Menú principal**: tarjeta "AHORA" con mapa, moto y pilotos en red.
+  - **Ajustes en tres páginas** (Gráficos, Imagen, Juego y sonido; la primera fila `Sección` con ← →, LB y RB): `SettingsItems()` se arma cada cuadro según `settingsPage` y `settingsAdvanced`. Gráficos usa los presets Bajo / Medio / Alto / Ultra (`Renderer::ApplyPreset` / `MatchPreset`; "Personalizado" automático con `QualityChanged()`; Enter y click sobre Calidad gráfica suben con tope, sin dar la vuelta). Las claves nuevas de `preferencias.ini` (`graficos_version = 2`, `grafico_preset`...) y la migración con `.v1.bak` están en `docs/MENU.md`. `--noprefs` y `--gfx` para las capturas.
 - Trampas conocidas:
   - **Cilindros grandes**: el cilindro común (16 caras) se ve octogonal a más de ~1 m de radio.
   - **Cilindro encima del disco**: si el aro es un cilindro encima, tapa todo.

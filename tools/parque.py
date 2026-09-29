@@ -236,7 +236,7 @@ MID = """
     ["whoops"]                // west
   ],
 
-  "look": { "preset": "day", "sun_dir": [-0.35, 0.8, -0.5], "fog": 0.0028 },
+  "look": { "preset": "day", "sun_dir": [-0.35, 0.8, -0.5], "fog": 0.0026 },
 
   // shape: box | ramp | cylinder | sphere. "at": [x, y, z] where y is the gap between the ground and the
   // lowest point of the object (negative = buried). size: [width, height, length] in meters

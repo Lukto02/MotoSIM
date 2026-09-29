@@ -8,6 +8,7 @@ dist/
 
 # Lo que genera el juego al correr o probar
 preferencias.ini
+preferencias.ini.v1.bak*
 screenshot*.png
 *.log
 *.wav

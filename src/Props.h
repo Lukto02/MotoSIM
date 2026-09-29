@@ -21,8 +21,9 @@ class Props {
 public:
     void Build(const std::vector<MapObject>& objects, const Terrain& terrain, PhysicsWorld& world);   // también sin GPU
     void CreateMeshes();                  // requiere contexto GL
-    // radius > 0: sólo los que están a menos de radius de focus (pasada de sombras).
-    void Draw(Renderer& r, PhysicsWorld& world, Vector3 focus = {0, 0, 0}, float radius = -1.0f) const;
+    // casters: pasada de sombras, sólo los que caen en el prisma de la luz de la cascada. staticOnly: sin los
+    // sueltos (la cascada lejana está en caché y se movería su sombra).
+    void Draw(Renderer& r, PhysicsWorld& world, bool casters = false, bool staticOnly = false) const;
     // Los sueltos vuelven a donde estaban al cargar el mapa.
     void Reset(PhysicsWorld& world);
     void Unload();

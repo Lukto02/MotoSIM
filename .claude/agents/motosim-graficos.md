@@ -24,9 +24,9 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - `DrawMeshColored` y `DrawMeshTextured(..., twoSided)`.
 - `src/Camera.*`, `src/Particles.*`, las mallas de `src/Favela.cpp` y `src/Circuit.cpp` (compartidas con el agente de mapas) y `src/BikeMeshes.cpp` (con el de motos).
 - Lo que sabés (detalle en `docs/RENDER.md`):
-  - **Sombras**: mapa de 2048² sobre 64 m (3 cm por texel), foco enganchado a la grilla de texels, corrimiento por la normal de un texel, filtro tienda 3x3.
-  - **Planos de la cámara**: 0.08 a 900 m, profundidad de 24 bits. Una capa encima de otra: 1 cm sirve hasta ~60 m, 3 cm hasta ~110 m (tabla en `docs/RENDER.md`).
-  - **Post-proceso** (F7): motion blur radial, aberración, viñeta, grano y FXAA; se dibuja en textura (sin MSAA).
+  - **Sombras**: dos cascadas ortográficas, una textura y un FBO por cada una (sin atlas): la cercana (radio `shadowNear`, 24 m en Alto, todo lo dinámico) y la lejana (`shadowFar`, 96 m, sólo el mundo quieto, en caché con `ShadowFarRevision`). Foco enganchado a la grilla de texels de cada una, sesgo en metros del mundo (sin piso), comparación por hardware (`sampler2DShadow`, 5 o 9 lecturas; plan B manual si no carga `glTexParameteri`), planos de luz 1 a 350 m, descarte de casters por prisma de la luz (`InShadowPrism`). Los presets Bajo / Medio / Alto / Ultra (`Renderer::ApplyPreset`) y su tabla están en `docs/RENDER.md`.
+  - **Planos de la cámara**: 0.08 a 900 m (fijo: bajarlo mete cortes, subirlo no aporta), profundidad de 24 bits. Una capa encima de otra: 1 cm sirve hasta ~60 m, 3 cm hasta ~110 m (tabla en `docs/RENDER.md`).
+  - **Post-proceso**: motion blur radial (12 taps), aberración (sólo si vale más que 0), estilo de color siempre puesto (Natural / Vívido / Suave: exposición, saturación, contraste, nitidez), viñeta, grano, dither y FXAA; se dibuja en textura (sin MSAA de ventana), con `renderScale`. F7 sólo apaga viñeta, grano, motion blur y aberración. Un `mix` contra la muestra cruda cancela el FXAA aunque el efecto valga 0.
   - **Rendimiento del circuito**: 793 k vértices y 17 ms (había 1.36 M y 33 ms). Lo que funcionó:
     - tramos de barrera largos;
     - árboles livianos;
