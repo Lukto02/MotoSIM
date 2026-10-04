@@ -56,5 +56,5 @@ jobs:
             echo "esperando la release $version ($i/80)"; sleep 30
           done
           gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null
-          gh release upload "$version" "dist/MotoSim-$version-mac.zip" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$version" "dist/$version/MotoSim-$version-mac.zip" --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$version" --repo "$GITHUB_REPOSITORY" --notes-file RELEASE_NOTES.md

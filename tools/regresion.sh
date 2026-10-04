@@ -3,7 +3,7 @@
 # paquete) y compara la telemetría. La física de la Motocross 450 tiene que dar idéntica.
 #
 # Uso: tools/regresion.sh <exe nuevo> <exe de referencia> "args de la prueba 1" "args de la prueba 2" ...
-#   p. ej. tools/regresion.sh build-msvc/motocross.exe dist/MotoSim-v0.2.4/MotoSim.exe "--flat --test brakeslide --time 8"
+#   p. ej. tools/regresion.sh compilaciones/build-msvc/motocross.exe dist/v0.3.5/MotoSim-v0.3.5/MotoSim.exe "--flat --test brakeslide --time 8"
 # Cada exe corre desde su carpeta (ahí están su tuning.ini y su mods/). El juego nuevo agrega " scr=..."
 # al final de cada línea de telemetría (velocidad de raspado de la cola); se saca antes de comparar.
 NEW=$(realpath "$1"); OLD=$(realpath "$2"); shift 2

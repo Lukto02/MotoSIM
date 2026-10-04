@@ -5,6 +5,6 @@ set -e
 cd "$(dirname "$0")"
 GEN=""
 command -v ninja >/dev/null && GEN="-G Ninja"
-cmake -S . -B build-mac $GEN -DCMAKE_BUILD_TYPE=Release
-cmake --build build-mac --parallel
-cd build-mac && exec ./motocross "$@"
+cmake -S . -B compilaciones/build-mac $GEN -DCMAKE_BUILD_TYPE=Release
+cmake --build compilaciones/build-mac --parallel
+cd compilaciones/build-mac && exec ./motocross "$@"

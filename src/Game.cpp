@@ -183,10 +183,13 @@ void Game::Init()
         renderer.Init();
         particles.Init(3000);
         sound.Init();
-        // Modelo original de la primera 0.3.1: carpeta actual, junto al ejecutable o arriba.
+        // Modelo original de la primera 0.3.1, con menos triángulos (tools/reducir_piloto.py: mismo esqueleto,
+        // pesos, UV y textura; ver docs/PILOTO.md); si no está, el original. En el paquete están junto al
+        // ejecutable; en el repo, en modelos/ (se corre desde compilaciones/<carpeta>/, dos niveles abajo).
         riderPaths.clear();
-        for (const char* file : {"Low_Poly_Motorcyclist_2_rigged.gltf"})
-            for (const std::string& dir : {std::string(), std::string(GetApplicationDirectory()), std::string("../")})
+        for (const char* file : {"Low_Poly_Motorcyclist_2_lowpoly.gltf", "Low_Poly_Motorcyclist_2_rigged.gltf"})
+            for (const std::string& dir : {std::string(), std::string(GetApplicationDirectory()), std::string("../"),
+                                           std::string("modelos/"), std::string("../modelos/"), std::string("../../modelos/")})
                 riderPaths.push_back(dir + file);
         riderModel.Load(riderPaths);
 

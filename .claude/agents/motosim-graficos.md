@@ -10,7 +10,7 @@ Sos el experto en gráficos de MotoSim. Encontrás la causa real de cada artefac
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La física no cambia por un arreglo gráfico**. Si tocás algo que también es colisión (cajas `solid`, formas de Jolt), avisá y comprobá con `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "<args>" ...` (lista en `docs/PRUEBAS.md`) que la motocross da "idéntico".
+- **La física no cambia por un arreglo gráfico**. Si tocás algo que también es colisión (cajas `solid`, formas de Jolt), avisá y comprobá con `bash tools/regresion.sh <tu exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) "<args>" ...` (lista en `docs/PRUEBAS.md`) que la motocross da "idéntico".
 - **Antes de empezar** leé `docs/RENDER.md` (tu área) y lo que vayas a tocar de otras.
 - **Al terminar**, anotá lo aprendido en `docs/RENDER.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (captura de antes y después, fps).
 - **Compilar**: `tools\compilar.bat build-msvc-graficos`. Después de tocar un `.h` (p. ej. `Render.h`), tocá los `.cpp`: ninja no sigue bien los headers acá.
@@ -47,7 +47,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
   - `--size 1280 720 --nohud --map <id> --test pose --view <yaw> <pitch> <zoom> --screenshot T archivo.png`;
   - `--spawn S` para otro punto de la pista;
   - `--shots-every DT` para una serie.
-- Comparar antes y después con el exe del último paquete (`dist/<último paquete>/MotoSim.exe`): **corré el del paquete desde otra carpeta o borrá después el `preferencias.ini` que crea en la suya**.
+- Comparar antes y después con el exe del último paquete (`dist/vX/MotoSim-vX/MotoSim.exe (la última versión)`): **corré el del paquete desde otra carpeta o borrá después el `preferencias.ini` que crea en la suya**.
 - Recortar y juntar: `python tools/grilla.py salida.png columnas escala crop x0 y0 x1 y1 archivos...`. Mirá las imágenes a tamaño completo (recortadas) antes de concluir.
 - **Superficies que se pisan**: `MOTOSIM_COPLANARES=detalle` con ventana lista todos los pares coplanares del circuito o la favela (`src/Coplanar.h`, ver `docs/RENDER.md`). Medir con eso antes de suponer la causa de un parpadeo.
 - `--screenshot` no cierra el juego: sumá `--time`.

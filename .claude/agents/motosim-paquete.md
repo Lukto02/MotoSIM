@@ -11,7 +11,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 
 ## Reglas de todos los agentes
 - **La física de la Motocross 450 no cambia**. En la verificación, con el exe nuevo:
-  - `bash tools/regresion.sh <exe> dist/<último paquete>/MotoSim.exe <lista de docs/PRUEBAS.md>` da "idéntico" salvo lo que se cambió a propósito (tiene que estar en `docs/FISICA.md`);
+  - `bash tools/regresion.sh <exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) <lista de docs/PRUEBAS.md>` da "idéntico" salvo lo que se cambió a propósito (tiene que estar en `docs/FISICA.md`);
   - el bot de motocross da 1:08.73 / 1:08.42.
 - **Antes de empezar** leé `docs/PRUEBAS.md` (sección "Paquete para compartir"; tu área) y `docs/RED.md` (protocolo).
 - **Al terminar**, anotá en `docs/PRUEBAS.md` lo que aprendiste armando el paquete.
@@ -21,13 +21,13 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 ## Procedimiento
 1. **Versión**: `#define MOTOSIM_VERSION "vX"` en `src/Version.h`. El protocolo de red (`kProtocol` en `Multiplayer.cpp`) sube sólo si cambió el formato de los paquetes: fijate en el historial de `docs/RED.md` y avisá si no juega con la anterior.
 2. **Compilación de release**, con runtime estático:
-   - tocá todos los `src/*.cpp` y corré `tools\compilar.bat build-release release`;
-   - `dumpbin /dependents build-release\motocross.exe` tiene que listar sólo DLLs de Windows (KERNEL32, USER32, GDI32, SHELL32, WINMM, WS2_32).
+   - tocá todos los `src/*.cpp` y corré `tools\compilar.bat build-release release` (queda en `compilaciones\build-release\`);
+   - `dumpbin /dependents compilaciones\build-release\motocross.exe` tiene que listar sólo DLLs de Windows (KERNEL32, USER32, GDI32, SHELL32, WINMM, WS2_32).
    - El paquete es de Windows; en Mac se compila desde el código (`./build.sh`). El workflow de GitHub compila los dos en cada push: si quien te lanzó puede verlo, que esté en verde.
-3. **Carpeta `dist/MotoSim-vX/`**:
+3. **Carpeta `dist/vX/MotoSim-vX/` y su zip `dist/vX/MotoSim-vX.zip`**:
    - `MotoSim.exe` (el `motocross.exe` renombrado) y `tuning.ini`;
    - `mods/` completa (**sin** `pruebas/`) y `MODDING.md`;
-   - el modelo del piloto que usa la versión con su carpeta `_deps` (desde la v0.3.4, `Low_Poly_Motorcyclist_2_rigged`; lo elige el script);
+   - el modelo del piloto que usa la versión con su carpeta `_deps` (desde la v0.3.4 el modelo 2; después de la v0.3.5, `Low_Poly_Motorcyclist_2_lowpoly`, el 2 con menos triángulos; lo elige el script);
    - `LEEME.txt`.
    - **Sin `preferencias.ini`**.
    - Todo eso (carpeta y zip) lo arma `python tools/package_release.py <exe>` (el mismo script del workflow de GitHub); corrélo

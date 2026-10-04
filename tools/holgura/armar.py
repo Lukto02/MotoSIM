@@ -1,10 +1,10 @@
 """Arma y compila una copia del juego con la medición de holgura del piloto (RiderClearance).
 
-Uso (desde la raíz del proyecto): python tools/holgura/armar.py [carpeta]   (por defecto build-msvc-holgura)
+Uso (desde la raíz del proyecto): python tools/holgura/armar.py [carpeta]   (por defecto compilaciones/build-msvc-holgura)
 
 Copia src/, CMakeLists.txt, tuning.ini y mods/ a la carpeta, agrega RiderClearance.cpp/.h (de esta carpeta),
 engancha la medición en Game::Draw (después de riderModel.Skin()) y compila con VS 2022 Build Tools, con las
-fuentes de raylib y Jolt de build/_deps. El proyecto no se toca. El exe queda en <carpeta>/b/motocross.exe y
+fuentes de raylib y Jolt de compilaciones/build/_deps. El proyecto no se toca. El exe queda en <carpeta>/b/motocross.exe y
 se corre desde la raíz del proyecto (ahí están el modelo del piloto y mods/). Ver docs/PILOTO.md, "Medir la holgura".
 """
 import os
@@ -14,7 +14,7 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(ROOT, sys.argv[1] if len(sys.argv) > 1 else 'build-msvc-holgura')
+OUT = os.path.join(ROOT, sys.argv[1] if len(sys.argv) > 1 else os.path.join('compilaciones', 'build-msvc-holgura'))
 
 HOOK = ('        {   // medición de la holgura del piloto (tools/holgura): no va en el juego\n'
         '            static const char* sweep = std::getenv("MOTOSIM_HOLGURA_BARRIDO");\n'
@@ -52,7 +52,7 @@ def main():
     patch(game, '        riderModel.Skin();\n', '        riderModel.Skin();\n' + HOOK)
     patch(os.path.join(OUT, 'CMakeLists.txt'), '    src/RiderModel.cpp\n', '    src/RiderModel.cpp\n    src/RiderClearance.cpp\n')
 
-    deps = os.path.join(ROOT, 'build', '_deps')
+    deps = os.path.join(ROOT, 'compilaciones', 'build', '_deps')
     vs = r'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools'
     cmake = vs + r'\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
     ninja = vs + r'\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'

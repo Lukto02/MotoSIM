@@ -48,7 +48,7 @@ Con Visual Studio: `cmake -S . -B build-vs` y abrir la solución, o abrir la car
 **Mac** (Apple Silicon; hace falta `xcode-select --install` y `brew install cmake ninja`):
 
 ```sh
-./build.sh                      # compila en build-mac/ y arranca el juego
+./build.sh                      # compila en compilaciones/build-mac/ y arranca el juego
 ./build.sh --map favela         # los argumentos pasan al juego
 ```
 
@@ -60,7 +60,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.3.5, `dist/MotoSim-v0.3.5.zip`, que se publica en
+**Versión para compartir** (la v0.3.6, `dist/v0.3.6/MotoSim-v0.3.6.zip`, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
 cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
 release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
@@ -72,9 +72,9 @@ cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DMOTOSIM_STATIC
 cmake --build build-release
 ```
 
-y armar la carpeta y el zip con `python tools/package_release.py build-release/motocross.exe` (en el workflow, `build-release/Release/`): `MotoSim.exe`
+y armar la carpeta y el zip con `python tools/package_release.py compilaciones/build-release/motocross.exe` (en el workflow, `build-release/Release/`): `MotoSim.exe`
 (el `motocross.exe` renombrado), `tuning.ini`, la carpeta `mods/` (sin `pruebas/`), `MODDING.md`,
-`Low_Poly_Motorcyclist_3_rigged.gltf` + `Low_Poly_Motorcyclist_3_rigged_deps/` y `LEEME.txt` (el de la raíz del repo: las
+`Low_Poly_Motorcyclist_2_lowpoly.gltf` + `Low_Poly_Motorcyclist_2_lowpoly_deps/` y `LEEME.txt` (el de la raíz del repo: las
 instrucciones para el que lo recibe, con las novedades arriba; se escribe en UTF-8 con BOM y CRLF). `RELEASE_NOTES.md` es
 el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de red en `Multiplayer.cpp` (`kProtocol`).
 
@@ -404,8 +404,8 @@ Todo es generado por código, salvo el modelo opcional del piloto (glTF con su t
   oscuro y hundido con bordes claros de tierra empujada; las pasadas se acumulan.
 - **Pasto 3D**: miles de matas instanciadas delante de la cámara, con viento, sombras y aplastadas
   donde pasó una rueda.
-- **Piloto con modelo** (`Low_Poly_Motorcyclist_3_rigged.gltf` en la raíz, o si no está
-  `Low_Poly_Motorcyclist_2_rigged.gltf` o `Low_Poly_Motorcycle_Racer_rigged.gltf`; F9 alterna con el
+- **Piloto con modelo** (`Low_Poly_Motorcyclist_2_lowpoly.gltf` en la raíz, el modelo 2 con menos triángulos
+  hecho con `tools/reducir_piloto.py`, o si no está `Low_Poly_Motorcyclist_2_rigged.gltf`; el 3 queda de respaldo; F9 alterna con el
   generado): glTF con esqueleto estilo Mixamo, posado por código. El 3 es un personaje de Tripo sin
   esqueleto riggeado con `tools/riggear_piloto.py` (Blender sin ventana: mide las articulaciones de la
   malla, dedos incluidos, y pone los pesos; ver `docs/PILOTO.md`). Sobre la moto la cadera va en su lugar, el torso se inclina y piernas y

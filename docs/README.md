@@ -49,7 +49,7 @@ archivo que se movió).
 | `motosim-paquete` | Compilar la versión, armar el zip y verificar todo | PRUEBAS.md |
 
 Para que varios trabajen a la vez, cada uno compila en su propia carpeta
-(`tools\compilar.bat build-msvc-<área>`, que reusa las dependencias ya bajadas de `build\_deps`). Si dos
+(`tools\compilar.bat build-msvc-<área>`, que compila en `compilaciones\` y reusa las dependencias ya bajadas de `compilaciones\build\_deps`). Si dos
 tienen que tocar los mismos archivos (por ejemplo `Game.cpp`), conviene que vayan de a uno, o cada uno
 en su worktree de git, y después juntar los cambios. Ninguno hace commits: eso lo hace quien los lanzó,
 después de revisar el informe.

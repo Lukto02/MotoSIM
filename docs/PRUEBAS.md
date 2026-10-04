@@ -2,10 +2,12 @@
 
 ## Compilar
 
-- `build.bat` / `build/` son de otra PC (MinGW). En esta PC: `tools\compilar.bat [carpeta] [release]`
-  (VS 2022 Build Tools: vcvars64 + CMake + Ninja, reusando las fuentes de raylib y Jolt ya bajadas en
-  `build/_deps`, sin internet). Por defecto compila en `build-msvc`; los agentes que trabajan a la vez,
-  cada uno en `build-msvc-<área>`. El exe queda en `<carpeta>\motocross.exe` con `tuning.ini` y `mods\`.
+- Todas las compilaciones van en `compilaciones/` (no va a git). `build.bat` compila en `compilaciones\build`
+  (la de esta PC es MinGW, de otra PC, y guarda las fuentes de raylib y Jolt en `compilaciones/build/_deps`).
+  En esta PC: `tools\compilar.bat [carpeta] [release]` (VS 2022 Build Tools: vcvars64 + CMake + Ninja,
+  reusando esas fuentes, sin internet). Por defecto compila en `compilaciones\build-msvc`; los agentes que
+  trabajan a la vez, cada uno en `compilaciones\build-msvc-<área>`. El exe queda en
+  `compilaciones\<carpeta>\motocross.exe` con `tuning.ini` y `mods\`; el modelo del piloto lo busca en `../../modelos/`.
 - **Sin Visual Studio** (pasó en una sesión: no existe `C:\Program Files (x86)\Microsoft Visual Studio`, `compilar.bat` da "El
   sistema no puede encontrar la ruta especificada"): `cmake -S <proyecto> -B <carpeta> -G Ninja -DCMAKE_BUILD_TYPE=Release
   -DCMAKE_MAKE_PROGRAM=<WinLibs>\mingw64\bin\ninja.exe -DCMAKE_C_COMPILER=<WinLibs>\mingw64\bin\gcc.exe
@@ -54,8 +56,8 @@ espera a que el workflow de Windows cree la release, sube el zip con `gh release
 (`RELEASE_NOTES.md`) al día. Se dispara con el mismo cambio de `src/Version.h`, con "Run workflow" o al tocar el workflow o
 el empaquetador. Nunca se corrió en una Mac de verdad: sólo lo que hace el CI (compila, `bikestats`, bot, favela).
 
-`./build.sh [args del juego]` compila en `build-mac/` (CMake + Ninja de Homebrew, Apple clang) y
-arranca el juego desde ahí; `build-mac/motocross` corre desde esa carpeta (encuentra el glTF en `../`).
+`./build.sh [args del juego]` compila en `compilaciones/build-mac/` (CMake + Ninja de Homebrew, Apple clang) y
+arranca el juego desde ahí; `compilaciones/build-mac/motocross` corre desde esa carpeta (encuentra el glTF en `../../modelos/`).
 Las herramientas de `tools/` andan igual (`bash tools/regresion.sh`, sin permiso de ejecución en git).
 Lo que hubo que resolver (v0.2.5, M4 con macOS 26):
 
@@ -258,12 +260,19 @@ Una restauración de la física de la v0.3.1 se hizo fuera de estas reglas: el c
 una rama sin mergear. Para que no vuelva a pasar:
 - **El código de la última versión es siempre la raíz del repo** (`main`). Nada de copias del código dentro de
   `dist/`; si hace falta trabajar aparte, una rama o un worktree (`.claude/worktrees/`, ignorado).
-- **`dist/` tiene sólo paquetes**: `MotoSim-vX/` y `MotoSim-vX.zip`, uno por versión publicada o compartida.
+- **`dist/` tiene sólo paquetes, una carpeta por versión** (desde la v0.3.6): `dist/vX/MotoSim-vX/` (para jugar o
+  comparar) y `dist/vX/MotoSim-vX.zip`. `tools/package_release.py` los deja ahí y los workflows suben ese zip.
   Las pruebas de paquetes intermedios y lo viejo van a `dist/_archivo/` (hoy: `trabajo-v0.3.4/` con el port y sus
   compilaciones, `experimentos-v0.3.x/` con la 0.3.2-original031, la 0.3.3-650 y la 0.3.2-fisica-0.3.1, y
   `MotoSIM-main-3.2/`, un zip de GitHub descomprimido).
-- **Compilaciones en `build-*` de la raíz** (`tools\compilar.bat build-<algo>`, ignoradas por git), una por
-  agente o por prueba; las carpetas de prueba con un exe y sus mods, en el scratchpad o en `build-*`.
+- **Compilaciones en `compilaciones/`** (`tools\compilar.bat build-<algo>` deja `compilaciones\build-<algo>`,
+  ignorada por git), una por agente o por prueba; las carpetas de prueba con un exe y sus mods, en el scratchpad
+  o en `compilaciones/`.
+- **Modelos del piloto en `modelos/`** (el juego usa `Low_Poly_Motorcyclist_2_lowpoly`; los otros son respaldo).
+  En el paquete el modelo va junto al ejecutable.
+- **Raíz del repo**: sólo el código y lo que se publica (`src/`, `mods/`, `docs/`, `tools/`, `pruebas/`,
+  `modelos/`, `CMakeLists.txt`, `tuning.ini`, `LEEME.txt`, `RELEASE_NOTES.md`, README/MODDING/CLAUDE), más
+  `dist/` y `compilaciones/`.
 - **La versión sale sólo de `src/Version.h`**, y sube +0.0.1 con cada "compilá". Cada versión: rama
   `paquete-vX` + PR → merge a `main` → **el workflow `release.yml` crea la release con el zip de Windows y
   `release-mac.yml` le agrega el de Mac** (se disparan al cambiar `Version.h` en `main`; no hace falta subir el
@@ -271,6 +280,17 @@ una rama sin mergear. Para que no vuelva a pasar:
 - El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.3.6 (04/10/2026): piloto con menos triángulos y el repo ordenado
+
+`dist/v0.3.6/MotoSim-v0.3.6.zip` (27 archivos, 9.9 MB: el modelo reducido ya no trae la textura repetida en el `.bin`).
+Protocolo 7: juega con la v0.3.5, la v0.3.4 y la v0.2.5 a la v0.2.8. Primera versión con el orden nuevo: código en la
+raíz, modelos en `modelos/`, compilaciones en `compilaciones/` y un paquete por versión en `dist/vX/` (ver arriba).
+Compilada en `compilaciones/build-release` (MSVC, runtime estático: sólo DLLs de Windows). Verificado desde la carpeta
+del paquete: `bikestats` sin errores, `soilcheck` 0 fallos en los tres, bots idénticos a la v0.3.5 (motocross 1:04.26 /
+1:04.10, favela 1:37.39 / 1:37.55, circuito con la de carreras 2:11.41 / 2:09.73, park 0:50.93 / 0:50.89: el modelo no
+toca la física), con ventana carga `Low_Poly_Motorcyclist_2_lowpoly.gltf` (desde el paquete y, en el repo, desde
+`../../modelos/`) con los dedos en 51/38/76°, y en red contra la v0.3.5 en los dos sentidos.
 
 ### v0.3.5 (04/10/2026): wheelie con gas, peraltes más empinados y la de carreras frenando bien
 
@@ -340,8 +360,9 @@ KERNEL32, USER32, GDI32, SHELL32, WINMM, WS2_32 y las `api-ms-win-crt-*` (la UCR
    - `MotoSim.exe` y `tuning.ini`;
    - `mods/`, sin `pruebas/`;
    - `MODDING.md`;
-   - el modelo del piloto: `Low_Poly_Motorcyclist_3_rigged.gltf` con `Low_Poly_Motorcyclist_3_rigged_deps/`
-     (el 2 no va en el paquete; queda en el proyecto de respaldo, a pedido del usuario: no borrarlo);
+   - el modelo del piloto: `Low_Poly_Motorcyclist_2_lowpoly.gltf` con `Low_Poly_Motorcyclist_2_lowpoly_deps/`
+     (el modelo 2 con menos triángulos, ver [PILOTO.md](PILOTO.md); el 2 original y el 3 no van en el paquete:
+     quedan en el proyecto de respaldo, a pedido del usuario, no borrarlos);
    - `LEEME.txt`: el de la raíz del repo (el de la versión anterior con las novedades nuevas arriba), que el script
      escribe en UTF-8 con BOM y CRLF. Verificarlo con Python: el `grep -c $'\r'` de Git Bash da 0 aunque haya CRLF.
 
