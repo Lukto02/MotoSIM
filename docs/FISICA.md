@@ -17,6 +17,76 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### La Trial salía despedida al caer alto (a pedido; sólo la Trial)
+- **Pedido**: "la suspensión de la trial 300 me encanta [...] pero tiene un bug a veces cuando caes alto y en ciertas
+  posiciones que la moto sale despedida para arriba". Después: "que amortigüe tanto como lo hace, que es perfecto, pero
+  que vuelva a su posición suavemente, que no sea como un resorte".
+- **Cómo se midió**: `--flat --bike base/trial --drop H --test teclas:v0.1,4` (la flecha abajo 0.1 s en el aire: cae de
+  cola a ~25-35°; `^` cae de trompa; `v0.05` ~10°, `v0.2` ~53°) con la telemetría cada paso: velocidad vertical al
+  tocar, la máxima hacia arriba después (`vy`), cuánto sube el chasis sobre el reposo (`h` 0.78), si las dos ruedas se
+  despegan, la carga mínima de las cubiertas al volver y la compresión máxima. Para ver qué toca el chasis, un `printf`
+  temporal en `ContactFlag::Note` (punto del contacto en el espacio de la moto y velocidad por la normal).
+- **Qué pasaba** (antes → la causa):
+  - **cayendo de cola** desde 3-8 m: la trasera sola no alcanza a frenar la caída (la Trial es blanda y su hidráulico se
+    abre a 4.5 m/s: `*_max_damper_velocity`); la cubierta se aplasta ~16 cm y la esfera de tope de la rueda trasera
+    (`SphereShape(0.17)` en el anclaje, `Bike::BuildShapes`) pega en el piso a 4.6-8.7 m/s. Jolt la frena en un paso como
+    un cuerpo rígido (moto + piloto, inercia 44): el cabeceo pasa de -3 a -13 rad/s. La trompa pega después a 5-9 m/s con
+    la moto girando y ese giro se vuelve velocidad hacia arriba (la delantera queda de pivote): de -1.8 a +2.4 m/s en un
+    paso. Desde 6 m a 32°: sube 0.41 m sobre el reposo, 3.1 m/s, las dos ruedas en el aire 0.18 s y queda en una rueda;
+  - **cayendo de trompa** (~-30°), lo mismo al revés: la esfera de adelante la hace girar y la cola pega;
+  - **cayendo derecha** no hay cabeceo: la esfera de adelante pega igual (2.3 m/s desde 2 m, 8.8 desde 6) y frena sin
+    despedirla. Pero al volver el chasis sube a 1.6-1.75 m/s con las cubiertas casi sin carga (130-250 N de 1420): el
+    resorte progresivo guarda mucha fuerza en el último tramo y la extensión, amortiguada como cerca del sag
+    (`rebound_ratio` 3.2: ~0.5 de la crítica al fondo), lo tira para arriba. Ese es el "resorte".
+- **Qué se hizo** (claves nuevas; en `tuning.ini` valen lo de antes, guardadas con `if`):
+  - **`*_rebound_bottoming`** (`Suspension.cpp`): la amortiguación de la extensión × (1 + K · smoothstep(`*_rebound_bottoming_from`
+    = 0.5, 1, compresión)), **sólo con la cubierta apoyada**. La compresión no cambia. La Trial: 3 (hasta 4 veces al fondo).
+    Sin la condición de apoyo, en el circuito de obstáculos la horquilla quedaba hundida después de pegar en el tronco, la
+    moto bajaba del otro lado con la trompa más abajo (-30 a -41° en vez de -18 a -34) y el bot se caía una vez de cada
+    siete vueltas; con la condición, la rueda en el aire se estira como siempre;
+  - **`hard_landing_spin`** (`PhysicsWorld.cpp`, `ContactFlag::HardLanding`): en un contacto de la moto con algo fijo
+    con la normal hacia arriba (> 0.5), acercándose a más de 2 m/s y cuyo empuje la haría girar **más** para el lado que
+    ya gira, Jolt la ve con la inercia de giro dividida por esto (`mInvInertiaScale`). Los golpes que frenan el giro (la
+    trompa que pega después, el aterrizaje derecho) no se tocan. Sólo con el piloto arriba (`PrePhysics` lo pone cada
+    paso; sin piloto, 1). La idea: la mitad de la masa es el piloto, que no está atornillado; frena con las piernas en
+    los posapiés, cerca del centro de masa, y casi no hace girar la moto. La Trial: 0.3 (0.5 dejaba 1.4-1.8 m/s en
+    algunas caídas de cola; 0.25-0.3, ≤ 1.6).
+  - **Probado y descartado**: subir sólo `*_rebound_ratio` (6, 10): baja el rebote derecho pero desde 6 m de cola sigue
+    saliendo a 2.75 m/s (es el golpe rígido, no el resorte); `*_rebound_bottoming` 12: la rueda no llega a seguir el piso
+    y se despega; escalar la inercia en **todos** los golpes contra el piso: arregla las caídas de cola pinchadas pero
+    empeora las de ~10° (2.5-2.8 m/s): en el golpe de la trompa, con menos inercia, el giro se vuelve más velocidad
+    hacia arriba. De ahí la regla de "sólo si la haría girar más".
+- **Se comprobó** (`--flat --bike base/trial --drop H`, antes → después):
+
+  | caída | vy máx. hacia arriba (m/s) | sube sobre el reposo | ruedas en el aire | carga mín. al volver | compresión / h mín. |
+  |---|---|---|---|---|---|
+  | derecha 1 m | 1.35 → 0.83 | 0 → 0 | no | 200 → 632 N | 0.98 / 0.58 igual |
+  | derecha 2 m | 1.60 → 1.02 | 0 → 0 | no | 135 → 186 N | 1.00 / 0.53 igual |
+  | derecha 4 m | 1.75 → 1.13 | 0 → 0 | no | 157 → 580 N | 1.00 / 0.49 igual |
+  | derecha 6 m | 1.46 → 1.01 | 0 → 0 | no | 248 → 1020 N | 1.00 / 0.49 igual |
+  | de cola 23°, 3 m | 2.21 → 1.47 | 7 → 0 cm | 0.03 s → no | 0 → 105 N | 0.99 / 0.50 → 0.51 |
+  | de cola 11°, 5 m | 2.33 → 1.33 | 9 → 0 cm | 0.05 s → no | 0 → 270 N | 1.00 / 0.47 → 0.49 |
+  | de cola 32°, 6 m | 3.09 → 1.15 | 41 → 0 cm | 0.18 s → no | 0 → 39 N | 0.92 / 0.56 → 0.62 |
+  | de cola 37°, 8 m | 2.52 → 0.87 | 23 → 0 cm | 0.07 s → no | 0 → 420 N | 0.98 / 0.56 → 0.59 |
+  | de cola 53°, 4 m | 1.90 → 0.83 | 16 → 0 cm | 0.05 s → no | 0 → 601 N | 0.92 / 0.66 → 0.69 |
+  | de trompa -32°, 6 m | 2.15 → 0.23 | 33 → 0 cm | no | 49 → 1355 N | 1.00 / 0.76 → 0.74 |
+
+  - aterrizando derecha, lo que tarda en llegar al fondo es igual (0.05-0.08 s) y en volver al reposo (a 1 cm) casi
+    igual (0.39 → 0.41 s desde 0.5 m, 0.61 → 0.62 desde 2 m, 0.67 → 0.68 desde 3 m), sin pasarse: vuelve parejo en vez de
+    tirar el chasis para arriba y flotar;
+  - bots con la Trial (antes → después, sin caídas en ninguno): circuito de obstáculos 37.4-37.5 s → 37.4-37.5 (7
+    vueltas), favela 1:36.0-1:36.3 → 1:36.0-1:36.2, motocross 1:04.6-1:04.7 → 1:04.4-1:04.5, `prueba/park` 51.5 → 51.3,
+    `valle_trial` 41.2 → 41.2, `motocross_trial` 1:08.3-1:08.4 → 1:08.1-1:08.3;
+    con la masa corrida ±0.01 kg (para salir de la trayectoria exacta), 600 s del circuito de obstáculos: 0 caídas antes
+    y después;
+  - las demás motos no tienen las claves: `tools/regresion.sh` idéntico contra la v0.3.7 en las 9 pruebas de siempre
+    (más `accel` y una caída de cola desde 6 m) con la 450, y caídas, `flip` y bot con la Trilheira, la 2T, la de carreras
+    y la 600. La 450 también hace el golpe de cola (desde 5 m a 9°, 1.9 m/s y las ruedas 0.03 s en el aire) pero más
+    suave (más inercia: 1.63 m/s desde 6 m a 28°); se dejó como está.
+- **Trampa** (`SuspensionParams`): `Bike.h` lo inicializa **por posición** (`front{0.30f, 6800.0f, ...}`). Un campo
+  nuevo en el medio del struct corre todos los valores (el `bump_stop` caía en el campo nuevo) y cambiaba todas las
+  motos sin tocar ningún `.ini`. Los campos nuevos van al final.
+
 ### Freno de mano: doblando y clavando el trasero, la cola sale (a pedido; las de tierra, no la de carreras)
 - **Pedido**: "el espacio o A en joystick para el freno de mano debería ser el freno trasero [...] quiero que cuando
   doblás y lo clavás la moto deslice un poco más de la cola". Espacio / A ya eran el freno trasero solo (`Game.cpp`).
@@ -40,9 +110,10 @@ su propio documento: [PILOTO.md](PILOTO.md).
   físicas, guardadas con `if`: con `handbrake_yaw` 0, el de `tuning.ini`, no se calcula nada):
   - **`handbrake_yaw`** (Nm por rad): con el trasero a más del 60-95% (el bot frena atrás hasta 0.6: no lo usa), sin el
     de adelante y doblando, un PD de guiñada lleva la cola a **`handbrake_angle`** / **`handbrake_angle_fast`** (24° hasta
-    ~30 km/h, 14° desde ~70, con la dirección a fondo; con media dirección ~60%) y la frena si se pasa (no hay trompo);
+    ~30 km/h, 14° desde ~70, con la dirección a fondo; con media dirección ~60%; después, 24 y 24 en las de tierra) y la frena si se pasa (no hay trompo);
   - la delantera sigue su camino (contravolante automático apagado) apuntada `slide_steer_in` (6°) hacia la curva: empuja
-    hacia adentro y **cierra la curva** sin frenar de costado. En la 031, además, la moto va más derecha (`slide_upright`);
+    hacia adentro y **cierra la curva** sin frenar de costado. En la 031, además, la moto iba más derecha (`slide_upright`;
+    después se cambió por `handbrake_lean`, abajo);
   - al soltar el freno o la D, durante **`handbrake_catch`** (0.6 s) el mismo PD ataja la cola hacia 0;
   - en la física nueva, debajo de `slide_speed_max` (donde manda el derrape lento de siempre) sólo saca la cola: no la
     frena ni toca el manubrio, así el cavalo de pau de la Trilheira (55-60° a ~10 km/h) sigue igual;
@@ -91,6 +162,128 @@ su propio documento: [PILOTO.md](PILOTO.md).
     realimenta el manubrio (oscilación). Con `-0.3·rate` de la cola, lo mismo.
   - **Atajar al soltar**: con la cola a ~30° y gas, la trasera patina y no agarra; el contravolante tiene tope de 30°.
   - **El bot frena atrás hasta 0.6**: un umbral de pedal arriba de eso (0.6-0.95) deja los bots bit a bit iguales.
+- **Después: mientras colea, la moto se enderezaba; y la cola entraba y salía de golpe** (a pedido: "el derrape está
+  bueno, pero es difícil mantener la moto inclinada derrapando, tiende a enderezarse, quedaría mejor si queda inclinada para
+  el lugar que estás doblando mientras colea"; probándolo: "no siento que se mantenga la inclinación de la moto al derrapar";
+  y "agregá más suavidad en cuando se entra al derrape y cuando se sale del derrape, ahora mismo se siente muy snappy").
+  - **Cómo se midió** (desde `pruebas/`, `prueba/plaza_tierra`, las cinco motos, con las rampas del teclado):
+    - la inclinación (roll) en el tramo del freno de mano (desde 0.4 s después de clavar y con más de 10 km/h) contra la que
+      traía y la que pide el balance (`leanT`), a 30/50/70/90 km/h: `clava` (D y Espacio hasta parar), `reclava` (suelta el
+      Espacio 0.35 s y vuelve a clavar), `medias` (la D a medias: toques de 0.12 s cada 0.07 s, ~40-50% de dirección),
+      `sale` (1.2 s y sale con gas), `toques` (tres toques de Espacio) y `cambia` (de la D a la A clavando); también en
+      `plaza_asfalto_ancha`, `plaza_pasto` y `plaza_calle` a 40/80 km/h. Y cada 0.25 s del tramo (lo que se siente);
+    - la suavidad, con `W+V,D1,D_1.5,WD2.5`: al entrar (0.8 s desde que clava) y al salir (1 s desde que suelta), el pico
+      de la guiñada del mundo (`wy`/cos `roll`, °/s), el de su derivada (°/s², promediada en 3 pasos de 0.02 s) y el de la
+      velocidad con que cambia la cola (`beta`, °/s);
+    - la salida con gas, un barrido de 42 casos por moto (`W+V,D1,D_T,WD3`: V de 20 a 50 km/h, T de 0.6 a 2 s) contando
+      trompos (cola de más de 90°).
+  - **Qué pasaba** (v0.3.7):
+    - la moto entraba a ~45° y al clavar bajaba a **18-20° de media (mínima 13°)** en la 450 y la 600, siempre; con media
+      dirección, **7-9°** (casi derecha). En la 2T, la Trilheira y la Trial, 23-29° de media con mínimas de **4-8°**;
+    - **al clavar**, la guiñada saltaba de ~30 a 135-330°/s en 0.1 s (2000-4300°/s²) y la cola salía a 135-255°/s; el
+      manubrio pasaba de +17° a −12° en 0.15 s. **Al soltar**, la guiñada se daba vuelta (de −20 a +88°/s en 0.08 s:
+      2300-2500°/s² en la 450) y la cola volvía a 195-325°/s.
+  - **Por qué**:
+    - el balance lleva la moto a `leanTarget` (la inclinación sigue a `leanT` ±2-5°), y durante el derrape `leanTarget`
+      se achica: en la 031, `× (1 − slide_upright · handbrake)` = × 0.45 (de ~45° a ~20°); en la nueva,
+      `× (1 − slide_upright · trabada)` con la trasera trabada (lo mismo). Encima, despacio `leanTarget` cae con v²;
+    - el freno de mano se prendía y se apagaba de golpe: `handbrake` va de 0 a 1 entre el 60 y el 95% del pedal (con la
+      rampa del teclado, 0.04 s), y con él el PD de la cola (hasta 3000 Nm hacia `handbrake_angle`), el manubrio que sigue
+      su camino y el contravolante apagado. Al soltar, el atajo (`pd(0)`) empujaba con todo hacia derecho desde el primer
+      paso y el manubrio y el contravolante volvían en un paso.
+  - **Qué se hizo** (claves nuevas, 0 en `tuning.ini` = como antes, guardadas con `if`):
+    - **`handbrake_lean`** (40 en `motocross.ini`, `motocross600.ini`, `trilheira.ini`, `trial.ini` y `dostiempos.ini`): con
+      el freno de mano el piloto sostiene la moto inclinada hacia la curva (`hbLean`, en `UpdateHandbrake`): 40° con la
+      dirección a fondo, ×0.6 con media dirección, **firme mientras dura el derrape** (no baja con la velocidad) y afloja
+      recién entre ~11 y ~8 km/h (`Smoothstep(2.2, 3.2 m/s)`), cuando termina. `Bike::HandbrakeLean` (las dos físicas)
+      lleva `leanTarget` hacia eso sin enderezarla nunca más que antes (toma la mayor hacia la curva). **Al soltar la
+      levanta** (`slide_upright`, y vuelve a la normal en 2 × `handbrake_catch`): sale traccionando;
+    - **`handbrake_ramp`** (0.4 s en las mismas cinco): `hbIn` sigue a `handbrake` a 1/0.4 por segundo. Al clavar, el
+      ángulo que busca la cola sube con `hbIn` (sale en ~0.4-0.6 s, sin pasarse: el PD sigue entero). Al soltar, lo que
+      busca el atajo baja a 0 en 0.4 s desde donde estaba (`hbCatchWant`) en vez de ir a 0 de golpe, y el manubrio que
+      sigue su camino, el contravolante apagado, la inclinación sostenida y el levantarla pasan de a poco (`hbW` =
+      la mayor entre `handbrake` y `hbIn`);
+    - `handbrake_angle_fast` 24 (era 14) en las cinco: inclinada a 40-45° la cola quedaba en 15-19° a 70-90 km/h.
+  - **Probado y descartado**:
+    - llevar `leanTarget` a `hbLean` sin el máximo: la Trial a 30 km/h, que ya iba a ~50°, quedaba a 26°: la enderezaba;
+    - la primera versión (38°, ×0.5 a ~10 km/h, `Smoothstep(3, 12 m/s)`): la media daba 30-35°, pero el usuario lo probó y
+      no lo sintió. Cada 0.25 s desde que clava a 50 km/h: 41, 38.6, 38, 36.8, 34.6, 31.7, 28.4, 25.4, 22.8, 20.9°: el
+      derrape frena ~0.4 g y en ~2 s ya estaba en 20-25°. Ahora: 43, 42, 40, 41, 42, 43, 43, 43, 43, 43° hasta ~12 km/h;
+    - sostener la que traía al clavar (si era más): la moto queda 3-5° más acostada que lo pedido y al volver a clavar eso
+      era lo nuevo a sostener: subía hasta 60-80° y se caía (11 caídas en 120 maniobras). Con un valor fijo, ninguna;
+    - sin levantarla al salir: trompos saliendo con gas en el barrido (450 1, 600 6, 2T 5, Trilheira 13 de 42; la v0.3.7:
+      0, 0, 0, 5). Levantándola 0.6 s: 0, 3, 0, 5; 1.2 s: 0, 0, 0, 3;
+    - rampa también en el derrape lento (`slideIntent`) de la física nueva: casi no suavizaba y el cavalo de pau de la
+      Trilheira bajaba de 57° a 46°. Sacarlo al soltar de a poco: nada. Que mande `HandbrakeSteer` también debajo de
+      `slide_speed_max`: la cola de la Trilheira se iba a 76°;
+    - `handbrake_ramp` 0.3 / 0.5: 0.3 suaviza menos al entrar (450 a 50: 969 contra 880°/s²); 0.5 casi igual que 0.4 y la
+      cola tarda más (a 30 km/h el derrape dura ~1 s).
+  - **Se comprobó**:
+
+    | `clava` a 30 / 50 / 70 km/h | antes: incl media (mín.) | después: incl media (mín.) | antes: cola, camino, g | después: cola, camino, g |
+    |---|---|---|---|---|
+    | Motocross 450 | 20 (15), 19 (13), 18 (13) | 38 (38), 43 (40), 44 (42) | 25/28, 28/30, 28/30; +47/+82/+100; 0.48/0.41/0.41 | 14/24, 23/25, 23/24; +66/+88/+98; 0.55/0.40/0.39 |
+    | Motocross 600 | 20 (13), 19 (13), 18 (13) | 42 (40), 45 (43), 46 (43) | 27/28, 28/30, 26/30; +63/+100/+116; 0.42/0.40/0.41 | 22/25, 22/24, 22/25; +76/+98/+108; 0.44/0.38/0.39 |
+    | 2T | 29 (14), 26 (8), 26 (6) | 46 (43), 45 (42), 43 (41) | 25/34, 30/46, 27/50; +12/+63/+99; 0.35/0.39/0.44 | 22/29, 26/38, 26/42; +12/+53/+98; 0.34/0.37/0.42 |
+    | Trilheira | 28 (17), 23 (6), 24 (4) | 45 (43), 46 (42), 45 (41) | 24/30, 37/53, 29/60; +7/+61/+91; 0.35/0.45/0.48 | 22/30, 28/44, 24/60; +23/+56/+78; 0.41/0.42/0.45 |
+    | Trial | 50 (40), 27 (16), 28 (15) | 44 (41), 43 (41), 42 (40) | 13/28, 28/42, 24/43; +49/+41/+73; 0.53/0.47/0.52 | 14/37, 22/34, 22/35; +6/+35/+74; 0.43/0.47/0.52 |
+
+    | suavidad (`W+V,D1,D_1.5,WD2.5`) a 30 / 50 / 70 km/h | antes: entra (guiñada °/s, °/s², cola °/s) | después: entra | antes: sale (°/s², cola °/s) | después: sale |
+    |---|---|---|---|---|
+    | Motocross 450 | 328/224/159; 4251/3099/2009; 255/180/135 | 185/116/83; 1386/916/730; 90/70/55 | 697/2479/2325; 325/285/195 | 687/747/1168; 275/90/100 |
+    | Motocross 600 | 257/140/127; 3681/1737/1920; 190/115/100 | 125/73/70; 892/551/866; 65/55/55 | 1658/2296/2030; 295/195/150 | 1651/1151/1059; 95/90/95 |
+    | 2T | 166/167/119; 2731/2111/1389; 150/115/90 | 141/108/76; 2440/1074/584; 125/75/50 | 844/1818/1716; 1090/250/135 | 811/1621/1143; 185/130/105 |
+    | Trilheira | 211/114/110; 2344/2751/1201; 230/120/75 | 191/108/80; 1930/1886/751; 145/90/55 | 640/3136/2173; 480/310/180 | 602/1898/1167; 190/185/100 |
+    | Trial | 199/186/139; 4319/3183/1907; 230/145/100 | 189/106/90; 3699/2004/862; 165/95/55 | 1556/2693/3571; 330/245/195 | 1525/1383/1502; 205/140/110 |
+
+    - **cola sostenida** (mediana del tramo): 450 24/24/23 a 30-50/70 km/h y 22 a 90 (antes 24-29), 600 21-24 (antes 20-28),
+      las otras 18-30. En la 450 a 30 km/h la mediana de todo el tramo baja (14°) porque la rampa ocupa 0.4 s de un derrape de
+      ~1 s; el pico sigue en 24°;
+    - la inclinación queda pareja de punta a punta (desvío ~1°), 2-5° arriba de los 40 pedidos; **media dirección**:
+      450 de 9/8/7° a 30/29/29°, 600 de 9/7/6° a 30/29/26°, las otras de 14-25° a 25-34°; **soltar y volver a clavar**:
+      antes 13° ↔ 42°, ahora 38-45° de media (mínima 28-43°);
+    - la física nueva mejora menos a 30-50 km/h: ahí manda el derrape lento (`slideIntent`, debajo de `slide_speed_max`),
+      con su manubrio que oscila ±15° a ~3 Hz (ya estaba; ver pendiente);
+    - al soltar con gas sale limpia en todas; barrido de salida: trompos 0/0/0/6/0 de 42 (la v0.3.7: 0/0/0/5/0; los de la
+      Trilheira, a 20-35 km/h, son de su derrape lento, en casos parecidos). La 600 hace un wheelie de ~47° saliendo con gas
+      en los 42 casos, igual que en la v0.3.7;
+    - exagerando (`cambia`, `toques`, `reclava`, desde 90 km/h, en tierra, asfalto, pasto y calle): ninguna caída ni trompo
+      (270 maniobras);
+    - el derrape lento (`brakeslide2.5`): la Trilheira 57° → 59°, la Trial 63° → 60°, la 2T 38° → 43°. Sin caídas;
+    - sin las tres claves (`handbrake_lean`, `handbrake_ramp`, `handbrake_angle_fast` de `tuning.ini`) en las cinco motos,
+      idéntico a la v0.3.7, también con el freno de mano (`brakeslide`, `brakeslide2.5/3.5/b` de las 6 motos y `teclas:`
+      de `clava`, `clava_sale` y toques en la 450, la 600, la Trilheira y la Trial);
+    - regresión contra la v0.3.7: las 9 de siempre idénticas menos `brakeslide` (usa el freno de mano); `cuerpo`,
+      `wheelie`, `accel`, `frenada60`, `frenacurva60x1d-1a1`, `brakestraight`, `circle12`, `whip`, `flip` y `airrot` de las
+      6 motos (60), idénticas; los bots idénticos (motocross 450 1:04.26 / 1:04.10, la 600, la 2T y la Trial en la pista de
+      motocross, la Trilheira en la favela 300 s, el circuito, el parque, Los Médanos y el valle).
+  - **Pendiente**: en la física nueva, entre ~20 y 45 km/h, el manubrio del derrape lento oscila (−15° ↔ −45° a ~3 Hz y la
+    delantera empuja para los dos lados). Lo hace el camino de la delantera con toda la velocidad angular (la trampa de
+    arriba), pero cambiarlo toca el derrape lento de todas las motos.
+  - **Lecciones**:
+    - **La inclinación la decide `leanTarget`, no la física del derrape**: el balance es fuerte y la moto se queda a ±2-5°
+      de lo que pide. Si la moto "se endereza sola", buscar qué achica `leanTarget` (`slide_upright`, `brake_stand_up`, la
+      caída con v² debajo de `min_turn_radius`), no el agarre.
+    - **Lo que se siente es la evolución, no la media**: una media de 35° que arranca en 41 y termina en 20 se siente "se
+      endereza". Medir cada 0.25 s del tramo; un derrape frena ~0.4 g, así que algo que dependa de la velocidad se va en
+      1-2 s. Sostener = constante hasta que el derrape termina.
+    - **"Snappy" se mide con la derivada**: el pico de la guiñada y, sobre todo, el de su derivada (°/s²) y el de la
+      velocidad de la cola, en ventanas al entrar y al salir. Un interruptor de 0 a 1 (el pedal del 60 al 95%) prende todo
+      en 0.04 s aunque el teclado tenga rampa.
+    - **Rampa en lo que busca, no en la fuerza**: subir de a poco el ángulo buscado con el PD entero hace que la cola llegue
+      sin pasarse; al soltar, bajar lo que busca el atajo desde donde está (y no atajar más flojo) la trae suave sin trompo.
+    - **No tomar como referencia un estado que el cambio mismo modifica**: sostener "la que traía al clavar" se
+      realimentaba hasta caerse.
+    - **Una clave que "sostiene" algo tiene que ser un piso, no un reemplazo**: cambiar `leanTarget` por un valor fijo
+      enderezaba a la Trial despacio. Tomar el mayor hacia la curva sólo agrega.
+    - **Más inclinada al salir = trompo con gas**: con 40-45° despacio, el gas hace patinar la trasera. El piloto levanta
+      la moto para traccionar; medirlo con un barrido de salidas (velocidad × tiempo clavado), no con una o dos.
+    - **Medir con la dirección a medias y soltando/volviendo a clavar**: con media dirección el problema era peor (7-9°),
+      y al soltar el Espacio la moto subía y bajaba 30° cada vez.
+    - **Las pruebas con guion cortan con la velocidad de adelante**: con la cola a ~70° (la Trilheira en el pasto) `D_-5`
+      termina a ~20 km/h reales y el resto es "soltó todo"; mirar `beta` antes de leer el final como una frenada.
+    - **Los `.ini` de la carpeta de compilación se copian sólo al enlazar**: si no cambió ningún `.cpp`, compilar no los
+      actualiza; para probar un valor de la fuente, copiarlo a mano.
 
 ### La de carreras: rework de la frenada (a pedido; sólo la Carrera)
 - **Pedido**: "la moto de carreras frena poco, a veces cuando frenas queda doblando para un costado, etc. quizás tiene poco

@@ -765,3 +765,25 @@ que era real, lo que se arregló y lo que se descartó con evidencia.
 - **Se comprobó**: log `CAM` cuadro a cuadro con `--pad` (PRUEBAS.md) y series de capturas a 1280×720 con el bot (MENU.md, "Cámara
   con el stick derecho"): velocidad continua al soltar, al empezar la vuelta y en los cuadros largos de las capturas; girando a
   170°/s a 50 km/h la imagen se ve nítida (`cap/a_061.png`). Regresión idéntica (la cámara no toca la física).
+
+## Línea de frenada en el suelo (octubre de 2026)
+
+La línea ideal de los circuitos (MENU.md, "Minimapa, línea ideal con frenada..."): una tira de ~0.35-0.55 m de ancho con bordes
+suaves apoyada en la pista, unos 35-180 m adelante de la moto, verde, amarilla o roja.
+- **Cómo se dibuja** (`Game::DrawBrakeLine`, `Assists.cpp`): sin shader propio, con rlgl en modo inmediato (`rlBegin(RL_TRIANGLES)`,
+  el shader de siempre de raylib) dentro de la pasada de la escena, después de lo opaco y de las marcas de goma y antes del polvo
+  (el polvo la tapa). Tres franjas por tramo: el centro opaco y dos bordes de 14 cm que van a alfa 0. Sin escribir profundidad
+  (`rlDisableDepthMask`) y de las dos caras. El color va tal cual (la escena ya está con tono y niebla en cada shader; la línea se
+  va apagando con la distancia sola).
+- **Sin z-fighting**, como las marcas de goma: cada vértice 2 cm arriba del terreno y corrido hacia la cámara **a lo largo de la
+  mirada** `0.01 + 0.0012·distancia` m (cae en el mismo píxel, sólo cambia la profundidad); acá se hace en la CPU, al armar el vértice.
+  A 180 m son 23 cm, contra un escalón de profundidad de ~2.5 cm a esa distancia. El terreno se lee sólo en los dos bordes del
+  centro; los bordes transparentes siguen esa pendiente (en un berm de 35° no se meten en el suelo).
+- **Se comprobó** con la línea entera (`--linea toda`) mirada desde arriba (`--view 0 89 14` y `30`) y de atrás a 1280×720 en la
+  motocross (berms, saltos) y en el autódromo (pianos, rectas): continua, sin rayas ni cortes.
+- **Costo y una trampa al medirlo**: con un reloj alrededor de la llamada daba 0.45-0.85 ms por cuadro, casi todo en el
+  `rlDrawRenderBatchActive` final. Ni leer menos el terreno (de 18 a 2 lecturas por tramo) ni un lote de rlgl propio con tres
+  búferes que se turnan lo bajaban. Dibujándola **dos veces** en el mismo cuadro, la segunda costó 0.15 ms: el primer vaciado del
+  lote en el cuadro es donde la CPU se queda esperando a que la placa termine lo que ya tenía encolado (la escena), y eso se paga
+  igual en otro lado (en el `SwapBuffers`). El cuadro medio no cambió (16.7 ms con vsync a 60 Hz, con y sin). **Para medir el costo
+  de un dibujo con un reloj de CPU, dibujarlo dos veces y mirar la diferencia**.

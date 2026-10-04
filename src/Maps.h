@@ -129,6 +129,7 @@ struct MapDef {
     float botBrake = -1.0f;            // m/s² con que planea las frenadas (-1 = 4, o 2.5 en mapas de calles)
     float botLeanThrottle = 0.0f;      // 0..1: cuánto afloja el gas acostado (a 45°); 0 = nada
     bool markers = true;               // estacas de colores y pórtico de largada de motocross
+    bool racingLine = false;           // racing_line: línea ideal y de frenada (circuitos cerrados: la motocross, el autódromo)
     std::vector<MapObject> objects;
     MapLook look;
 };

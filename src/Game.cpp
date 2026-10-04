@@ -419,6 +419,8 @@ void Game::LoadMap(const MapDef& def, bool keepPlace)
         if (circuit.Active()) circuit.CreateMeshes();
         props.CreateMeshes();
         BuildTrackDressing();
+        BuildRacingLine();
+        BuildMiniMap();
         deformation.Unload();
         deformation.Init(terrain);
         particles.Clear();
@@ -535,6 +537,7 @@ void Game::Shutdown()
         sound.Shutdown();
         deformation.Unload();
         riderModel.Unload();
+        UnloadMiniMap();
         renderer.Shutdown();
         if (fontsLoaded) {
             UnloadFont(font);
@@ -1068,6 +1071,16 @@ void Game::HandleKeys()
         ShowMessage(muted ? "Sonido apagado  (M lo prende)" : "Sonido prendido");
     }
     if (IsKeyPressed(KEY_H)) helpPinned = HelpVisible() ? 0 : 1;          // la ayuda de teclas
+    if (IsKeyPressed(KEY_N)) {                                            // minimapa: norte arriba, gira con la moto, apagado
+        miniMapMode = (MiniMapMode)(((int)miniMapMode + 1) % 3);
+        SavePrefs();
+        ShowMessage(miniMapMode == MiniMapMode::North ? "Minimapa con el norte arriba" : (miniMapMode == MiniMapMode::Heading ? "Minimapa que gira con la moto" : "Minimapa apagado  (N lo prende)"));
+    }
+    if (IsKeyPressed(KEY_L)) {                                            // línea de frenada
+        brakeLine = !brakeLine;
+        SavePrefs();
+        ShowMessage(brakeLine ? "Línea de frenada prendida" : "Línea de frenada apagada  (L la prende)");
+    }
     if (IsKeyPressed(KEY_T)) {                                            // datos técnicos
         techData = !techData;
         SavePrefs();
@@ -1108,13 +1121,7 @@ void Game::HandleKeys()
         if (FreeRide() && PlayerDriving()) RespawnHere();
         else RespawnNearest();
     }
-    if (IsKeyPressed(KEY_BACKSPACE) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_LEFT))) {
-        Respawn(track.startLine - 6.0f);
-        lapStart = -1.0f;
-        // Empezar de nuevo: los objetos sueltos (tambores, cajas, bolos, pelotas) vuelven a su lugar.
-        // Antes quedaban donde cayeron hasta recargar el mapa. En red cada PC mueve los suyos.
-        props.Reset(*physics);
-    }
+    if (IsKeyPressed(KEY_BACKSPACE) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_MIDDLE_LEFT))) RestartRace();
 
     // Ajuste en vivo del centro de masa (debug)
     bool comChanged = false;
@@ -1892,6 +1899,20 @@ void Game::RespawnHere()
     wasGrounded[0] = wasGrounded[1] = false;
 }
 
+// Volver a empezar (Retroceso / Back, o "Reiniciar carrera" en el menú): la moto a la largada, la vuelta y el cronómetro
+// desde cero (la mejor vuelta y el mejor salto quedan) y los objetos sueltos (tambores, cajas, bolos, pelotas) a su lugar
+// (antes quedaban donde cayeron hasta recargar el mapa). En red, sólo la moto propia: cada PC mueve sus objetos.
+void Game::RestartRace()
+{
+    Respawn(track.startLine - 6.0f);
+    lapStart = -1.0f;
+    lapCount = 0;
+    lastLap = 0.0f;
+    halfway = false;
+    jumpAir = jumpShow = 0.0f;
+    props.Reset(*physics);
+}
+
 void Game::UpdateLap()
 {
     const Vec3 pos = bike.Position();
@@ -2024,6 +2045,9 @@ void Game::LoadPrefs()
     number("tierra_blandura", g.soilSoftness, 0, 100);
     number("tierra_profundidad", g.soilDepth, 5, 35);
     flag("datos_tecnicos", techData);
+    if (const std::string mm = textOf("minimapa"); !mm.empty())
+        miniMapMode = mm == "gira" ? MiniMapMode::Heading : (mm == "no" ? MiniMapMode::Off : MiniMapMode::North);
+    flag("linea_frenada", brakeLine);
     flag("caja_automatica", prefAutoShift);
     flag("control_traccion", prefTraction);
     if (const std::string stick = textOf("stick_derecho_carrera"); !stick.empty()) rightStickCamera = prefStickCamera = stick == "camara";
@@ -2101,7 +2125,9 @@ void Game::SavePrefs() const
                              Renderer::PresetKey(g.customBase) + "\ngrafico_auto = " + b(g.autoPreset) +
                              "\npantalla_completa = " + b(fullscreen) + "\nsacudon_camara = " + b(camera.shakeEnabled) +
                              "\nmotion_blur = " + b(motionBlur) + "\nsonido = " + b(!muted) + "\nvolumen = " + std::to_string(volume * 10) +
-                             "\nayuda_teclas = " + help + "\ndatos_tecnicos = " + b(techData) + "\ncaja_automatica = " + b(prefAutoShift) +
+                             "\nayuda_teclas = " + help + "\ndatos_tecnicos = " + b(techData) +
+                             "\nminimapa = " + (miniMapMode == MiniMapMode::Heading ? "gira" : (miniMapMode == MiniMapMode::Off ? "no" : "norte")) +
+                             "\nlinea_frenada = " + b(brakeLine) + "\ncaja_automatica = " + b(prefAutoShift) +
                              "\nsombras_calidad = " + std::to_string(g.shadowQuality) +
                              "\nsombras_distancia = " + std::to_string(g.shadowNear) +
                              "\nsombras_lejos = " + std::to_string(g.shadowFar) + "\nsombras_filtro = " + std::to_string(g.shadowTaps) +
@@ -2737,6 +2763,7 @@ void Game::Draw()
     renderer.BeginFrame(camera.cam);
     renderer.DrawSky(camera.cam);
     DrawScene(false);
+    DrawBrakeLine();                                    // en el suelo, debajo del polvo
     // Cada moto tal como se dibuja (las llamas de su escape viven en su espacio).
     Matrix frames[1 + Multiplayer::kMaxPlayers];
     frames[0] = ToRl(Mat44::sRotationTranslation(bike.RenderRotation(alpha), bike.RenderPosition(alpha)));
@@ -2857,7 +2884,8 @@ void Game::DrawHUD()
         std::snprintf(buf, sizeof(buf), "%+.2f / %+.2f", bikeParams.comHeight, bikeParams.comForward);
         lines.push_back({"Centro de masa", buf, kTextDim});
 
-        const float fs = 17.0f * ui, lineH = 21.0f * ui, panelX = 18.0f * ui, panelY = 18.0f * ui;
+        // Debajo de la vuelta, la última y la mejor (arriba a la izquierda, en las pistas).
+        const float fs = 17.0f * ui, lineH = 21.0f * ui, panelX = 18.0f * ui, panelY = (FreeRide() ? 18.0f : 112.0f) * ui;
         float labelW = 0.0f, valueW = 0.0f;
         for (const Line& l : lines) {
             labelW = std::max(labelW, MeasureTextEx(mono, l.label, fs, 0.0f).x);
@@ -2901,8 +2929,17 @@ void Game::DrawHUD()
         const float lapTime = lapStart >= 0.0f ? simTime - lapStart : 0.0f;
         DrawRectangle((int)(cx - 20.0f * ui), (int)(18.0f * ui), (int)(40.0f * ui), (int)(2.0f * ui), kAccent);
         textCenter(font, lapStart >= 0.0f ? FormatTime(lapTime) : "--:--.--", cx, 24.0f * ui, 40.0f * ui, kText);
-        std::snprintf(buf, sizeof(buf), "Vuelta %d    Última %s    Mejor %s", lapCount + 1, FormatTime(lastLap).c_str(), FormatTime(bestLap).c_str());
-        textCenter(font, buf, cx, 68.0f * ui, 20.0f * ui, kTextDim);
+        // La vuelta, la última y la mejor, arriba a la izquierda (a pedido; el cronómetro de la vuelta sigue al centro).
+        // Sobre un panel como el del minimapa: sobre el cielo o los boxes del autódromo el gris no se leía.
+        const float px0 = 18.0f * ui, py0 = 18.0f * ui, lx = px0 + 12.0f * ui, ly = py0 + 4.0f * ui, valueX = lx + 62.0f * ui;
+        DrawRectangle((int)px0, (int)py0, (int)(160.0f * ui), (int)(88.0f * ui), kPanel);
+        DrawRectangle((int)px0, (int)py0, (int)(44.0f * ui), (int)(2.0f * ui), kAccent);
+        std::snprintf(buf, sizeof(buf), "Vuelta %d", lapCount + 1);
+        text(font, buf, lx, ly + 2.0f * ui, 26.0f * ui, kText);
+        text(font, "Última", lx, ly + 36.0f * ui, 18.0f * ui, kTextDim);
+        text(font, FormatTime(lastLap), valueX, ly + 36.0f * ui, 18.0f * ui, lastLap > 0.0f ? kText : kTextDim);
+        text(font, "Mejor", lx, ly + 58.0f * ui, 18.0f * ui, kTextDim);
+        text(font, FormatTime(bestLap), valueX, ly + 58.0f * ui, 18.0f * ui, bestLap > 0.0f ? kText : kTextDim);
     } else {
         // Mapa libre (la guía no es una vuelta): cuánto volás. En el aire, lo que va; al caer, el salto y el mejor.
         const bool live = jumpAir > 0.7f && bike.RiderOnBike();
@@ -2957,6 +2994,7 @@ void Game::DrawHUD()
         textCenter(font, "P para seguir", cx, (float)H * 0.42f + 62.0f * ui, 22.0f * ui, kTextDim);
     }
 
+    DrawMiniMap(ui);
     DrawHelp(ui);
     textRight(font, MOTOSIM_VERSION, (float)W - 12.0f * ui, (float)H - 22.0f * ui, 15.0f * ui, Color{kTextDim.r, kTextDim.g, kTextDim.b, 170});
     DrawSession();
@@ -3057,39 +3095,32 @@ void Game::DrawSession()
         text(font, label, sp.x - tw * 0.5f, sp.y - size * 0.55f, size, kText);
     }
 
-    // Panel arriba a la derecha: código para invitar y jugadores.
+    // Los pilotos, arriba a la derecha debajo del minimapa (del mismo ancho). El código para invitar ya no va acá: se ve
+    // sólo en el menú (Esc), a pedido; F10 lo sigue copiando.
     const bool host = mp.GetMode() == Multiplayer::Mode::Host;
     const auto roster = mp.Roster(playerName);
-    const float pw = 320.0f * u, px = (float)W - pw - 18.0f * u, py = 40.0f * u, x = px + 14.0f * u;
-    const float extra = host ? 76.0f + 18.0f * (float)mp.OtherCodes().size() : (mp.Connected() ? 0.0f : 46.0f);
-    const float h = (44.0f + extra + 26.0f * (float)roster.size()) * u;
-    float y = py + 12.0f * u;
+    const bool mini = MiniMapShown() != MiniMapMode::Off && miniTex.id > 0;
+    const float pw = (mini ? kMiniMapSize : 230.0f) * u, px = (float)W - pw - 18.0f * u, py = (mini ? 18.0f + kMiniMapSize + 10.0f : 18.0f) * u;
+    const float x = px + 12.0f * u;
+    const float extra = mp.Connected() || host ? 0.0f : 22.0f;
+    const float h = (36.0f + extra + 23.0f * (float)roster.size()) * u;
+    float y = py + 10.0f * u;
     DrawRectangle((int)px, (int)py, (int)pw, (int)h, kPanel);
     DrawRectangle((int)px, (int)py, (int)(44.0f * u), (int)(2.0f * u), kAccent);
-    text(font, host ? "PARTIDA LAN · anfitrión" : (mp.Connected() ? "PARTIDA LAN · conectado" : "PARTIDA LAN · conectando"), x, y, 20.0f * u, kTextDim);
-    y += 30.0f * u;
-    if (host) {
-        text(font, "Código para invitar (F10 lo copia)", x, y, 17.0f * u, kTextDim);
-        text(mono, mp.InviteCode(), x, y + 20.0f * u, 40.0f * u, kText);
-        y += 70.0f * u;
-        for (const std::string& other : mp.OtherCodes()) {
-            text(font, "otra red: " + other, x, y, 16.0f * u, kTextDim);
-            y += 18.0f * u;
-        }
-        y += 6.0f * u;
-    } else if (!mp.Connected()) {
-        text(font, mp.Status(), x, y, 17.0f * u, kText);
-        text(mono, mp.InviteCode(), x, y + 20.0f * u, 22.0f * u, kTextDim);
-        y += 46.0f * u;
+    text(font, host ? "EN RED · anfitrión" : (mp.Connected() ? "EN RED · conectado" : "EN RED · conectando"), x, y, 16.0f * u, kTextDim);
+    y += 24.0f * u;
+    if (!host && !mp.Connected()) {
+        text(font, mp.Status(), x, y, 16.0f * u, kText);
+        y += 22.0f * u;
     }
     for (const Multiplayer::Entry& e : roster) {
-        DrawRectangle((int)x, (int)(y + 5.0f * u), (int)(12.0f * u), (int)(12.0f * u), Livery(e.id).plastic);
-        text(font, e.name + (e.ping < 0 ? "  (vos)" : ""), x + 22.0f * u, y, 20.0f * u, kText);
+        DrawRectangle((int)x, (int)(y + 4.0f * u), (int)(11.0f * u), (int)(11.0f * u), Livery(e.id).plastic);
+        text(font, e.name + (e.ping < 0 ? "  (vos)" : ""), x + 19.0f * u, y, 18.0f * u, kText);
         if (e.ping >= 0) {
             const std::string p = std::to_string(e.ping) + " ms";
-            text(mono, p, px + pw - 14.0f * u - width(mono, p, 18.0f * u), y + 2.0f * u, 18.0f * u, e.ping > 80 ? Color{255, 170, 90, 255} : kTextDim);
+            text(mono, p, px + pw - 12.0f * u - width(mono, p, 16.0f * u), y + 2.0f * u, 16.0f * u, e.ping > 80 ? Color{255, 170, 90, 255} : kTextDim);
         }
-        y += 26.0f * u;
+        y += 23.0f * u;
     }
 }
 
@@ -3291,9 +3322,18 @@ std::vector<Game::MenuItem> Game::MenuItems()
     const MenuItem settings{"Ajustes", "Imagen, sonido, lo que se ve en pantalla y la caja.",
                             [this] { OpenMenu(Menu::Settings); }, "ajustes"};
     const MenuItem controls{"Controles", "Todas las teclas y los botones del joystick.", [this] { OpenMenu(Menu::Controls); }, "controles"};
+    // Reiniciar (lo mismo que Retroceso / Back), y la carrera queda lista para arrancar con el menú cerrado.
+    const MenuItem restart{FreeRide() ? "Volver al inicio" : "Reiniciar carrera",
+                           FreeRide() ? "A la largada, y los objetos sueltos a su lugar. También con Retroceso."
+                                      : "A la largada, con la vuelta y el cronómetro desde cero (la mejor queda). También con Retroceso.",
+                           [this] {
+                               RestartRace();
+                               menu = Menu::None;
+                           }, "reiniciar"};
     if (!mp.Active()) {
         items.push_back({raced ? "Seguir corriendo" : "Jugar solo", FreeRide() ? "Vos, la moto y todo el mapa para andar libre." : "Vos, la moto y la pista.",
                          [this] { menu = Menu::None; }, "jugar"});
+        if (raced) items.push_back(restart);
         items.push_back({"Crear partida en red", "Tus amigos se suman con el código que te da el juego (misma red wifi).", [this] {
                              StartHost();
                              if (mp.Active()) OpenMenu(Menu::Lobby);
@@ -3315,6 +3355,7 @@ std::vector<Game::MenuItem> Game::MenuItems()
         items.push_back(controls);
     } else {
         items.push_back({"Volver a la carrera", "", [this] { menu = Menu::None; }, "jugar"});
+        items.push_back({restart.label, restart.hint + " Sólo tu moto: los demás siguen.", restart.action, restart.key});
         items.push_back({"Ver la partida", "Código para invitar y pilotos conectados.", [this] { OpenMenu(Menu::Lobby); }, "partida"});
         if (mp.GetMode() == Multiplayer::Mode::Host)
             items.push_back({"Mapa: " + current.name, "Cambiarlo lleva a todos al mapa nuevo.", [this] {
@@ -3680,6 +3721,20 @@ std::vector<Game::Setting> Game::SettingsItems()
                    techData = !techData;
                    SavePrefs();
                });
+        const char* miniNames[] = {"Norte arriba", "Gira con la moto", "Apagado"};
+        const char* miniHints[] = {"Arriba a la derecha: la pista entera con el norte arriba y vos en la flecha naranja. N lo cambia.",
+                                   "Arriba a la derecha: alrededor de la moto, con lo que tenés adelante hacia arriba. N lo cambia.",
+                                   "Sin minimapa. N lo prende."};
+        choice("EN PANTALLA", "Minimapa", miniHints[(int)miniMapMode], miniNames[(int)miniMapMode], [this](int d) {
+            miniMapMode = (MiniMapMode)(((int)miniMapMode + (d == 0 ? 1 : d) + 3) % 3);
+            SavePrefs();
+        });
+        toggle("EN PANTALLA", "Línea de frenada",
+               "En el suelo, adelante de la moto: verde, vas bien para la curva que viene; amarilla y roja, hay que frenar. Sobre la línea ideal, en los circuitos (la motocross y el autódromo). También con L.",
+               brakeLine, [this] {
+                   brakeLine = !brakeLine;
+                   SavePrefs();
+               });
         choice("MANEJO", "Caja", prefAutoShift ? "Pasa los cambios sola. También con F3 (X en el joystick)." : "Los cambios con Q y E (LB y RB). También con F3 (X).",
                prefAutoShift ? "Automática" : "Manual", [this](int) {
                    prefAutoShift = !prefAutoShift;
@@ -3831,6 +3886,10 @@ void Game::HandleMenuKeys()
                 return;
             }
         const bool clicked = mousePick(n);
+        if (IsKeyPressed(KEY_F10) && mp.GetMode() == Multiplayer::Mode::Host) {   // el código se ve en la tarjeta (sólo con el menú)
+            SetClipboardText(mp.InviteCode().c_str());
+            ShowMessage("Código copiado: " + mp.InviteCode());
+        }
         if (enter || IsKeyPressed(KEY_SPACE) || clicked) {
             items[menuSel % n].action();
             if (menu == Menu::None) raced = true;
@@ -4069,9 +4128,11 @@ void Game::DrawMenu()
         if (!items[menuSel].hint.empty()) text(font, items[menuSel].hint, x, y, 20.0f * scale, alpha(kTextDim, fade));
         status(y + 32.0f * scale);
 
-        // Tarjeta de lo que se corre ahora: mapa (con su color), moto con sus números y la partida en red.
+        // Tarjeta de lo que se corre ahora: mapa (con su color), moto con sus números y la partida en red. El anfitrión ve acá
+        // el código para invitar (en el HUD ya no está: sólo con el menú abierto, a pedido).
         {
-            const float cw = std::min(440.0f * scale, W * 0.36f), ch = 150.0f * scale;
+            const bool hostCode = mp.Active() && mp.GetMode() == Multiplayer::Mode::Host;
+            const float cw = std::min(440.0f * scale, W * 0.36f), ch = (hostCode ? 222.0f : 150.0f) * scale;
             const float cx = W - cw - std::max(40.0f, W * 0.05f), cy = H - 96.0f * scale - ch;
             const float appear = mu::Smoothstep(0.25f, 0.6f, menuTime);
             const Color mapColor = current.hasColor ? Color{current.color[0], current.color[1], current.color[2], 255} : kAccent;
@@ -4093,6 +4154,10 @@ void Game::DrawMenu()
                 for (int id = 0; id < Multiplayer::kMaxPlayers; ++id) riders += mp.Remotes()[id].active ? 1 : 0;
                 text(font, "En red  ·  " + std::to_string(riders) + (riders == 1 ? " piloto" : " pilotos"), tx, cy + 122.0f * scale, 17.0f * scale,
                      alpha(kTextDim, fade * appear));
+                if (hostCode) {
+                    text(font, "Código para invitar  ·  F10 lo copia", tx, cy + 150.0f * scale, 17.0f * scale, alpha(kTextDim, fade * appear));
+                    text(mono, mp.InviteCode(), tx, cy + 172.0f * scale, 34.0f * scale, alpha(kText, fade * appear));
+                }
             }
         }
         footer("\xE2\x86\x91 \xE2\x86\x93  elegir      Enter  aceptar      Esc  volver      (joystick: stick o cruz, A y B)");
@@ -4488,9 +4553,11 @@ void Game::DrawMenu()
             {"Cámara de costado", "C", "clic stick der."},
             {"Ayuda de teclas", "H", ""},
             {"Datos técnicos", "T", ""},
+            {"Minimapa (norte, gira, no)", "N", ""},
+            {"Línea de frenada", "L", ""},
             {"Sonido", "M", ""},
             {"Pantalla completa (o Alt+Enter)", "F11", ""},
-            {"Copiar el código de la partida", "F10", ""},
+            {"Copiar el código de la partida (se ve con Esc)", "F10", ""},
         };
         const float fs = 18.0f * scale, rh = 25.0f * scale, colA = 236.0f * scale, colK = 112.0f * scale, tableW = colA + colK + 118.0f * scale;
         auto table = [&](float tx, float ty, const char* title, const Row* rows, int count) {

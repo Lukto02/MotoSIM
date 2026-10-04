@@ -163,6 +163,14 @@ de dónde vino (de costado, de atrás, de frente, con la trompa), el umbral y, e
 el cuerpo cinemático. `--net-lag MS` / `--net-jitter MS` (en el juego) demoran lo que llega, como por
 internet: ida y vuelta ~2×MS.
 
+## En pantalla
+
+- **El código para invitar se ve sólo con el menú abierto** (Esc), en la tarjeta "AHORA" del anfitrión con "F10 lo copia"; F10 lo
+  copia corriendo y con el menú abierto (a pedido del usuario, octubre de 2026). En el HUD, arriba a la derecha debajo del
+  minimapa, quedan "EN RED · anfitrión / conectado / conectando" y los pilotos con su color y su ping; en el minimapa, una flecha
+  del color de cada uno. Detalle y capturas en MENU.md ("Minimapa, línea ideal con frenada...").
+- "Reiniciar carrera" (menú) y Retroceso reinician sólo la moto propia.
+
 ## Trampas
 
 - Todo lo que se genera en el mapa tiene que salir igual en todas las PCs (la favela usa semilla fija).

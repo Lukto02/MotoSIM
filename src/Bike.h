@@ -54,6 +54,9 @@ struct BikeParams {
     //  tope, amortiguación del tope, velocidad máx. que ve el amortiguador}
     SuspensionParams front{0.30f, 6800.0f, 1000.0f, 3.0f, 5.0f, 1.2f, 150000.0f, 6000.0f, 12.0f};
     SuspensionParams rear{0.32f, 7300.0f, 1100.0f, 3.0f, 5.0f, 1.2f, 150000.0f, 6000.0f, 12.0f};
+    // Golpe seco contra el piso que la haría girar más (cayendo de cola con la trasera a fondo): qué parte del giro le
+    // da; el resto lo absorbe el piloto con las piernas. 1 = cuerpo rígido, como siempre. Ver PhysicsWorld.
+    float hardLandingSpin = 1.0f;
     TireParams frontTire{0.35f, 0.60f, 1.00f, 1.15f, 0.06f, 400000.0f, 3500.0f, 11.0f};
     TireParams rearTire{0.33f, 0.90f, 1.00f, 1.10f, 0.06f, 400000.0f, 3500.0f, 14.0f};
 
@@ -194,6 +197,12 @@ struct BikeParams {
     float handbrakeYaw = 0.0f;
     float handbrakeAngle = 24.0f, handbrakeAngleFast = 14.0f;
     float handbrakeCatch = 0.6f;
+    // Freno de mano: inclinación (grados) que sostiene el piloto mientras colea, con la dirección a fondo (con media
+    // dirección ~60%), firme hasta ~10 km/h. 0 = como antes (la moto se endereza: slide_upright).
+    float handbrakeLean = 0.0f;
+    // Freno de mano: s en que la cola sale hasta el ángulo buscado al clavar y vuelve a derecho al soltar (y el manubrio,
+    // el contravolante y la inclinación pasan de a poco). 0 = de golpe, como antes.
+    float handbrakeRamp = 0.0f;
     float tcSlip = 0.35f;            // slip trasero tolerado por el control de tracción
     float crashAngleDeg = 72.0f;
     // Golpe fuerte contra algo fijo: el piloto sale despedido (m/s con que se acercaban). De frente o de
@@ -270,6 +279,7 @@ public:
     void PrePhysics(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
     void PrePhysics031(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
     void UpdateHandbrake(const BikeInput& in, JPH::Vec3 linVel, JPH::Vec3 fwdFlat, float lowSlide, float dt);   // freno de mano (handbrake_yaw)
+    float HandbrakeLean(float leanTarget) const;
     float HandbrakeSteer(float steerTarget, JPH::Vec3 linVel, float yawRate, JPH::Vec3 frontOffset, JPH::Vec3 fwdFlat, float maxSteerRad) const;
     void PostPhysics();
 
@@ -312,6 +322,11 @@ public:
     float hbWant = 0.0f, hbTurn = 1.0f;      // cola que busca (rad) y hacia qué lado dobla
     float hbCatch = 0.0f;                    // 0..1: atajando la cola después de soltar el freno de mano
     float hbLow = 0.0f;                      // 0..1: cuánto manda el derrape lento de siempre (slideIntent)
+    float hbCatching = 0.0f;                 // 0..1: cuánto la levanta al salir del freno de mano (handbrake_lean)
+    float hbUp = 0.0f;
+    float hbIn = 0.0f, hbW = 0.0f;           // freno de mano en rampa (handbrake_ramp) y el peso de lo que hace el piloto
+    float hbAim = 0.0f, hbCatchWant = 0.0f;  // cola que busca ahora (rad) y la que busca al atajar (baja a 0 en rampa)
+    float hbLean = 0.0f;                     // inclinación que sostiene el piloto con el freno de mano (rad, + a la derecha)
     bool hbValid = false;
     float clutchPop = 0.0f;                  // s que quedan del pico de torque del embrague soltado de golpe
     float sinceThrottleLow = 0.0f;           // s desde que el gas estaba casi cerrado (para detectar el golpe de gas)

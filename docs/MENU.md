@@ -337,3 +337,126 @@ F8 alterna física/visual y guarda la elección. En red la deformación es sólo
   (2) la zona muerta de un stick de cámara va redonda y un poco más grande que la de manejo: un stick que no vuelve a 0 trabaría la
   vuelta atrás; (3) la cruz digital para un eje analógico se pasa por la rampa del teclado, no se inventa otra; (4) antes de
   concluir que una entrada "no llega", mirar si la moto la usa (la física 0.3.1 de la Motocross no tiene cuerpo de costado).
+
+## Minimapa, línea ideal con frenada, HUD en las esquinas, código en pausa y reiniciar (octubre de 2026)
+
+Pedidos del usuario: "agrega minimapa, y si es posible linea ideal que se pone en rojo o verde cuando hay que frenar o estas
+bien"; después, "la linea de carrera mostrara tambien el recorrido ideal de cada mapa verdad, para maximizar los apex", "en
+mapas como favela o las dunas no hace falta la linea de pista, ya que no son circuitos", "arriba a la derecha el minimapa, y
+arriba a la izquierda la vuelta, y tiempos de vuelta" (con "el tiempo de vuelta que quede arriba en el medio como esta"), "el
+codigo online que se vea solo al poner pausa con esc" y "agrega un boton en pausa, para reiniciar la carrera". Código en
+`src/Assists.cpp` (minimapa y línea, miembros de `Game`) y en `Game.cpp` (HUD, menú, ajustes, preferencias).
+
+### Minimapa (`Game::BuildMiniMap`, `DrawMiniMap`)
+- **Dónde**: arriba a la derecha, `kMiniMapSize` (196) × `ui` de lado, a 18 × `ui` de los bordes. Debajo, los pilotos en red (mismo
+  ancho). Antes de que el usuario lo pidiera ahí estaba arriba del velocímetro.
+- **Qué**: un relieve del terreno visto desde arriba en una textura de 512² armada una vez por mapa (sombreado con la pendiente
+  exagerada ×3 y luz desde arriba a la izquierda, un poco más claro lo alto, y la pista o las calles más claras con
+  `Terrain::TrackMask`: en la favela salen también las calles que cruzan), el trazado encima (borde oscuro y línea clara del 70%
+  del ancho de la pista, mínimo 3 px), la largada (raya naranja), la moto propia (flecha naranja con borde) y las de los demás en
+  red (flechas más chicas del color de su moto; si quedan afuera, contra el borde).
+- **Orientación** (ajuste "Minimapa" y tecla **N**, `minimapa = norte|gira|no`): **norte arriba** (por defecto) muestra la pista
+  entera fija y la flecha se mueve: en estas pistas cerradas y chicas se ve dónde estás en la vuelta y lo que viene; hasta el
+  autódromo (unos 900 m) entra entero y se lee. **Gira con la moto**: centrado en la moto (un poco abajo del centro, para ver más
+  lo que viene), lo de adelante hacia arriba, una ventana de radio `0.3 × tamaño de la pista` (entre 60 y 200 m) y una "N" en el
+  borde donde queda el norte; el rumbo se suaviza 0.12 s (la moto serpentea y el mapa entero temblaba). Apagado: nada.
+- **Mapas libres** (Los Médanos): no hay trazado que mostrar (la guía es sólo para el bot), pero el relieve sí aporta: se ven las
+  líneas de saltos, el serrucho, el cráter y la pared, y dónde estás entre ellos. Se encuadra el terreno entero.
+- **Orientación del mundo**: el norte es +z y, visto desde arriba, +x queda a la **izquierda** (la cámara mirando a +z tiene +x a la
+  izquierda). La convención de los `.json` ("90 = este, +x", imagen con el oeste a la izquierda) es la de un mapa espejado: el
+  minimapa sigue a lo que se ve en el juego (doblar a la derecha gira la flecha a la derecha). Comprobado contra una vista cenital
+  (`--view 0 89 60`): el trazado del minimapa es el de la escena girado, no espejado.
+- **Costo**: el trazado se simplifica al armarlo (un punto cada 2 m en las curvas y cada 30 m en las rectas) y se dibuja como una
+  tira con juntas en inglete en un solo `rlBegin(RL_TRIANGLES)`: **0.2 ms por cuadro**. La primera versión (DrawLineEx más un
+  `DrawCircleV` en cada junta para que no quedaran muescas) costaba 1.5-1.9 ms en el autódromo: un círculo son 36 triángulos.
+
+### Línea ideal y de frenada (`Game::BuildRacingLine`, `DrawBrakeLine`)
+- **Sólo en los circuitos**: clave `"racing_line": true` del mapa (la pista de motocross y el autódromo; ver MODDING.md). La favela,
+  Los Médanos, el valle y el parque no la tienen (el usuario: "no son circuitos"). Nunca con `"style": "guide"`.
+- **La trayectoria** (afuera-adentro-afuera) se calcula al cargar el mapa con K1999 (el método de Rémi Coulom del bot de TORCS):
+  sobre puntos cada 2 m del trazado, cada uno se corre de costado para que su curvatura sea el promedio de las de sus vecinos
+  (ponderado por la distancia), con un paso de Newton y recortado al ancho de la pista menos 1.1 m al centro de la moto (más un
+  margen que crece con la separación entre puntos); primero con puntos cada 128 m, después 64, 32... hasta 2 m (100·√paso pasadas
+  cada vez), interpolando los del medio. La curvatura de la línea se mide con cuerdas de ±4 m y se promedia ±4 m (con 2 m sale
+  ruidosa); todo se guarda por punto del trazado (`rlOffset`, `rlCurv`). Tarda unos ms.
+- **Peraltes** (la pista de motocross): en un berm se dobla a fondo sólo donde el peralte bajo la moto pasa los 11° (MAPAS.md), o
+  sea de `t = tan 11° · hw / bank` hacia afuera (`bank·t²` de costado). Ahí la línea no puede ir más adentro de `t + 0.08` (entra
+  de a poco entre 0.6 y 1.4 m de peralte): el vértice queda en la cara del berm y no en el plano de adentro. Ojo con el signo:
+  `Track::Bank > 0` es el berm del lado `−n` (n = (−tz, tx)), o sea el borde de adentro es el de `+n`; la primera vez quedó al
+  revés y la línea se pegaba al borde de adentro de todas las curvas (se vio en la captura cenital).
+- **Cuánto mejora** (una vuelta simulada: la velocidad de la curva `sqrt(bot_lateral / curvatura)`, acelerando a 3.5 m/s² y
+  frenando a 6, tope 35 m/s): motocross 46.2 → 41.1 s (radio mínimo 13.0 → 22.6 m), autódromo 137.7 → 117.0 s (18.5 → 21.5 m;
+  3757 → 3695 m de largo), y también en los que no la muestran: favela 74.7 → 70.4, valle 34.0 → 30.2, parque 36.6 → 31.8. Medir
+  sólo el radio o `Σ 1/sqrt(curvatura)` sin aceleraciones engaña: con la aceleración lateral como único límite, una curva más
+  abierta es más larga y "más lenta" (t ∝ √R); lo que gana la línea ideal es la velocidad mínima y las frenadas.
+- **Los colores**: en cada punto adelante, la velocidad de la curva sobre la línea ideal con la aceleración lateral del mapa
+  (`bot_lateral`, la misma del bot) y, de atrás para adelante, la más alta con la que se llega frenando a todas las que siguen,
+  `sqrt(v² + 2·a·d)` con la distancia real entre puntos de la línea. Con la velocidad de ahora: hasta el 95% de esa, **verde**; al
+  100%, **amarilla**; desde el 108%, **roja** (la naranja en el medio). El rojo arranca donde, yendo así, ya habría que estar
+  frenando: al frenar retrocede, y al llegar a la moto, es "frená ya". **La desaceleración es 6 m/s²**, no la del bot (4, o 2.5
+  en las calles): el bot frena tosco y temprano, y con 2.5 la recta del autódromo salía roja 900 m antes de la horquilla. Las motos
+  frenan 0.7-1 g: 6 deja margen para reaccionar. El bot anda justo en el límite (su velocidad objetivo es esa misma con 4 m/s²),
+  así que con él la línea se ve amarilla en las curvas; por eso el rojo empieza al 108% y no al 100%.
+- **Cuánto se ve**: de 1.5 m adelante de la moto (aparece de a poco hasta los 6 m) hasta `25 + 3·v` m (~3 s; entre 35 y 180),
+  desvaneciéndose en el último 45%. Se apaga lejos de la pista (de 2 a 10 m afuera del borde), caído, con el menú abierto, con F2
+  y con `--nohud`. Para dónde va: con la velocidad, o parado hacia donde mira la moto (en contramano, la línea va para el otro lado).
+- **Ajuste** "Línea de frenada" y tecla **L** (`linea_frenada`, prendida por defecto: el usuario la pidió, en los mapas que no son
+  circuito no aparece igual, y se apaga con una tecla). En el suelo: ver RENDER.md ("Línea de frenada en el suelo").
+
+### HUD en las esquinas, código en pausa
+- **Arriba a la izquierda**, sobre un panel como el del minimapa (sin él, sobre el cielo o los boxes del autódromo el gris no se
+  leía): "Vuelta N" y debajo "Última" y "Mejor" (en gris hasta que haya una vuelta). Antes era una
+  línea chica debajo del cronómetro. **El cronómetro de la vuelta sigue arriba al centro**, como pidió. En un mapa libre, arriba
+  al centro siguen los saltos y la esquina queda vacía. Los datos técnicos (T) bajan a 112 × `ui` para quedar debajo.
+- **Arriba a la derecha**: el minimapa y, debajo y del mismo ancho, "EN RED · anfitrión / conectado / conectando" y los pilotos
+  con su color y su ping. **El código para invitar ya no está en el HUD**: se ve sólo en el menú (Esc), en la tarjeta "AHORA" del
+  anfitrión ("Código para invitar · F10 lo copia" y el código grande). F10 lo copia corriendo y también con el menú abierto
+  (`HandleMenuKeys`, `Menu::Main`).
+- Lo demás no cambió: el velocímetro abajo a la derecha, la ayuda de teclas abajo a la izquierda, los avisos arriba al centro.
+
+### Reiniciar carrera (`Game::RestartRace`)
+- En el menú (Esc), debajo de "Seguir corriendo" (sólo después de haber corrido) o de "Volver a la carrera" (en red): **"Reiniciar
+  carrera"** ("Volver al inicio" en un mapa libre). Hace lo de Retroceso / Back (que ahora llama a lo mismo): la moto a la
+  largada, el cronómetro, el número de vuelta y la "Última" desde cero, la **Mejor queda** (y el mejor salto), los objetos sueltos
+  a su lugar, y cierra el menú. En red, sólo la moto propia (cada PC mueve sus objetos).
+
+### Preferencias y pruebas
+- `minimapa = norte|gira|no` (sin la clave: norte) y `linea_frenada = 1|0` (sin la clave: 1). Se guardan desde Ajustes o con N y L.
+- Con el bot o una prueba no aparecen (como la ayuda de teclas: capturas limpias). Para las capturas: `--minimapa norte|gira|no` y
+  `--linea si|no|toda` los fuerzan por esa vez (no se guardan); `toda` dibuja la vuelta entera, ancha y sin desvanecer, para mirarla
+  desde arriba (`--test idle --spawn S --view 0 89 14`).
+- Las teclas nuevas en `tools/teclas.ps1`: N, L y F10.
+
+### Cómo se comprobó (exe MSVC, 1280×720; capturas en `compilaciones/build-msvc-interfaz/cap/mm/` y `cap/mm2/`)
+- Cenitales de la línea ideal: `top_mx_190.png`, `top_mx_530.png`, `top_mx_700.png` (motocross: el vértice en la cara del berm),
+  `top_circ_950.png` (la horquilla: entra abierta, toca el piano de adentro y sale abierta), `top_circ_1140.png`, `top_circ_1300.png`,
+  `top_circ_1600.png`; `top_mx.png` la vuelta entera.
+- Verde y rojo: `grilla_circ.png` (`--map base/circuito --test "teclas:W+230,W40" --spawn 420 --shots-every 1`): verde a 158-222
+  km/h en la recta, roja a 242-284 llegando a la horquilla (la prueba no frena y se va contra la tribuna, como corresponde).
+  `mx_norte_datos.png`: verde con la moto lenta.
+- Minimapa: `mx_norte_datos.png` (con los datos técnicos abajo de la vuelta), `circ_gira.png`, `fav_gira.png` (gira, con la N),
+  `med_norte.png` (Los Médanos, relieve solo).
+- En red (anfitrión con ventana y un invitado sin ventana): `red_jugando.png` (la flecha azul del invitado en el minimapa, los
+  pilotos debajo, sin código) y `red_menu.png` (Esc: el código en la tarjeta con "F10 lo copia", "Reiniciar carrera").
+- `nohud.png` (`--nohud`: ni minimapa ni línea).
+- Teclas de verdad (`tools\teclas.ps1`, en una copia del exe en el scratchpad con sus preferencias): N y L dejan
+  `minimapa = gira` y `linea_frenada = 0` en el archivo y la captura muestra el minimapa girando sin línea; en Ajustes → Juego y
+  sonido, las filas Minimapa y Línea de frenada; Controles con N y L (entra a 720); Esc → "Reiniciar carrera" → la moto en la
+  largada con el cronómetro en "--:--.--" y la vuelta vuelve a arrancar al cruzar (`grilla_reinicio.png`, serie de capturas).
+- Cuadros: 16.7 ms de media antes y después (vsync a 60 Hz) en el autódromo y en la motocross, con el bot. Medido por dentro: el
+  minimapa 0.2 ms; la línea, 0.45 ms la primera vez que se vacía el lote de rlgl en el cuadro y 0.15 ms una segunda copia (ver
+  RENDER.md: esa espera es la de la placa terminando lo anterior, no costo de la línea).
+- Regresión idéntica contra la v0.3.7 (la lista de PRUEBAS.md más el bot en el autódromo y en la favela) con los datos de la v0.3.7;
+  con los de la carpeta de trabajo, `brakeslide` da distinto por `handbrake_lean` de las motos de tierra (otro cambio en curso, no
+  de la interfaz: con el exe nuevo y los `.ini` de la v0.3.7 da idéntico).
+
+### Lecciones
+- **Medir lo que gana una trayectoria con una vuelta simulada** (límite de curva, aceleración y frenada), no con la curvatura ni con
+  `Σ ds / sqrt(a/κ)`: con la lateral como único límite, abrir la curva "empeora" el tiempo.
+- **Probar el signo de los costados con una captura cenital** (`--linea toda --view 0 89 14`): el peralte, la normal de la pista y
+  la izquierda del minimapa tienen cada uno su convención, y una al revés no rompe nada, sólo pone la línea del lado equivocado.
+- **Un mapa visto desde arriba en este juego tiene +x a la izquierda** (el de los `.json` está espejado respecto de lo que se ve).
+- **Pocas primitivas en el HUD**: un `DrawCircleV` son 36 triángulos; mil juntas redondas costaban más que todo lo demás del HUD.
+  Una tira con juntas en inglete hace lo mismo con dos triángulos por tramo.
+- **Lo nuevo del HUD se ve sólo jugando**: con el bot y las pruebas, apagado salvo que se pida (`--minimapa`, `--linea`), así las
+  capturas de las otras áreas no cambian.

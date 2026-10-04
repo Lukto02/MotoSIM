@@ -98,6 +98,13 @@ copia temporal del mapa con otro `bot_speed`). La s del labio sale de `--test pr
 
 ## Lecciones por mapa
 
+### Línea ideal (`racing_line`, octubre de 2026)
+Los mapas que son un circuito cerrado (la pista de motocross y el autódromo) llevan `"racing_line": true`: el juego calcula al
+cargarlos la trayectoria de carrera (K1999, dentro del ancho menos 1.1 m; en los berms, por la franja donde el peralte pasa los
+11°) y, si el jugador la prende, la dibuja en el suelo verde / amarilla / roja según haya que frenar. Usa `bot_lateral` para la
+velocidad de cada curva. La favela, Los Médanos, el valle y el parque no la llevan ("no son circuitos"). Método, números y
+capturas en MENU.md ("Minimapa, línea ideal con frenada...").
+
 ### Pista de motocross (base/motocross): peraltes más empinados (octubre de 2026, sobre la v0.3.4)
 El usuario: "agrega mas slope a las curvas del mapa de motocross inicial, para poder doblar mas rapido aun"
 (en la v0.3.4 ya se habían subido una vez, de 1.9 m / 34 a 2.8 m / 52).

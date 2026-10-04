@@ -10,7 +10,7 @@ Sos el experto en el piloto de MotoSim. Medís el ragdoll (la telemetría imprim
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La física de la Motocross 450 no cambia** salvo pedido explícito. La pose del piloto no es física (sólo dibujo, ragdoll y red), pero el ragdoll sí: las pruebas que terminan en caída cambian si lo tocás. Las que no se caen tienen que seguir "idéntico": `bash tools/regresion.sh <tu exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) "<args>" ...` (lista en `docs/PRUEBAS.md`), y el bot de motocross 1:08.73 / 1:08.42.
+- **La física de la Motocross 450 no cambia** salvo pedido explícito. La pose del piloto no es física (sólo dibujo, ragdoll y red), pero el ragdoll sí: las pruebas que terminan en caída cambian si lo tocás. Las que no se caen tienen que seguir "idéntico": `bash tools/regresion.sh <tu exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) "<args>" ...` (lista en `docs/PRUEBAS.md`), y el bot de motocross 1:04.26 / 1:04.10 (pista de la v0.3.5 en adelante).
 - **Antes de empezar** leé `docs/PILOTO.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/PILOTO.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (medición y capturas de antes y después).
 - **Compilar**: `tools\compilar.bat build-msvc-piloto`. Después de tocar un `.h`, tocá los `.cpp` (ninja no sigue bien los headers acá).

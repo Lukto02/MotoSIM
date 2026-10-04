@@ -4,6 +4,7 @@
   "kind": "motocross · circuito",
   "description": "Rectas con saltos, whoops y peraltes de tierra. La pista de siempre.",
   "bike": "base/motocross",
+  "racing_line": true,     // a closed circuit: the racing line on the ground turns green / red for braking (L in game)
   "order": 1,             // place in the map list (lower = first; mods default to 100)
   // The berms let the bike corner at full lean on most of the track width: the bot takes the corners
   // harder than the default 6 m/s^2 (see docs/MAPAS.md, "Pista de motocross").

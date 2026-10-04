@@ -53,6 +53,8 @@ void BikeParams::Register(Tuning& t)
         t.Add(p + "damping", &s.damping);
         t.Add(p + "rebound_ratio", &s.reboundRatio);
         t.Add(p + "bottoming_damping", &s.bottomingDamping);
+        t.Add(p + "rebound_bottoming", &s.reboundBottoming);
+        t.Add(p + "rebound_bottoming_from", &s.reboundBottomingFrom);
         t.Add(p + "progressivity", &s.progressivity);
         t.Add(p + "bump_stop", &s.bumpStop);
         t.Add(p + "bump_damping", &s.bumpDamping);
@@ -60,6 +62,7 @@ void BikeParams::Register(Tuning& t)
     };
     susp("front_", front);
     susp("rear_", rear);
+    t.Add("hard_landing_spin", &hardLandingSpin);
 
     auto tire = [&](const std::string& p, TireParams& tp) {
         t.Add(p + "radius", &tp.radius);
@@ -177,6 +180,8 @@ void BikeParams::Register(Tuning& t)
     t.Add("handbrake_angle", &handbrakeAngle);
     t.Add("handbrake_angle_fast", &handbrakeAngleFast);
     t.Add("handbrake_catch", &handbrakeCatch);
+    t.Add("handbrake_lean", &handbrakeLean);
+    t.Add("handbrake_ramp", &handbrakeRamp);
     t.Add("tc_slip", &tcSlip);
     t.Add("crash_angle_deg", &crashAngleDeg);
     t.Add("crash_impact_speed", &crashImpactSpeed);
@@ -323,7 +328,7 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     airTime = 0.0f;
     steerAngle = leanTarget = riderLean = legOut = bodyTilt = bodyTiltRate = riderSide = 0.0f;
     steerBase = steerCaster = 0.0f;
-    handbrake = handbrakeTorque = hbSlide = hbRate = hbWant = hbCatch = 0.0f;
+    handbrake = handbrakeTorque = hbSlide = hbRate = hbWant = hbCatch = hbLean = hbCatching = hbUp = hbIn = hbW = hbAim = hbCatchWant = 0.0f;
     hbValid = false;
     leanGrip = 1.0f;
     reverseHold = 0.0f;

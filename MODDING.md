@@ -69,6 +69,7 @@ Only `track.points` is required; every other field has a default.
   "bot_lateral": 6,                  // m/s²: how hard the bot takes the corners (default: --bot-lat, 6)
   "bot_brake": 4,                    // m/s² it plans braking with (default 4, or 2.5 on street maps)
   "bot_lean_throttle": 0,            // 0..1: how much it closes the throttle leaned over (at 45°)
+  "racing_line": false,              // closed circuits: show the racing line and braking colors on the ground
 
   "terrain": { ... },
   "track": { ... },
@@ -316,6 +317,12 @@ multiplies it.
   }
   ```
 - **`markers`**: the motocross stakes and start gate (default: true unless there is a generator).
+- **`racing_line`**: for maps that are a closed circuit to race on (the base motocross track and the road circuit use it).
+  The game works out the racing line inside the track width (wide before a corner, the apex on the inside, wide on the
+  exit; in banked corners it stays on the steep part of the berm) and, if the player turns it on (Settings or L), draws
+  it on the ground a few seconds ahead: green when the current speed is fine for what is coming, yellow and red where
+  you should already be braking. It uses `bot_lateral` for the corner speeds. Default false: leave it off on maps that
+  are not a circuit (free roam, a hill to ride down); it is never shown with `"style": "guide"`.
 
 ---
 
@@ -374,8 +381,13 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 | `rear_lift_load`, `rear_lift_mitigation` | 300, 0.25 | the ABS eases the front brake when the rear carries less than this many N (straight up, by this much) |
 | `slide_pivot` | 800 | below ~13 km/h, rear brake while turning: the rider pushes the tail out (Nm per rad; 0 = off) |
 | `handbrake_yaw` | 0 | "handbrake": slamming the rear brake alone while turning (Space / A over 60-95%, no front brake), the rider kicks the tail out to `handbrake_angle` and holds it there, with the front wheel following its own path (`slide_steer_in` degrees into the turn); Nm per rad of missing tail angle (0 = off; the dirt bikes use 5000, the race bike 0). The bot never brakes the rear that hard |
-| `handbrake_angle`, `handbrake_angle_fast` | 24, 14 | tail angle (degrees) the handbrake looks for with full steering, up to ~30 km/h and from ~70 km/h (with half steering, ~60% of that). On bikes with the slow slide (`slide_*`, below `slide_speed_max`) it only pushes the tail out there: it doesn't cap a bigger slow slide |
+| `handbrake_angle`, `handbrake_angle_fast` | 24, 14 | tail angle (degrees) the handbrake looks for with full steering, up to ~30 km/h and from ~70 km/h (with half steering, ~60% of that; the dirt bikes use 24 for both: leaned over with `handbrake_lean`, 14 left the tail at 15-19° at speed). On bikes with the slow slide (`slide_*`, below `slide_speed_max`) it only pushes the tail out there: it doesn't cap a bigger slow slide |
+| `handbrake_lean` | 0 | lean (degrees) the rider holds into the turn while the handbrake slide lasts, with full steering (half steering ~60%), steady until the slide ends (~10 km/h); it never stands the bike up more than without it. On letting go the rider lifts the bike for 2 × `handbrake_catch` to get drive (leaned 40-45° with throttle the bike spun). 0 = the bike stands up while sliding (`slide_upright`), as before; the dirt bikes use 40 |
+| `handbrake_ramp` | 0 | seconds the handbrake takes to bring the tail out to its angle when you slam it, and back straight when you let go; the steering, the countersteer and the lean also blend in and out over that time (0 = instant, as before; the dirt bikes use 0.4) |
 | `handbrake_catch` | 0.6 | seconds the rider catches the tail after letting go of the handbrake (without it, releasing at ~30° with throttle spun the bike) |
+| `front_rebound_bottoming`, `rear_rebound_bottoming` | 0 | extra rebound damping deep in the travel (times): it grows from `*_rebound_bottoming_from` of the travel to the bottom, so after a big landing the suspension comes back slowly instead of springing the chassis up (compression doesn't change; 0 = off; the Trial uses 3) |
+| `front_rebound_bottoming_from`, `rear_rebound_bottoming_from` | 0.5 | fraction of the travel where `*_rebound_bottoming` starts |
+| `hard_landing_spin` | 1 | a hard hit of the bike against the ground (rim or frame, suspension bottomed) that would spin it further, like landing tail-first from high up: how much of that spin the bike gets (the rest is taken by the rider's legs). Without it the front slams down next and throws the bike up. 1 = rigid body, as before; the Trial uses 0.3 |
 | `crash_impact_speed`, `crash_impact_vertical` | 7, 11 | m/s against something fixed (front/side, or falling flat) that throws the rider off |
 
 Wheelies: while turning on the rear wheel the bike yaws along its path (`wheelie_turn`, Nm per rad/s,

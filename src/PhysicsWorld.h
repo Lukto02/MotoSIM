@@ -63,6 +63,9 @@ public:
         bool onTerrain = false;             // contra el terreno (si no, un objeto o una casa)
     };
     Scrape LastScrape() const;
+    // Golpes secos de la moto contra el piso que la harían girar más (hard_landing_spin): qué parte del giro le dan
+    // (la inercia de giro se divide por esto en ese contacto). 1 = cuerpo rígido, como siempre (no se toca nada).
+    void SetHardLandingSpin(float s);
 
     JPH::PhysicsSystem& System() { return *system; }
     JPH::BodyInterface& Bodies() { return system->GetBodyInterfaceNoLock(); }

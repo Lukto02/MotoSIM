@@ -130,6 +130,7 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | reaparecer donde quedó (mapas libres) | `--map sandbox/medanos --test crashloop --respawn-here --telemetry`: cada `REAPARECE` dice dónde, a cuántos m de donde quedó el piloto, con qué pendiente y a cuánto de la guía |
 | la pista al revés desde S | `--spawn S --test subidaN` (N km/h, recto: p. ej. subir la escadaria con `--spawn 90`) |
 | cuerpo en el aire | `--flat --drop 3 --test airrot` (atrás a fondo) o `airlean` (adelante y atrás cada 0.6 s) |
+| caer de cola o de trompa desde H m | `--flat --drop H --test teclas:v0.1,4` (la flecha abajo 0.1 s en el aire: toca a ~25-35° de cola; `v0.05` ~10°, `v0.2` ~53°, `^0.1` de trompa ~-30°), con `--telemetry --telemetry-dt 0.001`: `vy`, `h`, `gnd`, `fN`/`rN` después de tocar (ver [FISICA.md](FISICA.md), "La Trial salía despedida al caer alto") |
 | frenada a fondo desde N km/h | `--map base/circuito --bike base/carrera --test frenadaN` y `python tools/frenada.py` |
 | frenar y doblar a la vez desde N km/h | desde `pruebas/`: `--map prueba/plaza_asfalto --bike base/carrera --test frenacurvaN[xS][dD][aA][n]` (S: cuánto manubrio, 1 = la D, < 0 la A; dD: la dirección empieza D s después de frenar, D < 0 antes, viniendo inclinada; aA: la suelta a los A s; n: sin freno; fF: frena con F en vez de a fondo, `x0f0.3` es una frenada suave derecha) y `python ../tools/frenacurva.py`. Como con teclado: `frenacurva150x0.6d-1.5a1.5` viene doblando y suelta para frenar, `frenacurva150x1d0.3a0.15` toca la D frenando |
 | manejar como con el teclado | `--test "teclas:W+150,D1.5,S-1"`: pasos separados por comas con las teclas apretadas (W A S D, `_` Espacio, `^` `v` flechas arriba y abajo, `<` `>` izquierda y derecha) y hasta cuándo (`N` s, `+N` hasta N km/h, `-N` hasta bajar a N). Pasa por las mismas rampas que el teclado (`Game::KeyboardInput`) con caja automática. Imprime una línea `TECLAS` por paso: km/h, s, metros, g, cuánto giró el camino y el rumbo (+ = a la derecha), cuánto se corrió de costado respecto de la recta en que venía, inclinación al empezar y al terminar, deriva máxima (arriba de 18 km/h), cabeceo mínimo y cola en el aire |
@@ -182,6 +183,9 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   partida en red) y `--menu no` (corriendo, como "Jugar solo": el HUD con la ayuda de teclas del principio).
 - El panel de datos técnicos (velocidad, rpm, suspensión, agarre...) ya no está siempre: `--datos` lo muestra (o
   T, o Ajustes). Las capturas con el bot o una prueba no llevan la ayuda de teclas (es para el jugador).
+- El minimapa y la línea de frenada tampoco salen con el bot o una prueba: `--minimapa norte|gira|no` y `--linea si|no|toda`
+  los fuerzan por esa vez (no se guardan). `--linea toda` dibuja la línea ideal de la vuelta entera, ancha y sin desvanecer, para
+  mirarla desde arriba: `--map base/circuito --linea toda --test idle --spawn 950 --view 0 89 30 --screenshot 2.5 f.png --time 2.7`.
 - **`--noprefs`** ni lee ni escribe `preferencias.ini` (las capturas no dependen del archivo de la carpeta ni lo pisan) y
   **`--gfx bajo|medio|alto|ultra`** aplica ese preset de calidad encima de lo leído (`Renderer::ApplyPreset`: sólo calidad; el
   estilo y la física del suelo quedan) y **no guarda nada** mientras dura la corrida. Sin ninguno de los dos, sin archivo, el
@@ -289,6 +293,16 @@ una rama sin mergear. Para que no vuelva a pasar:
 - El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.3.8 (04/10/2026): minimapa, línea ideal, HUD nuevo, derrape inclinado y la Trial sin rebote
+
+`dist/v0.3.8/MotoSim-v0.3.8.zip` (27 archivos, 10.0 MB). Protocolo 7: juega con la v0.3.4 a la v0.3.7 y la v0.2.5 a la v0.2.8.
+MSVC con runtime estático (sólo DLLs de Windows). Verificado desde la carpeta del paquete: `bikestats` sin errores,
+`soilcheck` 0 fallos en los tres, bots (motocross 450 1:04.26 / 1:04.10, la Trial en la motocross 1:04.54 / 1:04.37, favela
+1:37.39 / 1:37.55, circuito con la de carreras 2:11.41 / 2:09.73, park 0:50.93 / 0:50.89; sin caídas), en red contra la
+v0.3.7 en los dos sentidos, y una captura con ventana (`--bot --minimapa norte --linea si`) con la vuelta arriba a la
+izquierda, el minimapa arriba a la derecha y la línea verde en el suelo. Detalle en MENU.md / RENDER.md (minimapa,
+línea), FISICA.md ("Freno de mano", "La Trial salía despedida al caer alto").
 
 ### v0.3.7 (04/10/2026): cámara con el stick derecho, freno de mano y cuerpo de costado sólo en la de carreras
 

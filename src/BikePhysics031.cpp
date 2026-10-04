@@ -215,7 +215,9 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     // vez de pivotar sobre la delantera por el contacto desplazado del centro de masa.
     leanTarget *= 1.0f - P->brakeStandUp * in.frontBrake * mu::Smoothstep(3.0f, 8.0f, v);
     // Freno de mano: con la trasera derrapando el piloto lleva la moto más derecha (como slide_upright en BikePhysics.cpp).
+    // Con handbrake_lean, en cambio, la sostiene inclinada hacia la curva mientras colea (BikePhysics.cpp).
     if (handbrake > 0.0f) leanTarget *= 1.0f - P->slideUpright * handbrake;
+    if (P->handbrakeLean > 0.0f && (hbW > 0.0f || hbCatching > 0.0f)) leanTarget = HandbrakeLean(leanTarget);
     const float kLean = kG * std::tan(mu::Clamp(roll, -1.2f, 1.2f)) / std::max(v2, 1.0f);
     const float kSteer = mu::Lerp(kCmd, kLean, mu::Smoothstep(P->leanSteerSpeedLow, P->leanSteerSpeedHigh, v));
     const float wheelbase = (wheels[FRONT].AxleLocal() - wheels[REAR].AxleLocal()).Length();
@@ -223,9 +225,9 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     // En el aire el manubrio vuelve al centro: aterrizar con la rueda girada es un trompo seguro.
     float steerTarget = wasInAir ? 0.0f : mu::Clamp(std::atan(wheelbase * kSteer), -maxSteer, maxSteer);
     float steerRate = P->steerRate;
-    if (handbrake > 0.0f && !wasInAir) {         // freno de mano: la delantera sigue su camino (BikePhysics.cpp)
+    if (hbW > 0.0f && !wasInAir) {               // freno de mano: la delantera sigue su camino (BikePhysics.cpp)
         steerTarget = HandbrakeSteer(steerTarget, linVel, angVel.GetY(), rot * wheels[FRONT].AxleLocal(), fwdFlat, mu::Rad(P->maxSteerDeg));
-        steerRate += 6.0f * handbrake;
+        steerRate += 6.0f * hbW;
     }
     steerBase = mu::MoveTowards(steerBase, steerTarget, steerRate * dt);
 
@@ -241,7 +243,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         const float excess = mu::Sign(rearSlip) * std::max(0.0f, std::fabs(rearSlip) - mu::Rad(P->casterDeadzoneDeg));
         casterTarget = mu::Clamp(excess * P->casterAlign, -mu::Rad(30.0f), mu::Rad(30.0f)) * mu::Smoothstep(1.5f, 4.0f, v);
         // Freno de mano: el piloto deja salir la cola en vez de contravolantear (ver UpdateHandbrake).
-        if (handbrake > 0.0f) casterTarget *= 1.0f - handbrake;
+        if (hbW > 0.0f) casterTarget *= 1.0f - hbW;
     }
     steerCaster = mu::MoveTowards(steerCaster, casterTarget, 10.0f * dt);
     const float steerStop = mu::Rad(std::max(35.0f, P->maxSteerDeg));   // topes de dirección

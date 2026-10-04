@@ -73,6 +73,8 @@ struct GameOptions {
     bool noPrefs = false;            // --noprefs: no lee ni escribe preferencias.ini (las capturas no dependen de la PC)
     std::string pad;                 // --pad "T:RX,RY[,CRUZ];...": joystick simulado (stick derecho y cruz) para probar la cámara
     std::string stickMode;           // --stick camara|cuerpo: el ajuste "Stick derecho" por esa vez (no se guarda)
+    std::string miniMap;             // --minimapa norte|gira|no: el minimapa por esa vez (no se guarda; se ve también con el bot)
+    std::string brakeLine;           // --linea si|no: la línea de frenada por esa vez (no se guarda; se ve también con el bot)
 };
 
 class Game {
@@ -108,6 +110,7 @@ private:
     int CurrentMapIndex() const { return mods.FindMap(current.id); }
     void Respawn(float s);
     void RespawnNearest();
+    void RestartRace();              // volver a empezar: Retroceso / Back o "Reiniciar carrera" en el menú
     // Mapas libres (pista guía, FreeRide): el jugador reaparece donde quedó, en el suelo firme más cercano y
     // mirando para donde iba (la guía puede estar a 100 m). El bot y las pruebas siguen con RespawnNearest.
     void RespawnHere();
@@ -195,6 +198,30 @@ private:
     int shadowFarRevision = -1, shadowFarAge = 0;      // revisión del renderer con la que se dibujó; cuadros desde entonces
     void BuildTrackDressing();
     void DrawHUD();
+    // Minimapa (HUD, arriba del velocímetro) y línea de frenada (en el suelo de la pista), en Assists.cpp. Se ven
+    // manejando uno (no con el bot ni las pruebas, salvo --minimapa / --linea), y el minimapa respeta F2 y --nohud.
+    enum class MiniMapMode { North, Heading, Off };
+    MiniMapMode miniMapMode = MiniMapMode::North;  // lo de Ajustes (minimapa en preferencias.ini)
+    bool brakeLine = true;                         // lo de Ajustes (linea_frenada)
+    MiniMapMode MiniMapShown() const;              // el de este cuadro: con --minimapa, ése; sin jugador, apagado
+    static constexpr float kMiniMapSize = 196.0f;  // lado del minimapa (× la escala del HUD), arriba a la derecha
+    bool BrakeLineShown() const;
+    void BuildMiniMap();                           // al armar el mapa: relieve en una textura y el trazado en puntos
+    void UnloadMiniMap();
+    void DrawMiniMap(float ui);
+    void DrawBrakeLine();                          // dentro de BeginMode3D, después de lo opaco
+    Texture2D miniTex{};
+    std::vector<Vector2> miniTrack;                // (x, z) del trazado cada ~2 m (vacío en los mapas libres)
+    float miniCx = 0.0f, miniCz = 0.0f, miniExtent = 100.0f;   // lo que se encuadra entero con el norte arriba
+    float miniYaw = 0.0f;                          // rumbo suavizado (con el minimapa que gira)
+    bool miniYawSet = false;
+    int lineIndex = -1;                            // punto del trazado más cercano (la línea; no toca el del bot)
+    // Línea ideal (de carrera) de cada mapa con trazado: afuera-adentro-afuera dentro del ancho de la pista (K1999, en
+    // Assists.cpp). Por punto del trazado: corrimiento lateral desde el centro (m, sobre (-tz, tx), como `lat` en Terrain) y
+    // curvatura de la línea ideal (1/m). Vacíos en los mapas libres.
+    void BuildRacingLine();
+    float RacingSample(const std::vector<float>& a, float s) const;
+    std::vector<float> rlOffset, rlCurv;
 
     GameOptions opt;
     Tuning tuning;
