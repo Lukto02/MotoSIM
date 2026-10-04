@@ -27,6 +27,7 @@ using JPH::Vec3;
 
 void BikeParams::Register(Tuning& t)
 {
+    t.Add("original_031", &original031);
     t.Add("mass", &mass);
     t.Add("inertia_pitch", &inertiaPitch);
     t.Add("inertia_yaw", &inertiaYaw);
@@ -138,6 +139,8 @@ void BikeParams::Register(Tuning& t)
     t.Add("air_max_roll_rate", &airMaxRollRate);
     t.Add("air_roll_rate_damping", &airRollRateDamping);
     t.Add("wheelie_start_deg", &wheelieStartDeg);
+    t.Add("wheelie_prediction", &wheeliePrediction);
+    t.Add("wheelie_throttle_floor", &wheelieThrottleFloor);
     t.Add("wheelie_end_deg", &wheelieEndDeg);
     t.Add("wheelie_assist_torque", &wheelieAssistTorque);
     t.Add("wheelie_lean_back_deg", &wheelieLeanBackDeg);
@@ -214,9 +217,11 @@ void Bike::BuildShapes()
         // (PhysicsWorld), y saca chispas (Game). Es un bloque que ocupa guardabarros y parrilla, no más
         // fino que el chasis: Jolt usa la parte más fina de la forma para decidir cuándo barre los choques
         // a alta velocidad, y así eso no cambia.
+        if (P->original031 < 0.5f) {
         JPH::BoxShape* tail = new JPH::BoxShape(Vec3(0.12f, 0.12f, 0.12f), 0.02f);
         tail->SetUserData(kTailSkidTag);
         compound.AddShape(Vec3(0.0f, 0.04f, -0.90f), Quat::sIdentity(), tail);
+        }
         JPH::ShapeRefC shape = compound.Create().Get();
         // El centro de masa queda en el origen del espacio local de la moto (lo controlamos nosotros).
         return JPH::OffsetCenterOfMassShapeSettings(-shape->GetCenterOfMass(), shape).Create().Get();
@@ -397,6 +402,7 @@ void Bike::Draw(Renderer& r, float alpha, bool drawRider, int livery) const
 
 RiderPose Bike::RiderPoseLocal() const
 {
+    if (P->original031 >= 0.5f) return RiderPoseLocal031();
     const Wheel& fw = wheels[FRONT];
     const Vec3 forkUp = -fw.axisLocal;
     const Vec3 steerHead = fw.mountLocal + forkUp * 0.53f;
@@ -500,4 +506,57 @@ void Bike::DrawDebug(float alpha) const
     DrawSphere(ToRl(currPos), 0.035f, WHITE);                  // COM físico
     DrawSphere(ToRl(currPos + comShiftWorld), 0.05f, ORANGE);  // COM efectivo (piloto + offsets)
     DrawLine3D(ToRl(currPos), ToRl(currPos + body->GetLinearVelocity() * 0.2f), WHITE);
+}
+
+// Pose original: pata afuera, whip y cuerpo adelante/atrás.
+RiderPose Bike::RiderPoseLocal031() const
+{
+    const Wheel& fw = wheels[FRONT];
+    const Vec3 forkUp = -fw.axisLocal;
+    const Vec3 steerHead = fw.mountLocal + forkUp * 0.53f;
+    const Mat44 steerOnly = Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -steerAngle)) * Mat44::sTranslation(-steerHead);
+    const Vec3 barCenter = steerHead + Vec3(0.0f, 0.14f, -0.06f);
+
+    const float lean = riderLean;
+    RiderPose p;
+    p.lean = lean;
+    p.throttle = gripThrottle;
+    p.hips = Vec3(0.0f, 0.30f - 0.07f * std::max(0.0f, -lean), -0.30f + 0.22f * lean);
+    p.shoulders = Vec3(0.0f, 0.68f - 0.06f * std::max(0.0f, lean), -0.04f + 0.30f * lean);
+    // Pata afuera: sentado en la punta del asiento, el torso un poco hacia afuera de la curva (la moto
+    // se inclina más que el piloto) y la pierna de adentro estirada hacia el eje delantero, con la
+    // punta de la bota para arriba para que no se enganche. La de afuera carga la estribera.
+    const float out = mu::Smoothstep(0.0f, 1.0f, std::fabs(legOut));
+    const float inSide = legOut > 0.0f ? -1.0f : 1.0f;             // lado (+X = izquierda) de la pierna que sale
+    p.hips += Vec3(-0.03f * inSide, -0.01f, 0.19f) * out;
+    p.shoulders += Vec3(-0.07f * inSide, -0.02f, 0.08f) * out;
+    // Whip: el cuerpo corrido de costado respecto de la moto, que se acuesta debajo del piloto: la
+    // cadera se va para un lado y el torso queda más derecho que la moto.
+    const float tiltX = -std::sin(bodyTilt);                        // +X = izquierda
+    p.hips += Vec3(0.40f * tiltX, -0.03f * std::fabs(tiltX), 0.0f);
+    p.shoulders += Vec3(0.62f * tiltX, -0.04f * std::fabs(tiltX), 0.0f);
+    p.head = p.shoulders + Vec3(0.0f, 0.18f, 0.09f);   // el casco casi apoyado en el collarín
+    for (int i = 0; i < 2; ++i) {
+        const float side = i == 0 ? 1.0f : -1.0f;       // +X = izquierda
+        const Vec3 peg(0.17f * side, -0.40f, -0.10f);
+        const float a = side == inSide ? out : 0.0f;
+        p.hip[i] = p.hips + Vec3(0.10f * side, 0, 0);
+        p.knee[i] = Vec3(0.19f * side + 0.2f * tiltX, -0.02f, 0.06f + 0.08f * lean + 0.10f * (out - a));
+        p.ankle[i] = peg + Vec3(0, 0.06f, 0);
+        p.foot[i] = peg + Vec3(0, 0.02f, 0.04f);
+        p.legOut[i] = a;
+        if (a > 0.0f) {
+            // Sale por afuera de los plásticos (arco) hasta quedar al costado de la rueda delantera.
+            const Vec3 ankleOut(0.34f * side, -0.28f, 0.64f);
+            p.ankle[i] = p.ankle[i] + (ankleOut - p.ankle[i]) * a + Vec3(0.07f * side, 0.04f, 0.0f) * std::sin(mu::kPi * a);
+            p.foot[i] = p.ankle[i] + Vec3(0.0f, -0.04f + 0.07f * a, 0.04f + 0.03f * a);
+            // Rodilla apenas doblada y hacia arriba (nunca recta del todo: el ragdoll arma la bisagra con ella).
+            const Vec3 bent = (p.hip[i] + p.ankle[i]) * 0.5f + Vec3(0.05f * side, 0.07f, 0.02f);
+            p.knee[i] = p.knee[i] + (bent - p.knee[i]) * a;
+        }
+        p.grip[i] = steerOnly * (barCenter + Vec3(0.345f * side, 0.0056f, -0.006f));   // centro del puño (el manubrio sube hacia las puntas)
+        p.shoulder[i] = p.shoulders + Vec3(0.19f * side, -0.03f, 0);
+        p.elbow[i] = (p.shoulder[i] + p.grip[i]) * 0.5f + Vec3(0.12f * side, -0.05f, -0.06f);
+    }
+    return p;
 }

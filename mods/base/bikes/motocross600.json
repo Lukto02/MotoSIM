@@ -1,0 +1,6 @@
+{
+  "name": "Motocross 600",
+  "style": "mx600",
+  "description": "La geometría de la 450 con más motor y acelerador más directo en wheelie.",
+  "tuning": "motocross600.ini"
+}

@@ -2,21 +2,17 @@
 
 #include "RiderModel.h"
 
-#include "BikeStyleDef.h"
 #include "MathUtil.h"
 #include "raymath.h"
-#include "rlgl.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <map>
-#include <tuple>
 
 namespace {
 
 // Ajustes de la pose del modelo sobre la moto (sus proporciones no son las del piloto generado).
-constexpr float kHipsDrop = 0.05f;       // m que baja la cadera: rodillas más dobladas (después PoseOnBike la sube hasta el asiento)
+constexpr float kHipsDrop = 0.05f;       // m que baja la cadera: rodillas más dobladas (posición de ataque)
 constexpr float kExtraLean = 0.1f;       // rad extra de torso hacia adelante respecto de la pose
 constexpr float kForwardLean = 0.35f;    // rad más tirado adelante: pecho sobre el manubrio...
 constexpr float kForwardHipsBack = 0.08f;// ...con la cola en el asiento y no sobre el tanque
@@ -25,22 +21,6 @@ constexpr float kMaxReach = 0.97f;       // brazo como mucho al 97%: nunca del t
 constexpr float kMaxExtraPitch = 0.45f;  // rad que puede sumar el torso para llegar al manubrio...
 constexpr float kMaxHipShift = 0.3f;     // ...y después m que se acerca la cadera
 constexpr float kThrottleRoll = 0.45f;   // rad que gira la mano derecha sobre el puño con el gas a fondo
-constexpr float kShoulderTurn = 0.6f;    // cuánto del giro del manubrio toman los hombros...
-constexpr float kMaxShoulderTurn = 0.5f; // ...hasta estos rad
-// Para no meterse en la moto (PoseOnBike):
-constexpr float kSeatSink = 0.015f;      // m que se hunden cola y muslos en el asiento (la espuma)
-constexpr float kMaxLift = 0.25f;        // m que puede subir la cadera (la de carreras tiene el asiento a 21 cm y la cadera de la pose a 26)
-constexpr float kSideTolerance = 0.005f; // m que se pueden meter de costado rodillas, canillas y botas
-constexpr float kMaxAnkleOut = 0.06f;    // m que se puede correr el tobillo hacia afuera en la estribera...
-constexpr float kMaxLegOutWiden = 0.15f; // ...y más, con la pata afuera
-constexpr float kMaxKneeOpen = 0.8f;     // rad que se puede abrir la rodilla
-constexpr float kBarRadius = 0.035f;     // m: el manubrio con la almohadilla, para el pecho, el casco y los brazos
-constexpr float kBarTolerance = 0.005f;
-constexpr float kMaxBackPitch = 0.6f;    // rad que se puede enderezar el torso para no atravesar el manubrio...
-constexpr float kReachLimit = 0.99f;     // ...sin que los brazos dejen de llegar
-constexpr float kLiftReach = 1.02f;      // la cadera baja si el brazo más exigido no llega ni al 102% (la mano, a ~1 cm del puño)
-constexpr float kShapeCell = 0.01f;      // m: celdas de la forma de la moto
-constexpr float kNothing = -10.0f;       // techo de una celda sin moto
 
 Vector3 V(JPH::Vec3 v) { return {v.GetX(), v.GetY(), v.GetZ()}; }
 Quaternion Q(JPH::Quat q) { return {q.GetX(), q.GetY(), q.GetZ(), q.GetW()}; }
@@ -66,24 +46,6 @@ void TwoBoneIK(Vector3 a, Vector3 target, float l1, float l2, Vector3 pole, Vect
     tip = Vector3Add(a, Vector3Scale(dir, dist));
 }
 
-// Dónde va la rodilla de la IK de dos huesos de `a` a `target` (como TwoBoneIK, del lado de `pole`) girada
-// `open` rad hacia afuera (`side`: +1 = +X) alrededor de la recta a-target. Sirve de polo para TwoBoneIK.
-Vector3 OpenJoint(Vector3 a, Vector3 target, float l1, float l2, Vector3 pole, float side, float open)
-{
-    const Vector3 d = Vector3Subtract(target, a);
-    const float dist = mu::Clamp(Vector3Length(d), std::fabs(l1 - l2) + 1e-3f, (l1 + l2) * 0.999f);
-    const Vector3 n = Vector3Normalize(d);
-    const float along = (l1 * l1 - l2 * l2 + dist * dist) / (2.0f * dist);
-    const float h = std::sqrt(std::max(0.0f, l1 * l1 - along * along));
-    const Vector3 c = Vector3Add(a, Vector3Scale(n, along));
-    Vector3 e1 = Vector3Subtract(pole, a);
-    e1 = Vector3Subtract(e1, Vector3Scale(n, Vector3DotProduct(e1, n)));
-    e1 = Vector3Length(e1) > 1e-4f ? Vector3Normalize(e1) : Vector3Perpendicular(n);
-    Vector3 e2 = Vector3CrossProduct(n, e1);
-    if (e2.x * side < 0.0f) e2 = Vector3Negate(e2);
-    return Vector3Add(c, Vector3Add(Vector3Scale(e1, h * std::cos(open)), Vector3Scale(e2, h * std::sin(open))));
-}
-
 } // namespace
 
 int RiderModel::Bone(const char* name) const
@@ -97,7 +59,6 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
 {
     for (const std::string& path : paths) {
         if (!FileExists(path.c_str())) continue;
-        polishedSuit = std::string(GetFileName(path.c_str())) == "Low_Poly_Motorcyclist_3_rigged.gltf";
         model = LoadModel(path.c_str());
         break;
     }
@@ -163,158 +124,11 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
         bindNormals[v] = m.normals ? Vector3Normalize({m.normals[v * 3], m.normals[v * 3 + 1], m.normals[v * 3 + 2]}) : Vector3{0.0f, 1.0f, 0.0f};
     }
 
-    polishedSuit = polishedSuit && m.indices && m.texcoords && spineChain[1] >= 0 && spineChain[2] >= 0;
-    if (polishedSuit) {
-        // El modelo 3 trae un aro hundido/saliente en la espalda (x ~ 0, y ~ 1.19).
-        // Lo ajustamos en reposo al perfil de la campera ANTES del skinning: UV, pesos y rig siguen vivos.
-        std::vector<float> backMask(m.vertexCount, 0.0f);
-        if (!m.colors) m.colors = (unsigned char*)MemAlloc(m.vertexCount * 4);
-        // El aro tiene caras que se solapan al aplanarlo: se reemplaza por un abanico
-        // que cierra su contorno original, en vez de comprimir esas caras unas contra otras.
-        using PositionKey = std::tuple<long long, long long, long long>;
-        auto originalKey = [&](int v) -> PositionKey {
-            const Vector3 p = bindVerts[v];
-            return {std::llround(p.x*1e5), std::llround(p.y*1e5), std::llround(p.z*1e5)};
-        };
-        struct Edge { int a = 0, b = 0, count = 0; };
-        std::map<std::pair<PositionKey, PositionKey>, Edge> edges;
-        std::vector<unsigned short> keep;
-        std::vector<int> removedUse(m.vertexCount, 0), keptUse(m.vertexCount, 0);
-        auto inPatch = [&](int v) {
-            const Vector3 p = bindVerts[v];
-            return std::fabs(p.x - 0.0046f) < 0.085f && p.y > 1.115f && p.y < 1.27f && p.z < -0.1f;
-        };
-        for (int t = 0; t < m.triangleCount; ++t) {
-            const int a = m.indices[3*t], b = m.indices[3*t+1], c = m.indices[3*t+2];
-            if (inPatch(a) && inPatch(b) && inPatch(c)) {
-                const int ids[] = {a, b, c};
-                for (int j = 0; j < 3; ++j) {
-                    const int v = ids[j], w = ids[(j+1)%3];
-                    ++removedUse[v];
-                    auto kv = originalKey(v), kw = originalKey(w);
-                    if (kw < kv) std::swap(kv, kw);
-                    Edge& e = edges[{kv, kw}];
-                    e.a = v; e.b = w; ++e.count;
-                }
-            } else {
-                for (int v : {a, b, c}) { keep.push_back((unsigned short)v); ++keptUse[v]; }
-            }
-        }
-        int center = -1, boundaryCount = 0;
-        Vector3 centerPos{};
-        Vector2 centerUV{};
-        std::map<int, float> weights;
-        for (int v = 0; v < m.vertexCount; ++v)
-            if (removedUse[v] && !keptUse[v]) { center = v; break; }
-        for (const auto& entry : edges) {
-            const Edge& e = entry.second;
-            if (e.count != 1) continue;
-            ++boundaryCount;
-            centerPos = Vector3Add(centerPos, bindVerts[e.a]);
-            centerUV = Vector2Add(centerUV, {m.texcoords[e.a*2], m.texcoords[e.a*2+1]});
-            for (int k = 0; k < 4; ++k) weights[m.boneIds[e.a*4+k]] += m.boneWeights[e.a*4+k];
-        }
-        if (center >= 0 && boundaryCount == 10 && keep.size() + boundaryCount*3 <= (size_t)m.triangleCount*3) {
-            bindVerts[center] = Vector3Scale(centerPos, 1.0f / boundaryCount);
-            centerUV = Vector2Scale(centerUV, 1.0f / boundaryCount);
-            m.texcoords[center*2] = centerUV.x; m.texcoords[center*2+1] = centerUV.y;
-            std::vector<std::pair<float, int>> sortedWeights;
-            for (auto w : weights) sortedWeights.push_back({w.second, w.first});
-            std::sort(sortedWeights.rbegin(), sortedWeights.rend());
-            float total = 0.0f;
-            for (int k = 0; k < 4 && k < (int)sortedWeights.size(); ++k) total += sortedWeights[k].first;
-            for (int k = 0; k < 4; ++k) {
-                m.boneIds[center*4+k] = k < (int)sortedWeights.size() ? sortedWeights[k].second : 0;
-                m.boneWeights[center*4+k] = k < (int)sortedWeights.size() ? sortedWeights[k].first / total : 0.0f;
-            }
-            backMask[center] = 1.0f;
-            for (const auto& entry : edges) {
-                const Edge& e = entry.second;
-                if (e.count != 1) continue;
-                keep.insert(keep.end(), {(unsigned short)e.a, (unsigned short)e.b, (unsigned short)center});
-                // Incluye las copias en costuras, así no quedan cortes en la iluminación.
-                for (int v = 0; v < m.vertexCount; ++v)
-                    if (originalKey(v) == originalKey(e.a) || originalKey(v) == originalKey(e.b)) backMask[v] = 1.0f;
-            }
-            m.triangleCount = (int)keep.size() / 3;
-            std::memcpy(m.indices, keep.data(), keep.size() * sizeof(unsigned short));
-            UpdateMeshBuffer(m, 6, m.indices, (int)keep.size() * (int)sizeof(unsigned short), 0);
-            UpdateMeshBuffer(m, 1, m.texcoords, m.vertexCount * 2 * (int)sizeof(float), 0);
-        }
-        for (int v = 0; v < m.vertexCount; ++v) {
-            Vector3& p = bindVerts[v];
-            const float x = p.x - 0.0046f, y = p.y - 1.19f;
-            const float fitRadius = std::sqrt(x*x / (0.15f*0.15f) + y*y / (0.16f*0.16f));
-            const float fit = p.z < -0.095f ? 1.0f - mu::Smoothstep(0.65f, 1.0f, fitRadius) : 0.0f;
-            if (fit > 0.0f) {
-                p.z += (-0.1334f - 0.26f*y + 0.65f*x*x - p.z) * fit;
-                backMask[v] = std::max(backMask[v], fit);
-                // La espalda central seguía también a los brazos: al agarrar el manubrio
-                // reaparecía el bulto. Transición suave a las dos vértebras de esa altura.
-                int low = spineChain[0], high = spineChain[1];
-                if (p.y >= bindPos[high].y) { low = high; high = spineChain[2]; }
-                const float u = mu::Clamp((p.y - bindPos[low].y) / (bindPos[high].y - bindPos[low].y), 0.0f, 1.0f);
-                std::map<int, float> blend;
-                for (int k = 0; k < 4; ++k) blend[m.boneIds[v*4+k]] += m.boneWeights[v*4+k] * (1.0f-fit);
-                blend[low] += (1.0f-u)*fit;
-                blend[high] += u*fit;
-                std::vector<std::pair<float, int>> sorted;
-                for (auto w : blend) sorted.push_back({w.second, w.first});
-                std::sort(sorted.rbegin(), sorted.rend());
-                float total = 0.0f;
-                for (int k = 0; k < 4 && k < (int)sorted.size(); ++k) total += sorted[k].first;
-                for (int k = 0; k < 4; ++k) {
-                    m.boneIds[v*4+k] = k < (int)sorted.size() ? sorted[k].second : 0;
-                    m.boneWeights[v*4+k] = k < (int)sorted.size() ? sorted[k].first / total : 0.0f;
-                }
-            }
-            const float radius = std::sqrt(x*x / (0.115f*0.115f) + y*y / (0.115f*0.115f));
-            const float paint = p.z < -0.095f ? 1.0f - mu::Smoothstep(0.72f, 1.0f, radius) : 0.0f;
-            // Coordenadas de reposo: paneles continuos que siguen al rig, sin clasificar
-            // las manchas ni la iluminación pintada del atlas como si fueran tela negra.
-            m.colors[4*v] = (unsigned char)std::lround(mu::Clamp(0.5f+p.x*0.5f,0.0f,1.0f)*255);
-            m.colors[4*v+1] = (unsigned char)std::lround(mu::Clamp(p.y*0.5f,0.0f,1.0f)*255);
-            m.colors[4*v+2] = (unsigned char)std::lround(mu::Clamp(0.5f+p.z*0.5f,0.0f,1.0f)*255);
-            m.colors[4*v+3] = (unsigned char)std::lround(255.0f * std::max(paint, backMask[v]));
-        }
-        // Normales por área, soldadas por posición en las costuras de UV. Sólo cambia la zona retocada.
-        using Key = std::tuple<long long, long long, long long>;
-        auto key = [&](int v) -> Key {
-            const Vector3 p = bindVerts[v];
-            return {std::llround(p.x*1e5), std::llround(p.y*1e5), std::llround(p.z*1e5)};
-        };
-        std::map<Key, Vector3> normals;
-        for (int t = 0; t < m.triangleCount; ++t) {
-            int ids[3];
-            for (int j = 0; j < 3; ++j) ids[j] = m.indices ? m.indices[3*t+j] : 3*t+j;
-            const Vector3 face = Vector3CrossProduct(Vector3Subtract(bindVerts[ids[1]], bindVerts[ids[0]]),
-                                                     Vector3Subtract(bindVerts[ids[2]], bindVerts[ids[0]]));
-            for (int v : ids) normals[key(v)] = Vector3Add(normals[key(v)], face);
-        }
-        for (int v = 0; v < m.vertexCount; ++v) {
-            if (backMask[v] <= 0.0f && bindVerts[v].y > 1.43f) continue;
-            Vector3 normal = normals[key(v)];
-            if (Vector3Length(normal) > 1e-8f)
-                bindNormals[v] = Vector3Normalize(normal);
-        }
-        if (m.vboId[3]) UpdateMeshBuffer(m, 3, m.colors, m.vertexCount * 4, 0);
-        else {
-            rlEnableVertexArray(m.vaoId);
-            m.vboId[3] = rlLoadVertexBuffer(m.colors, m.vertexCount * 4, false);
-            rlSetVertexAttribute(3, 4, RL_UNSIGNED_BYTE, true, 0, 0);
-            rlEnableVertexAttribute(3);
-            rlDisableVertexArray();
-            rlDisableVertexBuffer();
-        }
-        TraceLog(LOG_INFO, "piloto: espalda sin aro (%d bordes), material de traje mate", boundaryCount);
-    }
-
     // Parte del ragdoll de cada hueso (los que no están en la lista siguen a su padre).
     partOf.assign(n, -1);
     auto assign = [&](int b, int part) { if (b >= 0) partOf[b] = part; };
     assign(hips, RiderPart::Pelvis);
     assign(spine, RiderPart::Torso);
-    assign(neck, RiderPart::Head);           // el cuello va con la cabeza: el ragdoll la articula en su base
     assign(head, RiderPart::Head);
     for (int i = 0; i < 2; ++i) {
         assign(arm[i], RiderPart::UpperArm + i);
@@ -328,210 +142,20 @@ bool RiderModel::Load(const std::vector<std::string>& paths)
     texture = model.materials[model.meshMaterial[0]].maps[MATERIAL_MAP_DIFFUSE].texture;
     GenTextureMipmaps(&texture);
     SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
-    SetTextureFilter(texture, TEXTURE_FILTER_ANISOTROPIC_8X);
-    model.materials[model.meshMaterial[0]].maps[MATERIAL_MAP_DIFFUSE].texture = texture;
 
-    // Pesos propios (si la mano es un solo hueso, se les suman los dedos virtuales).
+    // Pesos propios (se les suman los dedos virtuales).
     realBones = n;
     skinBone.assign(m.boneIds, m.boneIds + m.vertexCount * 4);
     skinWeight.assign(m.boneWeights, m.boneWeights + m.vertexCount * 4);
     curlAngle.assign(n, 0.0f);
     curlAxis.assign(n, Vector3{0.0f, 0.0f, 0.0f});
-    fingerBones.clear();
-    // Dedos del modelo, si trae todos (tres falanges y la punta de cada uno, pulgar incluido).
-    const char* fingerNames[5] = {"Thumb", "Index", "Middle", "Ring", "Pinky"};
-    for (int i = 0; i < 2; ++i) {
-        modelFingers[i] = true;
-        for (int f = 0; f < 5; ++f)
-            for (int j = 0; j < 4; ++j) {
-                fingerBone[i][f][j] = Bone((std::string(sides[i]) + "Hand" + fingerNames[f] + std::to_string(j + 1)).c_str());
-                if (fingerBone[i][f][j] < 0) modelFingers[i] = false;
-            }
-    }
-    for (int i = 0; i < 2; ++i) {
-        if (modelFingers[i]) BuildGripFingers(i);
-        else BuildGrip(i);
-    }
-
-    // Vértices de prueba para no meterse en la moto, por el hueso que más pesa en cada uno (uno por posición:
-    // las costuras repiten vértices). Las manos no: agarran el manubrio.
-    for (std::vector<int>& g : probe) g.clear();
-    std::map<std::tuple<long long, long long, long long>, int> seen;
-    for (int v = 0; v < m.vertexCount; ++v) {
-        const Vector3 q = bindVerts[v];
-        if (!seen.emplace(std::make_tuple(std::llround(q.x * 1e5), std::llround(q.y * 1e5), std::llround(q.z * 1e5)), v).second) continue;
-        int best = -1;
-        float bw = 0.0f;
-        for (int k = 0; k < 4; ++k)
-            if (skinWeight[v * 4 + k] > bw) {
-                bw = skinWeight[v * 4 + k];
-                best = skinBone[v * 4 + k];
-            }
-        for (int b = best; b >= 0 && b < n; b = parent[b]) {
-            int found = -1;
-            for (int i = 0; i < 2; ++i) {
-                if (b == hand[i]) found = ProbeCount;                        // afuera
-                else if (b == foot[i] || b == toe[i]) found = ProbeFoot + i;
-                else if (b == leg[i]) {
-                    // Canilla: en la del costado; cerca del tobillo también con la bota.
-                    const Vector3 k0 = bindPos[leg[i]], k1 = bindPos[foot[i]], d = Vector3Subtract(k1, k0);
-                    if (Vector3DotProduct(Vector3Subtract(q, k0), d) / Vector3DotProduct(d, d) > 0.65f) probe[ProbeFoot + i].push_back(v);
-                    found = ProbeLeg + i;
-                } else if (b == upLeg[i]) {
-                    // Muslo: en la pierna; la mitad de arriba (la que apoya en el asiento), también en el asiento.
-                    const Vector3 h0 = bindPos[upLeg[i]], h1 = bindPos[leg[i]], d = Vector3Subtract(h1, h0);
-                    const float u = Vector3DotProduct(Vector3Subtract(q, h0), d) / Vector3DotProduct(d, d);
-                    if (u < 0.5f) probe[ProbeSeat].push_back(v);
-                    probe[ProbeDrape].push_back(v);
-                    found = ProbeLeg + i;
-                } else if (b == arm[i]) found = ProbeChest;
-                else if (b == foreArm[i]) found = ProbeForearm;
-            }
-            if (found < 0 && (b == neck || b == head || b == spineChain[0] || b == spineChain[1] || b == spineChain[2])) found = ProbeChest;
-            if (found < 0 && b == hips) {
-                probe[ProbeDrape].push_back(v);
-                found = ProbeSeat;
-            }
-            if (found < 0) continue;
-            if (found < ProbeCount) probe[found].push_back(v);
-            break;
-        }
-    }
-    TraceLog(LOG_INFO, "piloto: vértices de prueba: asiento %d, piernas %d/%d, botas %d/%d, pecho %d", (int)probe[ProbeSeat].size(),
-             (int)probe[ProbeLeg].size(), (int)probe[ProbeLeg + 1].size(), (int)probe[ProbeFoot].size(), (int)probe[ProbeFoot + 1].size(),
-             (int)probe[ProbeChest].size());
+    for (int i = 0; i < 2; ++i) BuildGrip(i);
 
     pos = bindPos;
     delta.assign(bindPos.size(), QuaternionIdentity());
-    shape = BikeShape{};
     loaded = true;
-    TraceLog(LOG_INFO, "piloto: modelo con %d huesos (+%d de dedos virtuales) y %d vértices%s", n, (int)bindPos.size() - n, m.vertexCount,
-             modelFingers[0] && modelFingers[1] ? ", con dedos propios" : "");
+    TraceLog(LOG_INFO, "piloto: modelo con %d huesos (+%d de dedos) y %d vértices", n, (int)bindPos.size() - n, m.vertexCount);
     return true;
-}
-
-// Dedos del modelo: la mano se mide con sus articulaciones (s a lo largo, de la muñeca al nudillo del
-// medio; t a lo ancho, hacia el pulgar; u hacia la palma) y cada falange gira lo justo para envolver
-// un puño del radio del manubrio apoyado en la base de los dedos, 2 cm antes de los nudillos (agarre de
-// fuerza, como con los dedos virtuales). El pulgar lo rodea del otro lado: cada hueso gira, para un
-// lado o para el otro, lo mínimo para que la articulación siguiente quede sobre la goma sin meterse.
-void RiderModel::BuildGripFingers(int side)
-{
-    constexpr float kBarRadius = 0.0175f;    // puño de goma del manubrio (BikeMeshes: Cockpit)
-    const Mesh& m = model.meshes[0];
-    const int(&fb)[5][4] = fingerBone[side];
-    const Vector3 W = bindPos[hand[side]];
-    auto at = [&](int f, int j) { return bindPos[fb[f][j]]; };
-    const Vector3 A = Vector3Normalize(Vector3Subtract(at(2, 0), W));             // hacia el nudillo del medio
-    Vector3 K = Vector3Subtract(at(1, 0), at(4, 0));                                // del meñique al índice
-    K = Vector3Normalize(Vector3Subtract(K, Vector3Scale(A, Vector3DotProduct(K, A))));
-    Vector3 P = Vector3CrossProduct(A, K);
-    // La palma, del lado del pulgar; si el pulgar no se aparta del plano de los nudillos, hacia el cuerpo.
-    const float thumbU = Vector3DotProduct(Vector3Subtract(at(0, 1), W), P);
-    if (std::fabs(thumbU) > 0.005f ? thumbU < 0.0f : P.x * W.x > 0.0f) P = Vector3Negate(P);
-    auto S = [&](Vector3 p) { return Vector3DotProduct(Vector3Subtract(p, W), A); };
-    auto T = [&](Vector3 p) { return Vector3DotProduct(Vector3Subtract(p, W), K); };
-    auto U = [&](Vector3 p) { return Vector3DotProduct(Vector3Subtract(p, W), P); };
-
-    // Grosor de un dedo: distancia media a su hueso de los vértices de la falange del medio.
-    auto radius = [&](int f) {
-        const int b = fb[f][1];
-        const Vector3 a = bindPos[b], d = Vector3Subtract(bindPos[fb[f][2]], a);
-        float sum = 0.0f;
-        int count = 0;
-        for (int v = 0; v < m.vertexCount; ++v) {
-            float w = 0.0f;
-            for (int k = 0; k < 4; ++k)
-                if (skinBone[v * 4 + k] == b) w += skinWeight[v * 4 + k];
-            if (w < 0.5f) continue;
-            const float u = mu::Clamp(Vector3DotProduct(Vector3Subtract(bindVerts[v], a), d) / std::max(Vector3DotProduct(d, d), 1e-8f), 0.0f, 1.0f);
-            sum += Vector3Distance(bindVerts[v], Vector3Add(a, Vector3Scale(d, u)));
-            ++count;
-        }
-        return count > 0 ? sum / (float)count : 0.01f;
-    };
-    float sK = 0.0f, tMid = 0.0f, uK = 0.0f, rFinger = 0.0f;
-    for (int f = 1; f < 5; ++f) {
-        sK += 0.25f * S(at(f, 0));
-        tMid += 0.25f * T(at(f, 0));
-        uK += 0.25f * U(at(f, 0));
-        rFinger += 0.25f * radius(f);
-    }
-    // El centro del puño: contra la base de los dedos (del lado de la palma) y 2 cm antes de los nudillos.
-    const Vector2 bar = {sK - 0.02f, uK + rFinger + kBarRadius};
-    const Vector3 axis = Vector3Normalize(Vector3CrossProduct(A, P));   // girar +: de "a lo largo" hacia la palma
-    auto rotate2 = [](Vector2 p, Vector2 c, float a) {                 // +a lleva +s hacia +u
-        const Vector2 d = Vector2Subtract(p, c);
-        return Vector2Add(c, {d.x * std::cos(a) - d.y * std::sin(a), d.x * std::sin(a) + d.y * std::cos(a)});
-    };
-    auto segDist = [](Vector2 c, Vector2 a, Vector2 b) {                // de c al segmento ab
-        const Vector2 d = Vector2Subtract(b, a);
-        const float k = mu::Clamp(Vector2DotProduct(Vector2Subtract(c, a), d) / std::max(Vector2DotProduct(d, d), 1e-8f), 0.0f, 1.0f);
-        return Vector2Distance(c, Vector2Add(a, Vector2Scale(d, k)));
-    };
-
-    float curls[5][3] = {};
-    for (int f = 1; f < 5; ++f) {
-        // Cada falange gira (hacia la palma) hasta que la articulación siguiente queda a la distancia del
-        // puño; un poco más en las dos últimas: aprieta la goma.
-        Vector2 J[4];
-        for (int j = 0; j < 4; ++j) J[j] = {S(at(f, j)), U(at(f, j))};
-        const float wrap = kBarRadius + radius(f);
-        for (int j = 0; j < 3; ++j) {
-            float best = 0.0f, bestDist = 1e9f;
-            for (int deg = 0; deg <= 110; ++deg) {
-                const float a = mu::Rad((float)deg);
-                const float dist = Vector2Distance(rotate2(J[j + 1], J[j], a), bar);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    best = a;
-                }
-                if (dist <= wrap) break;
-            }
-            curls[f][j] = best + (j > 0 ? mu::Rad(8.0f) : 0.0f);
-            for (int k = j + 1; k < 4; ++k) J[k] = rotate2(J[k], J[j], curls[f][j]);
-        }
-    }
-    {
-        Vector2 J[4];
-        for (int j = 0; j < 4; ++j) J[j] = {S(at(0, j)), U(at(0, j))};
-        const float wrap = kBarRadius + radius(0);
-        for (int j = 0; j < 3; ++j) {
-            float best = 0.0f, bestCost = 1e9f;
-            for (int deg = -80; deg <= 80; ++deg) {
-                const float a = mu::Rad((float)deg);
-                const Vector2 next = rotate2(J[j + 1], J[j], a);
-                float cost = std::fabs(Vector2Distance(next, bar) - wrap) + 0.004f * std::fabs(a);
-                const float inside = wrap - 0.002f - segDist(bar, J[j], next);
-                if (inside > 0.0f) cost += 4.0f * inside;
-                if (cost < bestCost) {
-                    bestCost = cost;
-                    best = a;
-                }
-            }
-            curls[0][j] = best;
-            for (int k = j + 1; k < 4; ++k) J[k] = rotate2(J[k], J[j], best);
-        }
-    }
-    for (int f = 0; f < 5; ++f)
-        for (int j = 0; j < 4; ++j) {
-            const int b = fb[f][j];
-            if (j < 3) {
-                curlAngle[b] = curls[f][j];
-                curlAxis[b] = axis;
-            }
-            fingerBones.push_back(b);
-        }
-
-    Grip& g = grip[side];
-    g.across = K;
-    g.along = A;
-    g.palm = P;
-    g.channel = Vector3Add(W, Vector3Add(Vector3Scale(A, bar.x), Vector3Add(Vector3Scale(K, tMid), Vector3Scale(P, bar.y))));
-    g.valid = true;
-    TraceLog(LOG_INFO, "piloto: mano %s con sus dedos (índice %.0f/%.0f/%.0f°, pulgar %.0f/%.0f/%.0f°, grosor %.1f cm)",
-             side == 0 ? "izquierda" : "derecha", mu::Deg(curls[1][0]), mu::Deg(curls[1][1]), mu::Deg(curls[1][2]), mu::Deg(curls[0][0]),
-             mu::Deg(curls[0][1]), mu::Deg(curls[0][2]), 100.0f * rFinger);
 }
 
 // Arma los dedos de una mano. Mide la mano en reposo en sus propios ejes (s a lo largo desde la
@@ -705,7 +329,6 @@ void RiderModel::BuildGrip(int side)
         order.push_back(b);
         curlAngle.push_back(curl);
         curlAxis.push_back(axis);
-        fingerBones.push_back(b);
         return b;
     };
     int finger[3];
@@ -769,7 +392,7 @@ Quaternion RiderModel::GripRotation(int side, Vector3 barInward, Vector3 forearm
 
 void RiderModel::CurlFingers()
 {
-    for (int b : fingerBones) {
+    for (int b = realBones; b < (int)bindPos.size(); ++b) {
         const int pa = parent[b];
         pos[b] = Vector3Add(pos[pa], Vector3RotateByQuaternion(Vector3Subtract(bindPos[b], bindPos[pa]), delta[pa]));
         delta[b] = QuaternionMultiply(QuaternionFromAxisAngle(Vector3RotateByQuaternion(curlAxis[b], delta[pa]), curlAngle[b] * gripAmount), delta[pa]);
@@ -785,351 +408,34 @@ void RiderModel::Unload()
 
 void RiderModel::PoseOnBike(const RiderPose& p)
 {
-    gripAmount = 1.0f;
-    throttleS += (p.throttle - throttleS) * (1.0f - std::exp(-14.0f * GetFrameTime()));
-    Fit fit;
-    float pitch = 0.0f, shift = 0.0f;
-    barA = V(p.grip[0]);
-    barB = V(p.grip[1]);
-    auto solve = [&]() { return lastReach = SolveBody(p, pitch, shift, fit); };
     // Las manos no se sueltan del manubrio: si con la inclinación de la pose no llegan (sobre todo con
     // el piloto tirado atrás), el torso se inclina más hacia adelante, lo justo para que lleguen.
     // Primero se inclina el torso (hasta un límite razonable); si todavía no llega, la cadera se acerca
     // al manubrio: tirado atrás queda la cola atrás y los brazos estirados, no acostado sobre el tanque.
-    auto reach = [&]() {
-        pitch = shift = 0.0f;
-        if (solve() <= kMaxReach) return;
-        auto search = [&](float hiValue, float& value) {    // el valor mínimo con el que las manos llegan
-            float lo = 0.0f, hi = hiValue;
-            for (int k = 0; k < 10; ++k) {
-                value = 0.5f * (lo + hi);
-                if (solve() > kMaxReach) lo = value;
-                else hi = value;
-            }
-            value = hi;
-            solve();
-        };
-        pitch = kMaxExtraPitch;
-        if (solve() <= kMaxReach) search(kMaxExtraPitch, pitch);
-        else search(kMaxHipShift, shift);
+    gripAmount = 1.0f;
+    throttleS += (p.throttle - throttleS) * (1.0f - std::exp(-14.0f * GetFrameTime()));
+    if (SolveBody(p, 0.0f, 0.0f) <= kMaxReach) return;
+    auto search = [&](float hiValue, auto solve) {          // el valor mínimo con el que las manos llegan
+        float lo = 0.0f, hi = hiValue;
+        for (int k = 0; k < 10; ++k) {
+            const float mid = 0.5f * (lo + hi);
+            if (solve(mid) > kMaxReach) lo = mid;
+            else hi = mid;
+        }
+        solve(hi);
     };
-    reach();
-    lastFit = fit;
-    if (shape.style < 0) return;             // todavía no se dibujó la moto: no se conoce su forma
-
-    // Sentado: la cola y los muslos apoyan en el asiento (se hunden hasta kSeatSink, la espuma), no adentro.
-    auto seat = [&](int group) {
-        const float before = fit.lift;
-        for (int k = 0; k < 4; ++k) {
-            const float d = SeatDepth(group);
-            if (d <= kSeatSink + 0.002f || fit.lift >= kMaxLift) break;
-            fit.lift = std::min(kMaxLift, fit.lift + d - kSeatSink);
-            solve();
-        }
-        return fit.lift > before;
-    };
-    // Cada pierna: el tobillo se corre sobre la estribera hasta que la bota no se mete en el motor, y la
-    // rodilla se abre hasta que muslo y canilla quedan afuera del tanque, los plásticos y el escape (la
-    // canilla de abajo gira con la rodilla: después se vuelve a mirar la bota). Con la pata afuera, si
-    // abriendo la rodilla no alcanza, el pie sale más (la de carreras tiene el carenado ancho).
-    auto legs = [&]() {
-        for (int i = 0; i < 2; ++i) {
-            const float most = kMaxAnkleOut + kMaxLegOutWiden * p.legOut[i];
-            auto foot = [&]() {
-                for (int k = 0; k < 3; ++k) {
-                    const float d = SideDepth(ProbeFoot + i);
-                    if (d <= kSideTolerance + 0.002f || fit.ankleOut[i] >= most) break;
-                    fit.ankleOut[i] = std::min(most, fit.ankleOut[i] + d - kSideTolerance);
-                    solve();
-                }
-            };
-            // La primera apertura (de a 0.1 rad desde la que tiene) que alcanza, afinada después; si ninguna
-            // alcanza, la que menos se mete. Devuelve cuánto se sigue metiendo.
-            auto knee = [&]() {
-                const float d0 = SideDepth(ProbeLeg + i);
-                if (d0 <= kSideTolerance) return d0;
-                const float start = fit.open[i];
-                float best = start, bestDepth = d0, found = -1.0f;
-                for (float o = start + 0.1f; o <= kMaxKneeOpen + 1e-4f; o += 0.1f) {
-                    fit.open[i] = o;
-                    solve();
-                    const float d = SideDepth(ProbeLeg + i);
-                    if (d < bestDepth) {
-                        bestDepth = d;
-                        best = o;
-                    }
-                    if (d <= kSideTolerance) {
-                        found = o;
-                        break;
-                    }
-                }
-                if (found > 0.0f) {
-                    float lo = std::max(start, found - 0.1f), hi = found;
-                    for (int k = 0; k < 5; ++k) {
-                        fit.open[i] = 0.5f * (lo + hi);
-                        solve();
-                        if (SideDepth(ProbeLeg + i) > kSideTolerance) lo = fit.open[i];
-                        else hi = fit.open[i];
-                    }
-                    best = hi;
-                    bestDepth = kSideTolerance;
-                }
-                fit.open[i] = best;
-                solve();
-                return bestDepth;
-            };
-            foot();
-            float left = knee();
-            for (int k = 0; k < 5 && left > kSideTolerance && p.legOut[i] > 0.05f && fit.ankleOut[i] < most; ++k) {
-                fit.ankleOut[i] = std::min(most, fit.ankleOut[i] + 0.03f);
-                solve();
-                left = knee();
-            }
-            foot();
-        }
-    };
-    if (seat(ProbeSeat)) reach();
-    // El pecho, el casco y los brazos no atraviesan el manubrio ni el tanque (tirado adelante con el cuerpo
-    // corrido, en el aire; agachado en la de carreras): el torso se endereza lo justo, sin soltar el
-    // manubrio (como mucho hasta donde los brazos llegan, kReachLimit).
-    if (ChestDepth(p) > kBarTolerance) {
-        const float base = pitch;
-        auto reaches = [&](float d) {
-            pitch = base - d;
-            return solve() <= kReachLimit;
-        };
-        float most = kMaxBackPitch;
-        if (!reaches(most)) {
-            float lo = 0.0f, hi = most;
-            for (int k = 0; k < 6; ++k) {
-                const float mid = 0.5f * (lo + hi);
-                if (reaches(mid)) lo = mid;
-                else hi = mid;
-            }
-            most = lo;
-        }
-        pitch = base - most;
-        solve();
-        float lo = 0.0f, hi = most;
-        if (ChestDepth(p) <= kBarTolerance) {
-            for (int k = 0; k < 7; ++k) {
-                const float mid = 0.5f * (lo + hi);
-                pitch = base - mid;
-                solve();
-                if (ChestDepth(p) > kBarTolerance) lo = mid;
-                else hi = mid;
-            }
-        }
-        pitch = base - hi;
-        solve();
+    if (SolveBody(p, kMaxExtraPitch, 0.0f) <= kMaxReach) {
+        search(kMaxExtraPitch, [&](float pitch) { return SolveBody(p, pitch, 0.0f); });
+    } else {
+        search(kMaxHipShift, [&](float shift) { return SolveBody(p, kMaxExtraPitch, shift); });
     }
-    legs();
-    // Con el cuerpo corrido de costado (o el whip), el muslo de afuera cruza el asiento. La cadera del modelo
-    // es angosta: corrida entera, ese muslo queda adentro del asiento (por arriba o por el costado, cerca de
-    // la rodilla, aunque se abra del todo). Vuelve hacia el medio lo justo (el torso queda donde lo pide la
-    // pose: se inclina más) y después sube lo que falte. Mientras se busca, las rodillas abiertas del todo
-    // (lo que después se afina).
-    auto residual = [&]() {
-        return std::max({SeatDepth(ProbeDrape) - kSeatSink, SideDepth(ProbeLeg) - kSideTolerance, SideDepth(ProbeLeg + 1) - kSideTolerance});
-    };
-    if (std::fabs(p.hips.GetX()) > 0.01f && residual() > kSideTolerance) {
-        const Fit before = fit;
-        fit.open[0] = fit.open[1] = kMaxKneeOpen;
-        float lo = 0.0f, hi = 1.0f;
-        fit.center = 1.0f;
-        solve();
-        if (residual() <= kSideTolerance) {
-            for (int k = 0; k < 6; ++k) {
-                fit.center = 0.5f * (lo + hi);
-                solve();
-                if (residual() > kSideTolerance) lo = fit.center;
-                else hi = fit.center;
-            }
-        }
-        fit.center = hi;
-        fit.open[0] = before.open[0];
-        fit.open[1] = before.open[1];
-        solve();
-        legs();
-    }
-    if (seat(ProbeDrape)) legs();
-    // Lo último: las manos en el manubrio (si al subir o centrar la cadera dejaron de llegar, se vuelve a
-    // buscar la inclinación, aunque el pecho roce el manubrio). Y si ni así llegan, la cadera baja lo justo:
-    // las manos mandan (con la pata afuera en la de carreras subía hasta el tope y las manos quedaban a 15-20
-    // cm de los puños).
-    if (lastReach > kReachLimit) reach();
-    if (lastReach > kLiftReach && fit.lift > 0.0f) {
-        float lo = 0.0f, hi = fit.lift;
-        for (int k = 0; k < 7; ++k) {
-            fit.lift = 0.5f * (lo + hi);
-            reach();
-            if (lastReach > kLiftReach) hi = fit.lift;
-            else lo = fit.lift;
-        }
-        fit.lift = lo;
-        reach();
-        legs();
-    }
-    lastFit = fit;
 }
 
-Vector3 RiderModel::SkinVertex(int v) const
-{
-    Vector3 p = {0.0f, 0.0f, 0.0f};
-    for (int k = 0; k < 4; ++k) {
-        const float w = skinWeight[v * 4 + k];
-        if (w <= 0.0f) continue;
-        const int b = skinBone[v * 4 + k];
-        p = Vector3Add(p, Vector3Scale(Vector3Add(pos[b], Vector3RotateByQuaternion(Vector3Subtract(bindVerts[v], bindPos[b]), delta[b])), w));
-    }
-    return p;
-}
-
-bool RiderModel::BikeShape::Inside(Vector3 p, float& dl, float& dv) const
-{
-    // Bilineal (continua: la pose no salta de a una celda).
-    auto sample = [&](const std::vector<float>& f, int n0, int n1, float a, float b, float nothing) {
-        const float fa = a / kShapeCell - 0.5f, fb = b / kShapeCell - 0.5f;
-        const int ia = (int)std::floor(fa), ib = (int)std::floor(fb);
-        const float ta = fa - (float)ia, tb = fb - (float)ib;
-        auto at = [&](int x, int y) { return x < 0 || y < 0 || x >= n0 || y >= n1 ? nothing : f[(size_t)y * n0 + x]; };
-        return (at(ia, ib) * (1.0f - ta) + at(ia + 1, ib) * ta) * (1.0f - tb) + (at(ia, ib + 1) * (1.0f - ta) + at(ia + 1, ib + 1) * ta) * tb;
-    };
-    if (style < 0) return false;
-    const float w = sample(side[p.x >= 0.0f ? 0 : 1], ny, nz, p.y - y0, p.z - z0, 0.0f);
-    const float ax = std::fabs(p.x);
-    if (ax >= w) return false;
-    const float t = sample(top, nx, nz, p.x - x0, p.z - z0, kNothing);
-    if (p.y >= t) return false;
-    dl = w - ax;
-    dv = t - p.y;
-    return true;
-}
-
-// Cuánto se hunden en el asiento (hacia abajo) la cola y los muslos. Cada vértice adentro cuenta para
-// abajo o para el costado según por dónde sale más cerca, con una transición suave (si no, la pose
-// saltaría cuando un vértice cambia de lado).
-float RiderModel::SeatDepth(int group) const
-{
-    float worst = 0.0f;
-    for (int v : probe[group]) {
-        float dl, dv;
-        if (!shape.Inside(SkinVertex(v), dl, dv)) continue;
-        worst = std::max(worst, dv * mu::Smoothstep(-0.01f, 0.01f, dl - dv));
-    }
-    return worst;
-}
-
-float RiderModel::SideDepth(int group) const
-{
-    // Las rodillas, además, contra el manubrio: con la pata afuera y el manubrio a fondo para ese lado, el
-    // puño vuelve hasta la rodilla (se abre la rodilla hasta que pasa por afuera o por abajo del puño).
-    const bool legs = group == ProbeLeg || group == ProbeLeg + 1;
-    const Vector3 ab = Vector3Subtract(barB, barA);
-    const float len2 = std::max(Vector3DotProduct(ab, ab), 1e-6f);
-    float worst = 0.0f;
-    for (int v : probe[group]) {
-        const Vector3 q = SkinVertex(v);
-        if (legs) {
-            const float u = mu::Clamp(Vector3DotProduct(Vector3Subtract(q, barA), ab) / len2, 0.0f, 1.0f);
-            worst = std::max(worst, kBarRadius - Vector3Distance(q, Vector3Add(barA, Vector3Scale(ab, u))));
-        }
-        float dl, dv;
-        if (!shape.Inside(q, dl, dv)) continue;
-        worst = std::max(worst, dl * (1.0f - mu::Smoothstep(-0.01f, 0.01f, dl - dv)));
-    }
-    return worst;
-}
-
-// Pecho, casco y brazos contra el manubrio (un tubo de puño a puño, con la almohadilla del medio) y contra la
-// moto (el tanque y el carenado, agachado); los antebrazos, sólo contra el manubrio.
-float RiderModel::ChestDepth(const RiderPose& p) const
-{
-    const Vector3 a = V(p.grip[0]), b = V(p.grip[1]), ab = Vector3Subtract(b, a);
-    const float len2 = std::max(Vector3DotProduct(ab, ab), 1e-6f);
-    float worst = 0.0f;
-    for (int g : {(int)ProbeChest, (int)ProbeForearm})
-        for (int v : probe[g]) {
-            const Vector3 q = SkinVertex(v);
-            const float u = mu::Clamp(Vector3DotProduct(Vector3Subtract(q, a), ab) / len2, 0.0f, 1.0f);
-            worst = std::max(worst, kBarRadius - Vector3Distance(q, Vector3Add(a, Vector3Scale(ab, u))));
-            float dl, dv;
-            if (g == ProbeChest && shape.Inside(q, dl, dv)) worst = std::max(worst, std::min(dl, dv));
-        }
-    return worst;
-}
-
-void RiderModel::BuildShape(const Renderer& r)
-{
-    const Mesh& m = r.BikePart(BikeMesh::Body, 0);
-    if (!m.vertices || (shape.style == r.bikeStyle && shape.key == m.vertices)) return;
-    const double t0 = GetTime();
-    shape = BikeShape{};
-    shape.style = r.bikeStyle;
-    shape.key = m.vertices;
-    shape.x0 = -0.6f;
-    shape.y0 = -0.8f;
-    shape.z0 = -1.2f;
-    shape.nx = (int)(1.2f / kShapeCell);
-    shape.ny = (int)(1.7f / kShapeCell);
-    shape.nz = (int)(2.4f / kShapeCell);
-    std::vector<float> side[2] = {std::vector<float>((size_t)shape.ny * shape.nz, 0.0f), std::vector<float>((size_t)shape.ny * shape.nz, 0.0f)};
-    std::vector<float> top((size_t)shape.nx * shape.nz, kNothing);
-    const JPH::Vec3 peg = GetBikeStyle(r.bikeStyle).peg;
-    auto splat = [&](Vector3 q) {
-        const int iy = (int)((q.y - shape.y0) / kShapeCell), iz = (int)((q.z - shape.z0) / kShapeCell), ix = (int)((q.x - shape.x0) / kShapeCell);
-        if (iz < 0 || iz >= shape.nz) return;
-        if (iy >= 0 && iy < shape.ny) {
-            float& s = side[q.x >= 0.0f ? 0 : 1][(size_t)iz * shape.ny + iy];
-            s = std::max(s, std::fabs(q.x));
-        }
-        if (ix >= 0 && ix < shape.nx) {
-            float& t = top[(size_t)iz * shape.nx + ix];
-            t = std::max(t, q.y);
-        }
-    };
-    const int tris = m.indices ? m.triangleCount : m.vertexCount / 3;
-    for (int t = 0; t < tris; ++t) {
-        Vector3 v[3];
-        for (int e = 0; e < 3; ++e) {
-            const int i = m.indices ? m.indices[3 * t + e] : 3 * t + e;
-            v[e] = {m.vertices[3 * i], m.vertices[3 * i + 1], m.vertices[3 * i + 2]};
-        }
-        // Estriberas, pedal de freno y palanca de cambios: ahí apoya la bota.
-        const Vector3 c = Vector3Scale(Vector3Add(Vector3Add(v[0], v[1]), v[2]), 1.0f / 3.0f);
-        if (std::fabs(c.x) > std::fabs(peg.GetX()) - 0.05f && std::fabs(c.y - peg.GetY()) < 0.07f && c.z > peg.GetZ() - 0.10f && c.z < peg.GetZ() + 0.25f)
-            continue;
-        const float L = std::max({Vector3Distance(v[0], v[1]), Vector3Distance(v[1], v[2]), Vector3Distance(v[2], v[0])});
-        const int n = std::max(1, (int)std::ceil(L / (0.6f * kShapeCell)));
-        for (int i = 0; i <= n; ++i)
-            for (int j = 0; i + j <= n; ++j)
-                splat(Vector3Add(v[0], Vector3Add(Vector3Scale(Vector3Subtract(v[1], v[0]), (float)i / n), Vector3Scale(Vector3Subtract(v[2], v[0]), (float)j / n))));
-    }
-    // Se agranda una celda para tapar los huecos entre muestras (conservador: la moto queda 1 cm más grande).
-    auto dilate = [](const std::vector<float>& f, int n0, int n1, std::vector<float>& out) {
-        out = f;
-        for (int b = 0; b < n1; ++b)
-            for (int a = 0; a < n0; ++a) {
-                float mx = f[(size_t)b * n0 + a];
-                for (int db = -1; db <= 1; ++db)
-                    for (int da = -1; da <= 1; ++da) {
-                        const int x = a + da, y = b + db;
-                        if (x >= 0 && y >= 0 && x < n0 && y < n1) mx = std::max(mx, f[(size_t)y * n0 + x]);
-                    }
-                out[(size_t)b * n0 + a] = mx;
-            }
-    };
-    dilate(side[0], shape.ny, shape.nz, shape.side[0]);
-    dilate(side[1], shape.ny, shape.nz, shape.side[1]);
-    dilate(top, shape.nx, shape.nz, shape.top);
-    TraceLog(LOG_INFO, "piloto: forma de la moto (estilo %s) en %.0f ms", GetBikeStyle(r.bikeStyle).name, 1000.0 * (GetTime() - t0));
-}
-
-float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift, const Fit& fit)
+float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift)
 {
     // Cada hueso: si no tiene un ajuste propio, sigue a su padre (cinemática directa).
     const float forward = std::max(0.0f, p.lean);
-    const Vector3 hipsTarget = Vector3Add(V(p.hips), {-fit.center * p.hips.GetX(), -kHipsDrop + fit.lift + 0.3f * hipShift, hipShift - kForwardHipsBack * forward});
+    const Vector3 hipsTarget = Vector3Add(V(p.hips), {0.0f, -kHipsDrop + 0.3f * hipShift, hipShift - kForwardHipsBack * forward});
     const Vector3 torsoBind = Vector3Subtract(bindPos[neck], bindPos[hips]);
     Vector3 torsoTarget = Vector3Subtract(V(p.shoulders), V(p.hips));
     const float pitch = kExtraLean + kForwardLean * forward + extraPitch;
@@ -1141,12 +447,6 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
     // cintura. Girando sólo la columna la panza se inflaba y la espalda baja se doblaba.
     const Quaternion pelvisTurn = QuaternionSlerp(QuaternionIdentity(), torsoTurn, 0.75f);
     const Quaternion spineStep = QuaternionSlerp(QuaternionIdentity(), torsoTurn, 0.25f / 3.0f);
-    // Con el manubrio girado, los hombros giran con él (sobre el eje del torso, repartido en las vértebras):
-    // el hombro de afuera va adelante con su puño. Sin esto, tirado atrás y con el manubrio a fondo la mano
-    // de afuera no llegaba al puño (quedaba a 8-9 cm).
-    const Vector3 bar = V(p.grip[0] - p.grip[1]);
-    const float shoulderTurn = mu::Clamp(-kShoulderTurn * std::atan2(bar.z, bar.x), -kMaxShoulderTurn, kMaxShoulderTurn);
-    const Quaternion twistStep = QuaternionFromAxisAngle(Vector3Normalize(torsoTarget), shoulderTurn / 3.0f);
 
     Vector3 elbow[2], wrist[2], knee[2], ankle[2];
     Quaternion handRot[2] = {QuaternionIdentity(), QuaternionIdentity()};
@@ -1170,15 +470,11 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
             pos[b] = hipsTarget;
             delta[b] = pelvisTurn;
         } else if (b == spineChain[0] || b == spineChain[1] || b == spineChain[2]) {
-            delta[b] = QuaternionMultiply(twistStep, QuaternionMultiply(spineStep, delta[b]));
-        } else if (b == neck || b == head) {
-            // Mirando la pista: la cara (+Z en reposo) hacia adelante y abajo (22°, la pera hacia el pecho,
-            // como en la posición de ataque). La mitad del giro la toma el cuello: girando sólo la cabeza, la
-            // piel del cuello se estiraba entre el casco y el cuello de la campera (con el cuello largo del
-            // modelo 3 se veía un cogote de jirafa).
+            delta[b] = QuaternionMultiply(spineStep, delta[b]);
+        } else if (b == head) {
+            // Mirando la pista: la cara (+Z en reposo) hacia adelante y un poco abajo.
             const Vector3 face = Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, delta[b]);
-            const Quaternion look = FromTo(face, {0.0f, -0.4f, 1.0f});
-            delta[b] = QuaternionMultiply(b == neck ? QuaternionSlerp(QuaternionIdentity(), look, 0.5f) : look, delta[b]);
+            delta[b] = QuaternionMultiply(FromTo(face, {0.0f, -0.2f, 1.0f}), delta[b]);
         }
         for (int i = 0; i < 2; ++i) {
             const float side = i == 0 ? 1.0f : -1.0f;               // +X = izquierda
@@ -1212,14 +508,11 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
             } else if (b == upLeg[i]) {
                 const float out = p.legOut[i];                              // pata afuera en la curva
                 // El pie apoya en la estribera; afuera, el tobillo va donde lo pide la pose.
-                // (corrido hacia afuera lo que pida fit, para que la bota no se meta en el motor).
-                const Vector3 target = Vector3Add(V(p.ankle[i]), Vector3Add(Vector3Lerp({0.0f, 0.04f, -0.03f}, {0.0f, 0.0f, 0.0f}, out), {side * fit.ankleOut[i], 0.0f, 0.0f}));
+                const Vector3 target = Vector3Add(V(p.ankle[i]), Vector3Lerp({0.0f, 0.04f, -0.03f}, {0.0f, 0.0f, 0.0f}, out));
                 const float l1 = Vector3Distance(bindPos[leg[i]], bindPos[b]), l2 = Vector3Distance(bindPos[foot[i]], bindPos[leg[i]]);
-                // Rodillas adelante y apenas abiertas; con la pata afuera, adelante, arriba y afuera. Y abiertas lo
-                // que pida fit para no meterse en el tanque ni en los plásticos.
+                // Rodillas adelante y apenas abiertas; con la pata afuera, adelante, arriba y afuera.
                 const Vector3 pole = Vector3Lerp({side * 0.25f, 0.0f, 1.0f}, {side * 0.5f, 0.6f, 0.8f}, out);
-                const Vector3 kneeAt = OpenJoint(pos[b], target, l1, l2, Vector3Add(pos[b], pole), side, fit.open[i]);
-                TwoBoneIK(pos[b], target, l1, l2, kneeAt, knee[i], ankle[i]);
+                TwoBoneIK(pos[b], target, l1, l2, Vector3Add(pos[b], pole), knee[i], ankle[i]);
                 aim(leg[i], knee[i]);
             } else if (b == leg[i]) {
                 aim(foot[i], ankle[i]);
@@ -1230,27 +523,6 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
         }
     }
     return reach;
-}
-
-RiderPose RiderModel::JointPose(const RiderPose& p)
-{
-    PoseOnBike(p);
-    RiderPose q = p;
-    auto at = [&](int b) { return JPH::Vec3(pos[b].x, pos[b].y, pos[b].z); };
-    // Las cuentas del ragdoll (Rider.cpp): la pelvis 2 cm arriba de hips, el cuello 8 cm arriba y 4 cm
-    // adelante de shoulders y la cabeza (una esfera) centrada en head.
-    q.hips = at(hips) - JPH::Vec3(0.0f, 0.02f, 0.0f);
-    q.shoulders = at(neck) - JPH::Vec3(0.0f, 0.08f, 0.04f);
-    const Vector3 headUp = Vector3RotateByQuaternion({0.0f, 0.10f, 0.02f}, delta[head]);
-    q.head = at(head) + JPH::Vec3(headUp.x, headUp.y, headUp.z);
-    for (int i = 0; i < 2; ++i) {
-        q.hip[i] = at(upLeg[i]);
-        q.knee[i] = at(leg[i]);
-        q.ankle[i] = at(foot[i]);
-        q.shoulder[i] = at(arm[i]);
-        q.elbow[i] = at(foreArm[i]);
-    }
-    return q;
 }
 
 void RiderModel::BindToRagdoll(const RiderPose& p, const RiderRagdoll& ragdoll)
@@ -1325,7 +597,6 @@ void RiderModel::Skin()
 
 void RiderModel::Draw(Renderer& r, const Matrix& world)
 {
-    BuildShape(r);                           // la moto que se acaba de dibujar (la de este piloto)
-    r.SetGloss(polishedSuit ? 0.08f : 0.2f);
-    r.DrawMeshTextured(model.meshes[0], world, texture, true, polishedSuit);
+    r.SetGloss(0.2f);
+    r.DrawMeshTextured(model.meshes[0], world, texture);
 }

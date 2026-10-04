@@ -17,6 +17,26 @@ const BikeStyleDef& MotocrossStyleDef()
     return d;
 }
 
+const BikeLivery& Livery600(int i)
+{
+    static const BikeLivery colors[kLiveries] = {
+        {{20,188,208,255}, {245,245,240,255}, {24,32,48,255}, "600"},
+        {{16,160,186,255}, {250,210,32,255}, {24,32,48,255}, "607"},
+        {{38,208,218,255}, {245,245,240,255}, {64,42,110,255}, "644"},
+        {{14,140,168,255}, {245,245,240,255}, {240,140,28,255}, "613"},
+    };
+    return colors[((i % kLiveries) + kLiveries) % kLiveries];
+}
+const BikeStyleDef& Motocross600StyleDef()
+{
+    static const BikeStyleDef d = [] {
+        BikeStyleDef result = MotocrossStyleDef();
+        result.name = "mx600";
+        result.livery = Livery600;
+        return result;
+    }();
+    return d;
+}
 const BikeStyleDef& TrailStyleDef()
 {
     static const BikeStyleDef d = {
@@ -49,6 +69,7 @@ const BikeStyleDef& TwoStrokeStyleDef()
 const BikeStyleDef& GetBikeStyle(int id)
 {
     switch (id) {
+    case BikeStyle::Motocross600: return Motocross600StyleDef();
     case BikeStyle::Trail: return TrailStyleDef();
     case BikeStyle::Race: return RaceStyleDef();
     case BikeStyle::Trial: return TrialStyleDef();

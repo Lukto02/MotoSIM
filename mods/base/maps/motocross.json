@@ -11,6 +11,8 @@
   "track": {
     "style": "track",     // smoothed base, long shoulders, berms in the corners
     "width": 9,
+    "bank_height": 2.8,
+    "bank_gain": 52,
     "scale": 0.95,        // multiplies every point below
     // Closed loop through these points (x, z in meters). Start straight first.
     "points": [

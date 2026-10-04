@@ -17,6 +17,12 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### Motocross 600: corte de acelerador en wheelie (v0.3.4)
+- **Pasaba**: la ayuda compartida de la 450 anticipaba 0.35 s y recortaba entre 12 y 27 grados; el limitador tambien reducia wheelie en marchas altas.
+- **Que se hizo**: el perfil de la 450 queda intacto. La 600 usa 32/58 grados, 0.16 s de prediccion y asistencia de 800 Nm. En la 600, la influencia del cuerpo y el gas residual se ajustan por moto.
+- **Estilo**: la 600 usa `mx600`: el chasis y la pose de la 450 con plasticos turquesa.
+- **Se comprobo**: ver docs/VALIDACION-034.md.
+
 ### Cola que raspa en el wheelie pasado (v0.2.4)
 - **Pasaba**: pasado el punto de equilibrio, al apoyar la cola la moto rebotaba "de más" y las
   colisiones parecían buggeadas.

@@ -1,0 +1,145 @@
+[
+  {
+    "timestamp": "2026-09-25T13:12:16.404Z",
+    "operation": "full-read",
+    "lines": 486
+  },
+  {
+    "timestamp": "2026-09-25T13:17:40.110Z",
+    "operation": "replace",
+    "old": "    // Caída: demasiado inclinada o volcada durante un instante.\n    const bool tipped = up.GetY() < std::cos(mu::Rad(P->crashAngleDeg));\n    crashTimer = tipped ? crashTimer + dt : std::max(0.0f, crashTimer - dt);",
+    "new": "    // Caída: demasiado inclinada o volcada durante un instante MIENTRAS toca el suelo (ruedas, chasis\n    // o piloto, del paso anterior). En el aire puede girar lo que quiera (flips): cuenta el aterrizaje.\n    const bool tipped = up.GetY() < std::cos(mu::Rad(P->crashAngleDeg));\n    const bool touching = wheels[FRONT].grounded || wheels[REAR].grounded || world.AnyContact();\n    crashTimer = tipped && touching ? crashTimer + dt : std::max(0.0f, crashTimer - dt);"
+  },
+  {
+    "timestamp": "2026-09-25T13:19:36.333Z",
+    "operation": "replace",
+    "old": "        const float mountAxialVel = b.GetPointVelocity(mount).Dot(axis);\n        const float prevGround",
+    "new": "        const float mountAxialVel = b.GetPointVelocity(mount).Dot(axis);\n        // El eje gira con el chasis: la velocidad de la rueda proyectada sobre él cambia aunque no\n        // actúe ninguna fuerza, v·(ω × eje). Sin este término, rotar rápido (flips) comprime la\n        // suspensión de mentira y su reacción empuja el chasis: sube en un backflip, baja en un frontflip.\n        const float axisTurn = b.GetPointVelocity(mount + axis * w.extension).Dot(angVel.Cross(axis));\n        const float prevGround"
+  },
+  {
+    "timestamp": "2026-09-25T13:19:37.782Z",
+    "operation": "replace",
+    "old": "            const float accel = (suspF - tireF * cosAxis) / tp.unsprungMass - kG * axis.GetY();",
+    "new": "            const float accel = (suspF - tireF * cosAxis) / tp.unsprungMass - kG * axis.GetY() + axisTurn;"
+  },
+  {
+    "timestamp": "2026-09-25T13:21:22.283Z",
+    "operation": "replace",
+    "old": "    // Caída: demasiado inclinada o volcada durante un instante MIENTRAS toca el suelo (ruedas, chasis\n    // o piloto, del paso anterior). En el aire puede girar lo que quiera (flips): cuenta el aterrizaje.\n    const bool tipped = up.GetY() < std::cos(mu::Rad(P->crashAngleDeg));\n    const bool touching = wheels[FRONT].grounded || wheels[REAR].grounded || world.AnyContact();\n    crashTimer = tipped && touching ? crashTimer + dt : std::max(0.0f, crashTimer - dt);\n    if (crashTimer > 0.4f) crashed = true;",
+    "new": "    // Caída: demasiado inclinada o volcada un instante MIENTRAS toca el suelo (ruedas, chasis o\n    // piloto, del paso anterior). En el aire el contador no cambia: un flip no suma nada, y una moto\n    // que rebota dando tumbos tampoco se \"recupera\" entre golpes. Sólo baja derecha sobre las ruedas.\n    const bool tipped = up.GetY() < std::cos(mu::Rad(P->crashAngleDeg));\n    if (tipped && (!wasInAir || world.AnyContact())) crashTimer += dt;\n    else if (!tipped && !wasInAir) crashTimer = std::max(0.0f, crashTimer - dt);\n    // De cabeza contra el suelo es caída en el acto.\n    if (crashTimer > 0.4f || (up.GetY() < 0.0f && world.AnyContact())) crashed = true;"
+  },
+  {
+    "timestamp": "2026-09-25T13:38:55.426Z",
+    "operation": "replace",
+    "old": "    const float v2 = v * v;\n    const float kMax = std::min(1.0f / P->minTurnRadius, P->maxLateralAccel / std::max(v2, 0.01f));",
+    "new": "    const float v2 = v * v;\n    // maxLateralAccel es el límite en plano (~ μ·g). En un peralte a favor de la curva (θ) el suelo\n    // también empuja hacia adentro y con el mismo grip se dobla más: g·(sen θ + μ cos θ)/(cos θ − μ sen θ).\n    // En contra (off-camber) el límite baja. La inclinación máxima lo acota igual.\n    const Vec3 groundN = terrain.Normal(com.GetX(), com.GetZ());\n    const Vec3 rightFlat = Vec3(right.GetX(), 0.0f, right.GetZ()).NormalizedOr(Vec3::sAxisX());\n    const float sinBank = mu::Clamp(groundN.Dot(rightFlat) * (in.steer >= 0.0f ? 1.0f : -1.0f), -0.5f, 0.5f);\n    const float cosBank = std::sqrt(1.0f - sinBank * sinBank);\n    const float muLat = P->maxLateralAccel / kG;\n    const float maxAccel = kG * (sinBank + muLat * cosBank) / std::max(cosBank - muLat * sinBank, 0.3f);\n    const float kMax = std::min(1.0f / P->minTurnRadius, maxAccel / std::max(v2, 0.01f));"
+  },
+  {
+    "timestamp": "2026-09-25T13:39:15.638Z",
+    "operation": "replace",
+    "old": "    const float sinBank = mu::Clamp(groundN.Dot(rightFlat) * (in.steer >= 0.0f ? 1.0f : -1.0f), -0.5f, 0.5f);",
+    "new": "    const float sinBank = mu::Clamp(groundN.Dot(rightFlat) * (in.steer >= 0.0f ? 1.0f : -1.0f) * P->bankTurnGain, -0.5f, 0.5f);"
+  },
+  {
+    "timestamp": "2026-09-25T13:48:41.948Z",
+    "operation": "replace",
+    "old": "namespace {\nconstexpr float kG = 9.81f;\nconstexpr float kRadPerSecToRPM = 60.0f / (2.0f * mu::kPi);\n} // namespace",
+    "new": "namespace {\nconstexpr float kG = 9.81f;\nconstexpr float kRadPerSecToRPM = 60.0f / (2.0f * mu::kPi);\n\n// Las ruedas sólo apoyan en lo estático (terreno), no en el piloto suelto tras una caída.\nclass StaticOnlyFilter final : public JPH::ObjectLayerFilter {\npublic:\n    bool ShouldCollide(JPH::ObjectLayer layer) const override { return layer == Layers::STATIC; }\n};\n} // namespace"
+  },
+  {
+    "timestamp": "2026-09-25T13:48:43.333Z",
+    "operation": "replace",
+    "old": "    const JPH::IgnoreSingleBodyFilter ignoreSelf(b.GetID());",
+    "new": "    const JPH::IgnoreSingleBodyFilter ignoreSelf(b.GetID());\n    const StaticOnlyFilter staticOnly;"
+  },
+  {
+    "timestamp": "2026-09-25T13:48:44.858Z",
+    "operation": "replace",
+    "old": "        if (world.Query().CastRay(ray, hit, JPH::BroadPhaseLayerFilter(), JPH::ObjectLayerFilter(), ignoreSelf)) {",
+    "new": "        if (world.Query().CastRay(ray, hit, JPH::BroadPhaseLayerFilter(), staticOnly, ignoreSelf)) {"
+  },
+  {
+    "timestamp": "2026-09-25T15:35:03.927Z",
+    "operation": "replace",
+    "old": "    in.throttle *= tcFactor;\n\n    throttle = in.throttle;\n    frontBrake = in.frontBrake;\n    rearBrake = in.rearBrake;",
+    "new": "    in.throttle *= tcFactor;\n\n    // Marcha atrás. Con caja automática: parado, mantener el freno medio segundo pone la R y el freno\n    // pasa a ser el gas hacia atrás; dar gas vuelve a primera. En manual la R se elige bajando desde\n    // primera casi parado (Engine::ShiftDown) y el gas empuja hacia atrás.\n    float engineThrottle = in.throttle;\n    if (engine.autoShift && !crashed) {\n        if (!engine.reverse) {\n            const bool holding = std::fabs(forwardSpeed) < 0.6f && in.frontBrake > 0.5f && in.throttle < 0.05f && !wasInAir;\n            reverseHold = holding ? reverseHold + dt : 0.0f;\n            if (reverseHold > 0.5f) {\n                engine.reverse = true;\n                reverseHold = 0.0f;\n            }\n        } else if (in.throttle > 0.05f) {\n            engine.reverse = false;\n        }\n        if (engine.reverse) {\n            engineThrottle = in.frontBrake;\n            in.frontBrake = in.rearBrake = 0.0f;\n        }\n    }\n\n    throttle = engineThrottle;\n    frontBrake = in.frontBrake;\n    rearBrake = in.rearBrake;"
+  },
+  {
+    "timestamp": "2026-09-25T15:35:05.581Z",
+    "operation": "replace",
+    "old": "    if (engine.autoShift && !crashed && !wasInAir && autoShiftCooldown <= 0.0f && engine.shiftTimer <= 0.0f) {",
+    "new": "    if (engine.autoShift && !engine.reverse && !crashed && !wasInAir && autoShiftCooldown <= 0.0f && engine.shiftTimer <= 0.0f) {"
+  },
+  {
+    "timestamp": "2026-09-25T15:35:06.976Z",
+    "operation": "replace",
+    "old": "    const float driveTorque = engine.Update(wheels[REAR].omega, in.throttle, dt, reflectedInertia);",
+    "new": "    const float driveTorque = engine.Update(wheels[REAR].omega, engineThrottle, dt, reflectedInertia);"
+  },
+  {
+    "timestamp": "2026-09-25T15:39:14.567Z",
+    "operation": "replace",
+    "old": "                    tireF = std::max(0.0f, tp.stiffness * delta + tp.damping * (delta - w.tireDelta) / h);",
+    "new": "                if (delta > 0.0f) {\n                    const float rate = (delta - w.tireDelta) / h;                 // + = comprimiéndose\n                    tireF = std::max(0.0f, tp.stiffness * delta + (rate > 0.0f ? tp.damping : tp.reboundDamping) * rate);\n                }"
+  },
+  {
+    "timestamp": "2026-09-25T15:39:22.163Z",
+    "operation": "replace",
+    "old": "                if (delta > 0.0f)\n                if (delta > 0.0f) {",
+    "new": "                if (delta > 0.0f) {"
+  },
+  {
+    "timestamp": "2026-09-25T19:02:54.343Z",
+    "operation": "replace",
+    "old": "    // Limitador de wheelie predictivo",
+    "new": "    const float riderThrottle = in.throttle;                     // lo que gira el piloto (antes de los recortes)\n\n    // Limitador de wheelie predictivo"
+  },
+  {
+    "timestamp": "2026-09-25T19:02:54.343Z",
+    "operation": "replace",
+    "old": "    throttle = engineThrottle;",
+    "new": "    throttle = engineThrottle;\n    gripThrottle = engine.reverse ? engineThrottle : riderThrottle;"
+  },
+  {
+    "timestamp": "2026-09-26T00:48:27.136Z",
+    "operation": "replace",
+    "old": "    riderLean = mu::MoveTowards(riderLean, in.lean, P->riderSpeed * dt);\n    comShiftWorld = rot * Vec3(0.0f, P->comHeight, P->comForward + riderLean * P->riderShift);\n",
+    "new": "    riderLean = mu::MoveTowards(riderLean, in.lean, P->riderSpeed * dt);\n\n    // Pata afuera: curva cerrada a velocidad media con la trasera en el piso. Sale la pierna del lado\n    // para el que dobla (o para el que está inclinada, si ya soltó la dirección); para cambiar de\n    // lado primero la vuelve a la estribera. Sentarse adelante le carga peso a la delantera.\n    {\n        const float turn = std::max(mu::Smoothstep(0.3f, 0.7f, std::fabs(in.steer)),\n                                    mu::Smoothstep(mu::Rad(15.0f), mu::Rad(30.0f), std::fabs(roll)));\n        const float speedOk = mu::Smoothstep(P->legOutSpeedMin, P->legOutSpeedMin + 1.0f, forwardSpeed) *\n                              (1.0f - mu::Smoothstep(P->legOutSpeedMax - 3.0f, P->legOutSpeedMax, forwardSpeed));\n        const bool planted = riderOnBike && !crashed && wheels[REAR].grounded;\n        const float dir = std::fabs(in.steer) > 0.15f ? mu::Sign(in.steer) : mu::Sign(roll);\n        float target = planted ? dir * turn * speedOk : 0.0f;\n        if (target * legOut < 0.0f) target = 0.0f;\n        legOut = mu::MoveTowards(legOut, target, (std::fabs(target) > std::fabs(legOut) ? 3.5f : 2.5f) * dt);\n    }\n    const float legAmount = std::fabs(legOut);\n    comShiftWorld = rot * Vec3(0.0f, P->comHeight, P->comForward + riderLean * P->riderShift + legAmount * P->legOutComForward);\n"
+  },
+  {
+    "timestamp": "2026-09-26T00:48:27.136Z",
+    "operation": "replace",
+    "old": "    const float muLat = P->maxLateralAccel / kG;\n",
+    "new": "    const float muLat = P->maxLateralAccel / kG * (1.0f + P->legOutGrip * legAmount);\n"
+  },
+  {
+    "timestamp": "2026-09-26T00:48:27.136Z",
+    "operation": "replace",
+    "old": "    steerAngle = mu::Clamp(steerBase + steerCaster, -mu::Rad(35.0f), mu::Rad(35.0f));\n",
+    "new": "    const float steerStop = mu::Rad(std::max(35.0f, P->maxSteerDeg));   // topes de dirección\n    steerAngle = mu::Clamp(steerBase + steerCaster, -steerStop, steerStop);\n"
+  },
+  {
+    "timestamp": "2026-09-26T00:48:33.587Z",
+    "operation": "replace",
+    "old": "            const TireSolveOutput to = SolveTireForces(tp, ti);\n",
+    "new": "            TireParams tpTurn = tp;                                 // con la pata afuera muerde más de costado\n            tpTurn.latGrip *= 1.0f + P->legOutGrip * legAmount;\n            const TireSolveOutput to = SolveTireForces(tpTurn, ti);\n"
+  },
+  {
+    "timestamp": "2026-09-26T01:13:36.148Z",
+    "operation": "replace",
+    "old": "    const bool grounded = wheels[FRONT].grounded || wheels[REAR].grounded;\n    airTime = grounded ? 0.0f : airTime + dt;\n",
+    "new": "    const bool grounded = wheels[FRONT].grounded || wheels[REAR].grounded;\n    airTime = grounded ? 0.0f : airTime + dt;\n\n    // Cuerpo del piloto (whip): con el stick al costado en el aire corre el cuerpo para el otro lado,\n    // como un resorte críticamente amortiguado (sus músculos). La moto recibe la reacción, -I·alfa:\n    // gira para el lado pedido mientras el cuerpo se mueve y se frena cuando el cuerpo llega. Soltar\n    // el stick trae el cuerpo al centro y la moto vuelve. En el piso sólo vuelve el cuerpo.\n    {\n        const bool flying = !grounded && !crashed && riderOnBike;\n        const float maxTilt = mu::Rad(P->airBodyTiltDeg);\n        const float target = flying ? -in.steer * maxTilt : 0.0f;\n        const float w0 = P->airBodyRate;\n        const float prevRate = bodyTiltRate;\n        bodyTiltRate += ((target - bodyTilt) * w0 * w0 - bodyTiltRate * 2.0f * w0) * dt;\n        bodyTilt += bodyTiltRate * dt;\n        if (std::fabs(bodyTilt) > maxTilt) {\n            bodyTilt = mu::Sign(bodyTilt) * maxTilt;\n            bodyTiltRate = 0.0f;\n        }\n        if (flying) totalTorque -= fwd * (P->airBodyInertia * (bodyTiltRate - prevRate) / dt);\n    }\n"
+  },
+  {
+    "timestamp": "2026-09-26T01:13:36.148Z",
+    "operation": "replace",
+    "old": "            // En el aire el rolido sólo se corrige un poco, y nunca con la moto casi vertical o\n            // invertida (ahí el ángulo de rolido deja de tener sentido).\n            if (up.GetY() > 0.5f) {\n                const float a = P->airRollAssist;\n                totalTorque += fwd * ((in.steer * 0.25f - roll) * P->balanceKHigh * a - rollRate * P->balanceDHigh * a);\n            }\n\n            // Guiñada: el piloto endereza la moto hacia donde vuela (aterrizajes derechos).\n            const Vec3 flatVel(linVel.GetX(), 0.0f, linVel.GetZ());\n            if (flatVel.Length() > 3.0f && up.GetY() > 0.5f) {\n                const Vec3 dir = flatVel.Normalized();\n                const float yawError = std::atan2(fwdFlat.Cross(dir).GetY(), fwdFlat.Dot(dir));   // + = girar a la izquierda\n                const float yawRate = angVel.GetY();\n                totalTorque += Vec3::sAxisY() * (yawError * P->airYawAlign - yawRate * P->airYawDamping);\n            }\n",
+    "new": "            // Efecto giroscópico de las ruedas: girando rápido, sus ejes resisten cambiar de dirección\n            // y el chasis recibe L x w. Rolar la moto la hace guiñar y guiñar la hace rolar: acostada\n            // de costado, la nariz dobla hacia ese lado. En el piso lo tapan las cubiertas.\n            const Vec3 spin = left * (P->frontTire.inertia * wheels[FRONT].omega + P->rearTire.inertia * wheels[REAR].omega);\n            totalTorque += spin.Cross(angVel) * P->airGyroGain;\n\n            // El piloto endereza la moto (rolido hacia derecha y guiñada hacia donde vuela) salvo\n            // mientras la tira de costado: ahí la deja seguir con lo que trae.\n            const float hold = 1.0f - P->airWhipAssistFade * std::min(1.0f, std::fabs(in.steer));\n            // El rolido sólo se corrige un poco, y nunca con la moto casi vertical o invertida (ahí\n            // el ángulo de rolido deja de tener sentido).\n            if (up.GetY() > 0.5f) {\n                const float a = P->airRollAssist * hold;\n                totalTorque += fwd * (-roll * P->balanceKHigh * a - rollRate * P->balanceDHigh * a);\n            }\n\n            // Guiñada: hacia donde vuela, para aterrizar derecho.\n            const Vec3 flatVel(linVel.GetX(), 0.0f, linVel.GetZ());\n            if (flatVel.Length() > 3.0f && up.GetY() > 0.5f) {\n                const Vec3 dir = flatVel.Normalized();\n                const float yawError = std::atan2(fwdFlat.Cross(dir).GetY(), fwdFlat.Dot(dir));   // + = girar a la izquierda\n                const float yawRate = angVel.GetY();\n                totalTorque += Vec3::sAxisY() * ((yawError * P->airYawAlign - yawRate * P->airYawDamping) * hold);\n            }\n"
+  },
+  {
+    "timestamp": "2026-09-26T01:18:11.470Z",
+    "operation": "replace",
+    "old": "            // Guiñada: hacia donde vuela, para aterrizar derecho.",
+    "new": "            // Tope de rolido (como el de cabeceo): una moto que sale girando de costado muy rápido, el\n            // piloto la frena con el cuerpo. Un whip normal queda por debajo.\n            const float rollExcess = std::fabs(rollRate) - P->airMaxRollRate;\n            if (rollExcess > 0.0f) totalTorque -= fwd * (mu::Sign(rollRate) * rollExcess * P->airRollRateDamping);\n\n            // Guiñada: hacia donde vuela, para aterrizar derecho."
+  }
+]

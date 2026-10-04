@@ -1,0 +1,128 @@
+[
+  {
+    "name": "idle",
+    "args": "--flat --test idle --time 4",
+    "original": 16,
+    "port": 16,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "accel",
+    "args": "--flat --test accel --time 12",
+    "original": 49,
+    "port": 49,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "wheelie",
+    "args": "--flat --test wheelie --time 8",
+    "original": 33,
+    "port": 33,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "turn",
+    "args": "--flat --test turn --time 12",
+    "original": 49,
+    "port": 49,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "sharpturn",
+    "args": "--flat --test sharpturn --time 12",
+    "original": 49,
+    "port": 49,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "brake",
+    "args": "--flat --test brake --time 12",
+    "original": 49,
+    "port": 49,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "braketurn",
+    "args": "--flat --test braketurn --time 8",
+    "original": 33,
+    "port": 33,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "reverse",
+    "args": "--flat --test reverse --time 8",
+    "original": 33,
+    "port": 33,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "whip",
+    "args": "--flat --drop 1 --test whip --time 5",
+    "original": 20,
+    "port": 20,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "whiphold",
+    "args": "--flat --drop 1 --test whiphold --time 5",
+    "original": 20,
+    "port": 20,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "flip",
+    "args": "--flat --drop 1 --test flip --time 6",
+    "original": 25,
+    "port": 25,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "frontflip",
+    "args": "--flat --drop 3 --test frontflip --time 6",
+    "original": 25,
+    "port": 25,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "crashloop",
+    "args": "--flat --test crashloop --time 10",
+    "original": 41,
+    "port": 41,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  },
+  {
+    "name": "pista",
+    "args": "--bot --time 40",
+    "original": 160,
+    "port": 160,
+    "different": 0,
+    "first": -1,
+    "passed": true
+  }
+]

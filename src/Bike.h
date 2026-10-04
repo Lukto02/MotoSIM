@@ -27,6 +27,8 @@ struct BikeInput {
 // Todos los números ajustables de la moto. Se registran en Tuning con el mismo nombre que
 // aparece en tuning.ini. Espacio local de la moto: origen = centro de masa, +Z adelante, +Y arriba.
 struct BikeParams {
+    // Física y pose recuperadas de la primera v0.3.1 (26/09/2026), sólo para la Motocross 450.
+    float original031 = 0.0f;
     int visualStyle = 0;             // 0 = motocross, 1 = trilheira (lo pone el mapa; no está en tuning.ini)
 
     // Masa (moto 105 kg + piloto 75 kg en un único rigid body)
@@ -128,6 +130,8 @@ struct BikeParams {
     float airRollRateDamping = 150.0f;
     float airGyroGain = 0.5f;        // efecto giroscópico de las ruedas (1 = el físico; a la mitad se controla mejor)
 
+    float wheeliePrediction = 0.35f; // segundos de anticipación del recorte de gas
+    float wheelieThrottleFloor = 0.0f; // gas mínimo con la asistencia de wheelie activada
     float wheelieStartDeg = 12.0f;   // limitador predictivo de wheelie (0/0 lo desactiva)
     float wheelieEndDeg = 27.0f;
     float wheelieLeanBackDeg = 18.0f;// grados extra de wheelie con el piloto tirado atrás
@@ -246,6 +250,7 @@ public:
 
     // BikePhysics.cpp: todas las fuerzas, antes de cada paso de Jolt.
     void PrePhysics(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
+    void PrePhysics031(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
     void PostPhysics();
 
     // drawRider: el piloto generado; livery: colores y número (uno por jugador).
@@ -253,6 +258,7 @@ public:
     void DrawDebug(float alpha) const;
 
     RiderPose RiderPoseLocal() const;
+    RiderPose RiderPoseLocal031() const;
     // Caída: el piloto sale como ragdoll; la moto pierde su caja de colisión y su masa. Reset lo repone.
     void DetachRider(PhysicsWorld& world);
     bool RiderOnBike() const { return riderOnBike; }

@@ -174,6 +174,8 @@ track with berms, a bowl and a quarter pipe on flat ground.
   "width": 9,          // meters
   "scale": 1.0,        // multiplies every position in the map (points, start, features, objects...)
   "style": "track",    // "track" or "street"
+  "bank_height": 1.9,  // outer berm height in meters (0..4); initial track uses 2.8
+  "bank_gain": 34,     // curvature gain (0..100); initial track uses 52
   "banking": true      // berms on the outside of the corners (default: true for "track")
 }
 ```

@@ -183,10 +183,9 @@ void Game::Init()
         renderer.Init();
         particles.Init(3000);
         sound.Init();
-        // Modelo del piloto: el primero que se encuentre (carpeta actual, junto al ejecutable o arriba). El 3
-        // (con dedos, riggeado con tools/riggear_piloto.py) es el principal; los otros, de respaldo.
+        // Modelo original de la primera 0.3.1: carpeta actual, junto al ejecutable o arriba.
         riderPaths.clear();
-        for (const char* file : {"Low_Poly_Motorcyclist_3_rigged.gltf", "Low_Poly_Motorcyclist_2_rigged.gltf", "Low_Poly_Motorcycle_Racer_rigged.gltf"})
+        for (const char* file : {"Low_Poly_Motorcyclist_2_rigged.gltf"})
             for (const std::string& dir : {std::string(), std::string(GetApplicationDirectory()), std::string("../")})
                 riderPaths.push_back(dir + file);
         riderModel.Load(riderPaths);
@@ -722,7 +721,9 @@ void Game::Step(BikeInput in)
         const Multiplayer::Remote* other =
             hit.player >= 0 && hit.player < Multiplayer::kMaxPlayers && mp.Remotes()[hit.player].hasState ? &mp.Remotes()[hit.player] : nullptr;
         const RemoteHitJudge j =
-            other ? JudgeRemoteHit(hit, *other, bike.Rotation() * Vec3::sAxisZ(), bikeParams.crashImpactSpeed) : RemoteHitJudge{};
+            other ? JudgeRemoteHit(hit, *other, bike.Rotation() * Vec3::sAxisZ(),
+                                   bikeParams.original031 >= 0.5f && bikeParams.crashImpactSpeed <= 0.0f
+                                       ? 7.0f : bikeParams.crashImpactSpeed) : RemoteHitJudge{};
         if (other && j.headOn) headOnAt[hit.player] = simTime;   // aunque apenas se toquen (ver abajo)
         if (hit.closing > 0.3f && other) {
             // El primer golpe fuerte decide: lo que llega en el medio segundo siguiente es el eco.
@@ -824,7 +825,7 @@ void Game::Step(BikeInput in)
     jumpShow = std::max(0.0f, jumpShow - kDt);
     deformation.visualRuts = renderer.graphics.soilMode != 0;
     if (!opt.headless) EmitEffects();
-    if (deformation.physicalRuts && !mp.Active()) {
+    if (deformation.physicalRuts && !mp.Active() && bikeParams.original031 < 0.5f) {
         const Vec3 direction=bike.Rotation()*Vec3::sAxisZ();
         for (int i=0; i<2; ++i) {
             const Wheel& w=bike.wheels[i];
@@ -2967,6 +2968,7 @@ void Game::UpdateMenuCamera(float dt)
 // El estilo como se muestra en la lista de motos.
 std::string Game::StyleLabel(const std::string& style)
 {
+    if (style == "mx600") return "motocross 600";
     if (style == "mx") return "motocross";
     if (style == "mx2t") return "motocross 2T";
     if (style == "trail") return "trail de calle";
