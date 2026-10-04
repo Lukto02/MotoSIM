@@ -290,6 +290,15 @@ una rama sin mergear. Para que no vuelva a pasar:
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
 
+### v0.3.7 (04/10/2026): cámara con el stick derecho, freno de mano y cuerpo de costado sólo en la de carreras
+
+`dist/v0.3.7/MotoSim-v0.3.7.zip` (27 archivos, 9.9 MB). Protocolo 7: juega con la v0.3.4 a la v0.3.6 y la v0.2.5 a la v0.2.8.
+MSVC con runtime estático (sólo DLLs de Windows). Verificado desde la carpeta del paquete: `bikestats` sin errores,
+`soilcheck` 0 fallos en los tres, bots idénticos a la v0.3.6 (el bot frena atrás como mucho al 0.6 y el freno de mano
+arranca arriba de eso: motocross 1:04.26 / 1:04.10, favela 1:37.39 / 1:37.55, circuito con la de carreras 2:11.41 /
+2:09.73, park 0:50.93 / 0:50.89), y en red contra la v0.3.6 en los dos sentidos. La cámara y el freno de mano, en
+MENU.md / RENDER.md y FISICA.md ("Freno de mano").
+
 ### v0.3.6 (04/10/2026): piloto con menos triángulos y el repo ordenado
 
 `dist/v0.3.6/MotoSim-v0.3.6.zip` (27 archivos, 9.9 MB: el modelo reducido ya no trae la textura repetida en el `.bin`).
