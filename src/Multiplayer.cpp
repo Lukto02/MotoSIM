@@ -384,6 +384,7 @@ void Multiplayer::HandlePacket(const net::Address& from, const uint8_t* data, in
             r.GetString();                               // el código que escribió (informativo)
             const std::string name = CleanName(r.GetString());
             const std::string bike = r.GetString();
+            if (!r.ok) return; // incomplete HELLO must not create or change a player
             if (id >= 0 && (peers[id].bike != bike || peers[id].name != name)) {   // cambió de moto (o de nombre)
                 peers[id].bike = bike;
                 peers[id].name = name;

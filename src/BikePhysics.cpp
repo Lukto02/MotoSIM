@@ -57,6 +57,10 @@ void Bike::UpdateWheelConfig()
 
 void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, const Terrain& terrain)
 {
+    if (P->original031 >= 0.5f) {
+        PrePhysics031(rawInput, dt, world, terrain);
+        return;
+    }
     UpdateWheelConfig();
     Body& b = *body;
 
@@ -162,9 +166,9 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
         const float gearScale = std::pow(P->wheelieGearFade, (float)(engine.gear - 1));
         const float start = P->wheelieStartDeg * gearScale + P->wheelieLeanBackDeg * leanBack;
         const float end = start + (P->wheelieEndDeg - P->wheelieStartDeg);
-        const float predicted = pitch + std::max(0.0f, pitchRate) * 0.35f;
+        const float predicted = pitch + std::max(0.0f, pitchRate) * std::max(0.0f, P->wheeliePrediction);
         wheelieCut = mu::Smoothstep(mu::Rad(start), mu::Rad(end), predicted);
-        in.throttle *= 1.0f - wheelieCut;
+        in.throttle *= 1.0f - wheelieCut * (1.0f - mu::Clamp(P->wheelieThrottleFloor, 0.0f, 0.6f));
     }
 
     // Grau (freestyle de favela): con la delantera en el aire el piloto sostiene la moto con el gas y

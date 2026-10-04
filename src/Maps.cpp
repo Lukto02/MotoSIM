@@ -335,6 +335,8 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
     if (m.roadStyle != "track" && m.roadStyle != "street" && m.roadStyle != "guide")
         warn("track.style desconocido \"" + m.roadStyle + "\" (track, street o guide)");
     m.banking = tr.Bool("banking", m.roadStyle == "track");
+    m.bankHeight = std::clamp(tr.Num("bank_height", 1.9f), 0.0f, 4.0f);
+    m.bankGain = std::clamp(tr.Num("bank_gain", 34.0f), 0.0f, 100.0f);
     if (m.roadStyle == "guide") m.markers = j.Bool("markers", false);   // la guía no se ve: sin estacas ni pórtico
     if (m.track[0].surface == Surface::Keep) m.track[0].surface = m.roadStyle == "street" ? Surface::Concrete : Surface::Track;
 

@@ -113,6 +113,7 @@ struct MapDef {
     std::string bike = "base/motocross";
     MapTerrain terrain;
     std::vector<MapPoint> track;       // puntos de control (cerrado, Catmull-Rom centrípeta)
+    float bankHeight = 1.9f, bankGain = 34.0f; // outer berm height and curvature gain
     float layoutScale = 1.0f, halfWidth = 4.5f;   // la escala ya está aplicada a todas las posiciones
     bool banking = true;               // peraltes en las curvas
     std::string roadStyle = "track";   // track (base suavizada, banquinas largas) | street (calles niveladas, cruces que se mezclan)

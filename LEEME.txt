@@ -1,7 +1,10 @@
-﻿MotoSim v0.3.2 - motos para jugar solo o con amigos en la red local
+﻿MotoSim v0.3.4 - motos para jugar solo o con amigos en la red local
 ===================================================================
 
-NOVEDADES DE LA v0.3.2
+NOVEDADES DE LA v0.3.4
+- Fisicas, personaje y animaciones de la primera 0.3.1 en la motocross 450.
+- Motocross 600 turquesa: mas potencia y respuesta en wheelie. La 650 fue retirada.
+- Peraltes mas altos en la pista inicial. Red verificada entre la 450 y la 600.
 (Junta todo lo hecho desde la v0.2.8: si venís de la v0.2.8, esto es lo que hay de nuevo.)
 - SUELO DE TIERRA QUE SE DEFORMA DE VERDAD:
   * La moto hunde la tierra y deja la huella. Andando normal, sin patinar, ya queda marcada (unos 5 cm
@@ -216,7 +219,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.2, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.

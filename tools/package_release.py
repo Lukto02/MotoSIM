@@ -44,11 +44,11 @@ def wanted(path):
 
 exe_name = 'MotoSim' if mac else 'MotoSim.exe'
 files = [(exe, exe_name)]
-for item in ['tuning.ini', 'MODDING.md', 'Low_Poly_Motorcyclist_3_rigged.gltf']:
+for item in ['tuning.ini', 'MODDING.md', 'Low_Poly_Motorcyclist_2_rigged.gltf']:
     files.append((root/item, item))
-for sub in ['mods', 'Low_Poly_Motorcyclist_3_rigged_deps']:
+for sub in ['mods', 'Low_Poly_Motorcyclist_2_rigged_deps']:
     for path in sorted((root/sub).rglob('*')):
-        if wanted(path.relative_to(root)):
+        if wanted(path):
             files.append((path, path.relative_to(root).as_posix()))
 for source, relative in files:
     if not source.is_file():

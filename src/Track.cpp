@@ -188,7 +188,7 @@ void Track::Build(const MapDef& def)
     if (def.banking) {
         for (int i = 0; i < count; ++i) {
             float k = curv[i];
-            float mag = std::min(1.9f, std::max(0.0f, std::fabs(k) - 0.012f) * 34.0f);
+            float mag = std::min(def.bankHeight, std::max(0.0f, std::fabs(k) - 0.012f) * def.bankGain);
             bank[i] = k > 0.0f ? mag : -mag;   // curva a la derecha => berm a la izquierda (+)
         }
         BoxBlurWrapped(bank, 14, 3);

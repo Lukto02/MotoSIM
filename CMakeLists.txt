@@ -35,6 +35,7 @@ set(FLOATING_POINT_EXCEPTIONS_ENABLED   OFF CACHE BOOL "" FORCE)
 # usa y en Mac rompen el build (Vulkan de Homebrew sin dxc/glslang; Metal pide Xcode completo).
 set(JPH_USE_VK  OFF CACHE BOOL "" FORCE)
 set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE) # no usamos GPU de Jolt; evita escribir shaders en las dependencias
 # Jolt usa por defecto el runtime estático de MSVC (/MT) y raylib + el juego el dinámico (/MD):
 # mezclados no linkean. Para repartir el juego conviene el estático en todo (el .exe no pide
 # instalar el "Visual C++ Redistributable" en otra PC): -DMOTOSIM_STATIC_RUNTIME=ON. Sin efecto en MinGW.
@@ -71,6 +72,7 @@ add_executable(motocross
     src/Tuning.cpp
     src/Bike.cpp
     src/BikePhysics.cpp
+    src/BikePhysics031.cpp
     src/Engine.cpp
     src/EngineSound.cpp
     src/Suspension.cpp
