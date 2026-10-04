@@ -1,0 +1,17 @@
+// Prueba (no se entrega): como plaza_asfalto_ancha pero la calle es de tierra (las calles sin asfaltar de la favela).
+{
+  "name": "Plaza de tierra de calle (pruebas)",
+  "kind": "prueba · calle de tierra",
+  "bike": "base/trilheira",
+  "markers": false,
+  "terrain": {"type": "flat", "size": 2048, "resolution": 2.0, "edge": 10},
+  "start": [0, -700],
+  "track": {
+    "style": "street", "width": 400, "banking": false,
+    "points": [
+      [0, -800, "dirt"], [0, -400], [0, 0], [0, 400], [0, 800],
+      [150, 900], [300, 800], [300, 400], [300, 0], [300, -400], [300, -800], [150, -900]
+    ]
+  },
+  "look": {"preset": "day"}
+}

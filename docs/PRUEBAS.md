@@ -93,8 +93,12 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   "--flat --test wheelie --time 8" "--bot --time 40" "--test accel --time 12"
 ```
 
-- Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:08.73 y 1:08.42** (con la
-  suspensión de `motocross.ini`; hasta la v0.2.6, 1:08.37 y 1:08.51).
+- Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:04.92 y 1:04.77** con la 450 y
+  **1:04.27 / 1:04.22** con la 600 (`--bike base/motocross600`), desde los peraltes más empinados y `bot_lateral` 9
+  de octubre de 2026 (medido con el exe de la v0.3.4; ver [MAPAS.md](MAPAS.md), "Pista de motocross"). Antes, con
+  la v0.3.4: 1:08.45 / 1:08.00 y 1:07.71 / 1:07.63; antes de los peraltes de la v0.3.4, 1:08.73 y 1:08.42 (hasta la
+  v0.2.6, 1:08.37 y 1:08.51). Cambiar la pista mueve estos tiempos, no la regresión: los dos exes corren desde la
+  misma carpeta y leen el mismo `motocross.json`.
 - **Trampa: la carpeta `mods/` de donde se corre gana.** El juego busca las motos y los mapas en `mods` (la
   carpeta actual), después al lado del exe y después en `../mods`, y vale el primero que tiene cada id. Si
   corrés el exe de `dist/` desde la raíz del proyecto, usa los `.ini` del proyecto, no los del paquete: para
@@ -126,6 +130,9 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | cuerpo en el aire | `--flat --drop 3 --test airrot` (atrás a fondo) o `airlean` (adelante y atrás cada 0.6 s) |
 | frenada a fondo desde N km/h | `--map base/circuito --bike base/carrera --test frenadaN` y `python tools/frenada.py` |
 | frenar y doblar a la vez desde N km/h | desde `pruebas/`: `--map prueba/plaza_asfalto --bike base/carrera --test frenacurvaN[xS][dD][aA][n]` (S: cuánto manubrio, 1 = la D, < 0 la A; dD: la dirección empieza D s después de frenar, D < 0 antes, viniendo inclinada; aA: la suelta a los A s; n: sin freno; fF: frena con F en vez de a fondo, `x0f0.3` es una frenada suave derecha) y `python ../tools/frenacurva.py`. Como con teclado: `frenacurva150x0.6d-1.5a1.5` viene doblando y suelta para frenar, `frenacurva150x1d0.3a0.15` toca la D frenando |
+| manejar como con el teclado | `--test "teclas:W+150,D1.5,S-1"`: pasos separados por comas con las teclas apretadas (W A S D, `_` Espacio, `^` `v` flechas arriba y abajo, `<` `>` izquierda y derecha) y hasta cuándo (`N` s, `+N` hasta N km/h, `-N` hasta bajar a N). Pasa por las mismas rampas que el teclado (`Game::KeyboardInput`) con caja automática. Imprime una línea `TECLAS` por paso: km/h, s, metros, g, cuánto giró el camino y el rumbo (+ = a la derecha), cuánto se corrió de costado respecto de la recta en que venía, inclinación al empezar y al terminar, deriva máxima (arriba de 18 km/h), cabeceo mínimo y cola en el aire |
+| cada frenada, también jugando | con `--telemetry`, una línea `FRENADA` desde que la delantera pasa del 50% hasta que se suelta o para (los mismos datos que `TECLAS`). Jugando con ventana: `MotoSim.exe --telemetry --telemetry-dt 1000 > frenadas.txt` |
+| las maniobras de frenar y doblar | `python tools/maniobras.py <exe> [--bike base/carrera] [--map prueba/plaza_asfalto_ancha] [--vel 100,150,200] [--solo recta,dobla_suelta] [--crudo]`: frenar derecho, doblar y clavar soltando la D (sin gas y con gas), doblando sin soltar, clavar y después doblar, tocar la D frenando, soltar la curva sin frenar, una chicana y un toque de freno doblando; una línea por maniobra (la frenada o el último paso). En el circuito las que doblan se salen de la pista: usar una plaza |
 | el freno de cada rueda en cada paso | `--wheel-log T0 T1`: además de lo de la rueda, una línea `freno` (vueltas, patinaje, si está retenida, freno, uso y agarre máximo) |
 | bajar la escadaria a N km/h | `--map favela --spawn 68 --test bajadaN` (sigue la línea) y `python tools/escalera.py 74 88` |
 | un salto a N km/h | `python tools/saltos.py <exe> sandbox/medanos 300 370 40,50,60 ambos --time 16`: aparece en S, entra al salto que despega en s = 370 (La Cadena 3) sin tocar nada (`bajadaN`) y con el bot a N; aire, altura, vy al tocar, cabeceo y si se cae (ver [MAPAS.md](MAPAS.md), "Medir un salto"). Todos los de la vuelta de Los Médanos: `python tools/medanos.py --medir <exe> 40,50,60,70` |
@@ -138,6 +145,7 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | red como por internet | `--net-lag MS --net-jitter MS`: lo que llega se procesa MS ms más tarde, más hasta MS al azar (en tandas) |
 | arrancada (0-50, 0-100) | `--test arranquea` (parado, W en rampa a 1 s, piloto adelante, caja automática). No con `frenadaN`/`accel`: arrancan con la moto en el aire (ver abajo) |
 | freno motor | `--test frenacurvaNx0n`: llega a N km/h y suelta todo (sin freno ni dirección); restar el aire (0.6 · `drag_area` · v² / m) y la rodadura |
+| giro a velocidad constante | desde `pruebas/`: `--map prueba/plaza_tierra --bike M --test giroN --time 22 --telemetry --telemetry-dt 0.02 \| python ../tools/giro.py` (N km/h; `giroNk`: la dirección sube con la rampa de la D; `giroNxS`: sólo hasta S): radio, guiñada del mundo, g lateral, inclinación, deriva, uso de agarre, cuánto tarda en tirarse (63% y 90% de la inclinación final) y en girar el camino 90°. Superficies: `plaza_tierra` (pista), `plaza_pasto` (0.82), `plaza_calle` (calle de tierra) y `plaza_asfalto_ancha` |
 | curvas y agarre lateral | desde `pruebas/`: `--map prueba/plaza_tierra` o `prueba/plaza_asfalto_ancha --test circleN` (N m/s, dirección a fondo desde los 4 s). La guiñada del mundo es `wy` / cos(`roll`): `wy` es la del eje de la moto |
 | el resto | la lista de `--test` está en el README ("Pruebas automáticas") |
 
@@ -242,6 +250,39 @@ cd pruebas && <exe> --headless --map prueba/trial_obstaculos --bot --time 120
 ```
 
 ## Paquete para compartir
+
+### Carpetas y versiones (ordenado en la v0.3.5)
+
+Una restauración de la física de la v0.3.1 se hizo fuera de estas reglas: el código vivía en
+`dist/MotoSim-v0.3.1/port-0.3.2/`, con compilaciones, pruebas y scripts sueltos alrededor, y la v0.3.4 quedó en
+una rama sin mergear. Para que no vuelva a pasar:
+- **El código de la última versión es siempre la raíz del repo** (`main`). Nada de copias del código dentro de
+  `dist/`; si hace falta trabajar aparte, una rama o un worktree (`.claude/worktrees/`, ignorado).
+- **`dist/` tiene sólo paquetes**: `MotoSim-vX/` y `MotoSim-vX.zip`, uno por versión publicada o compartida.
+  Las pruebas de paquetes intermedios y lo viejo van a `dist/_archivo/` (hoy: `trabajo-v0.3.4/` con el port y sus
+  compilaciones, `experimentos-v0.3.x/` con la 0.3.2-original031, la 0.3.3-650 y la 0.3.2-fisica-0.3.1, y
+  `MotoSIM-main-3.2/`, un zip de GitHub descomprimido).
+- **Compilaciones en `build-*` de la raíz** (`tools\compilar.bat build-<algo>`, ignoradas por git), una por
+  agente o por prueba; las carpetas de prueba con un exe y sus mods, en el scratchpad o en `build-*`.
+- **La versión sale sólo de `src/Version.h`**, y sube +0.0.1 con cada "compilá". Cada versión: rama
+  `paquete-vX` + PR → merge a `main` → **el workflow `release.yml` crea la release con el zip de Windows y
+  `release-mac.yml` le agrega el de Mac** (se disparan al cambiar `Version.h` en `main`; no hace falta subir el
+  zip a mano). Después se borra la rama: queda sólo `main`.
+- El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
+  navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
+  credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.3.5 (04/10/2026): wheelie con gas, peraltes más empinados y la de carreras frenando bien
+
+`dist/MotoSim-v0.3.5.zip` (27 archivos, 17.8 MB, con el modelo 2 del piloto). Protocolo 7: juega con la v0.3.4 y la
+v0.2.5 a la v0.2.8 (para compartir la pista nueva, los dos con la v0.3.5). MSVC con runtime estático: `dumpbin`
+lista sólo KERNEL32, USER32, GDI32, SHELL32, WINMM y WS2_32. Verificado desde la carpeta del paquete:
+- `--test bikestats`: `mods: 6 mapas, 6 motos`, sin errores; `soilcheck` (motocross, `--flat`, circuito): 0 fallos;
+- bots: motocross 450 **1:04.26 / 1:04.10**, 600 1:04.28 / 1:04.18 (la pista cambió: ver MAPAS.md), favela
+  1:37.39 / 1:37.55, circuito con la de carreras 2:11.41 / 2:09.73, park 0:50.93 / 0:50.89;
+- red (`tools/red.py`): 450 con carrera entre dos v0.3.5, y 600 contra la v0.3.4 en los dos sentidos.
+- Lo que cambia y cómo se comprobó, en FISICA.md ("En wheelie no se podía acelerar", "Velocidad de giro", "La de
+  carreras: rework de la frenada") y MAPAS.md (peraltes).
 
 ### v0.3.2 (29/09/2026): el paquete que junta lo hecho desde la v0.2.8
 

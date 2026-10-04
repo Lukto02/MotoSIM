@@ -94,6 +94,9 @@ struct BikeParams {
     float minTurnRadius = 1.8f;      // m, a paso de hombre con la dirección a fondo
     float maxLateralAccel = 9.5f;    // m/s^2 que el input pide como máximo (en plano)
     float bankTurnGain = 1.0f;       // cuánto aprovechan los peraltes para doblar más fuerte (0 = como en plano)
+    // Cuánto baja maxLateralAccel (lo que pide el input y, con eso, la inclinación) cuando el agarre lateral bajo las ruedas
+    // (SurfaceGrip × *_tire_loose/paved_grip × *_tire_lat_grip, en g) es menor: 1 = pide lo que dan las cubiertas, 0 = no baja (como antes).
+    float leanSurfaceGrip = 0.0f;
     float maxLeanDeg = 55.0f;
     float leanSteerSpeedLow = 4.0f;  // debajo: se dobla con manubrio
     float leanSteerSpeedHigh = 12.0f;// encima: se dobla inclinando
@@ -132,6 +135,9 @@ struct BikeParams {
 
     float wheeliePrediction = 0.35f; // segundos de anticipación del recorte de gas
     float wheelieThrottleFloor = 0.0f; // gas mínimo con la asistencia de wheelie activada
+    float wheelieKeepThrottle = 0.0f; // 0 = el limitador corta el gas; 1 = deja el gas y anula el cabeceo de la tracción
+    float wheelieKeepFromDeg = 5.0f; // ... sólo en un wheelie de verdad: desde estos grados de trompa arriba
+    float wheelieKeepFullDeg = 12.0f;// ... y del todo desde éstos (menos que 1 entero se da vuelta)
     float wheelieStartDeg = 12.0f;   // limitador predictivo de wheelie (0/0 lo desactiva)
     float wheelieEndDeg = 27.0f;
     float wheelieLeanBackDeg = 18.0f;// grados extra de wheelie con el piloto tirado atrás
@@ -177,6 +183,11 @@ struct BikeParams {
     // Mientras la moto cambia mucho de inclinación (lo que pide el piloto contra la que tiene), afloja la
     // delantera hasta esta fracción: frenando fuerte, la trasera descargada no acompaña el cambio y la cola sale.
     float brakeTransitionRelease = 0.0f;
+    // Cuánto del barrido de costado que hace el rolido en los contactos no ven las cubiertas (0 = todo, como antes; 1 = nada).
+    // El balance inclina la moto alrededor del centro de masa: al enderezarla rápido los contactos barren hacia afuera y las
+    // cubiertas empujan para el otro lado (soltando una curva para frenar, la moto se iba para el lado contrario). En una de
+    // verdad la moto rola alrededor de la línea de los contactos, que no se mueven. Sólo mientras se endereza.
+    float leanSweepComp = 0.0f;
     float tcSlip = 0.35f;            // slip trasero tolerado por el control de tracción
     float crashAngleDeg = 72.0f;
     // Golpe fuerte contra algo fijo: el piloto sale despedido (m/s con que se acercaban). De frente o de
@@ -214,6 +225,7 @@ struct Wheel {
     float longVel = 0.0f, latVel = 0.0f;
     float slipRatio = 0.0f, slipAngle = 0.0f;
     float normalForce = 0.0f, longForce = 0.0f, latForce = 0.0f, gripUsage = 0.0f;
+    float gripFactor = 1.0f;         // agarre lateral (suelo × cubierta × lat_grip) en el último apoyo (lean_surface_grip)
     JPH::Vec3 suspForce = JPH::Vec3::sZero(), tireForce = JPH::Vec3::sZero();
 
     float Compression01() const;     // 0..1 para el HUD
@@ -279,6 +291,7 @@ public:
     float steerAngle = 0.0f, leanTarget = 0.0f, riderLean = 0.0f;
     float riderSide = 0.0f;                  // cuerpo del piloto de costado (-1 izquierda .. +1 derecha)
     float steerBase = 0.0f, steerCaster = 0.0f;   // manubrio pedido y contravolante automático (rad)
+    float leanGrip = 1.0f;                        // agarre bajo las ruedas, filtrado (lean_surface_grip)
     float bodyTiltRate = 0.0f;
     float slideAngle = 0.0f;                 // telemetría: cola afuera en la dirección de la curva (rad)
     float rearBrakeUsed = 0.0f;              // freno trasero que queda después de que el piloto lo module
@@ -303,7 +316,7 @@ public:
     bool wheelLog = false;           // pruebas (--wheel-log T0 T1): imprime cada rueda en cada paso
     bool crashed = false;
     bool tractionControl = true;
-    float tcFactor = 1.0f, wheelieCut = 0.0f;
+    float tcFactor = 1.0f, wheelieCut = 0.0f, wheelieKeep = 0.0f;
     float crashedTime = 0.0f;
     JPH::Vec3 comShiftWorld = JPH::Vec3::sZero();
 

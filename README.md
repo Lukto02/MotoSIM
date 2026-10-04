@@ -60,7 +60,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.3.2, `dist/MotoSim-v0.3.2.zip`, que se publica en
+**Versión para compartir** (la v0.3.5, `dist/MotoSim-v0.3.5.zip`, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
 cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
 release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
@@ -555,7 +555,15 @@ hace el par. `--net-lag MS` y `--net-jitter MS` demoran lo que llega (como una p
 Otras opciones: `--spawn <metros de pista>`, `--telemetry-dt <s>`, `--ruts`, `--size <w> <h>`,
 `--bot-lat <m/s²>` (qué tan fuerte encara las curvas el bot, 6 por defecto). El test `circleN`
 (p. ej. `--flat --test circle12`) sostiene N m/s con la dirección a fondo, para medir el radio de giro
-(`circle3x`: además se cae a los 8 s, para ver el ragdoll que sale con la pata afuera).
+(`circle3x`: además se cae a los 8 s, para ver el ragdoll que sale con la pata afuera). `giroN` (N en
+km/h; `giroNk`, la dirección sube como con la D del teclado; `xS`, sólo hasta S) dobla a velocidad
+constante y `python tools/giro.py` resume radio, guiñada, g lateral, inclinación y cuánto tarda en tirarse.
+`teclas:GUION` maneja como con el teclado (las mismas rampas que W A S D, Espacio y las flechas): pasos separados por
+comas, cada uno con las teclas apretadas y hasta cuándo (`N` segundos, `+N` hasta llegar a N km/h, `-N` hasta bajar a N);
+p. ej. `--test "teclas:W+150,D1.5,S-1"` acelera a 150, dobla 1.5 s con la D y la suelta para clavar los frenos. Imprime una
+línea `TECLAS` por paso (km/h, metros, g, cuánto giró el camino, cuánto se corrió de costado, inclinación, deriva) y, con
+`--telemetry`, una `FRENADA` por cada frenada (también jugando con ventana). `python tools/maniobras.py <exe>` corre las
+maniobras de siempre (frenar derecho, doblar y clavar, clavar y doblar, soltar la curva...) y las resume.
 Whip: `--flat --drop 1 --test whip` sale como de un salto y tira la moto a la derecha 0.6 s (`whipL`
 a la izquierda, `whiphold` la mantiene hasta el suelo); `--bot --test scrub` da vueltas tirando scrubs
 en todos los saltos (un poco de dirección en la cara y whip en el aire; `whipair` sólo en el aire).

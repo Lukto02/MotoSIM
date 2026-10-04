@@ -849,6 +849,7 @@ void Game::Step(BikeInput in)
     }
     if (bike.Position().GetY() < -60.0f) RespawnNearest();
 
+    UpdateManeuverLogs();
     if (opt.telemetry && simTime - lastTelemetry >= opt.telemetryInterval - 1e-4f) {
         PrintTelemetry();
         lastTelemetry = simTime;
@@ -1082,25 +1083,41 @@ void Game::HandleKeys()
     }
 }
 
-BikeInput Game::ReadPlayerInput(float dt)
+BikeInput Game::KeyboardInput(const KeysDown& k, float dt)
 {
     BikeInput in;
     auto ramp = [dt](float& v, float target, float riseRate, float fallRate) {
         v = mu::MoveTowards(v, target, (std::fabs(target) > std::fabs(v) ? riseRate : fallRate) * dt);
     };
     // Teclado: los ejes digitales se suavizan con rampas.
-    ramp(kbThrottle, IsKeyDown(KEY_W) ? 1.0f : 0.0f, 6.0f, 10.0f);
-    ramp(kbFront, IsKeyDown(KEY_S) ? 1.0f : 0.0f, 5.0f, 12.0f);
-    ramp(kbRear, IsKeyDown(KEY_SPACE) ? 1.0f : 0.0f, 8.0f, 12.0f);
-    ramp(kbSteer, (IsKeyDown(KEY_D) ? 1.0f : 0.0f) - (IsKeyDown(KEY_A) ? 1.0f : 0.0f), 3.5f, 6.0f);
-    ramp(kbLean, (IsKeyDown(KEY_UP) ? 1.0f : 0.0f) - (IsKeyDown(KEY_DOWN) ? 1.0f : 0.0f), 5.0f, 6.0f);
-    ramp(kbSide, (IsKeyDown(KEY_RIGHT) ? 1.0f : 0.0f) - (IsKeyDown(KEY_LEFT) ? 1.0f : 0.0f), 5.0f, 6.0f);
+    ramp(kbThrottle, k.w ? 1.0f : 0.0f, 6.0f, 10.0f);
+    ramp(kbFront, k.s ? 1.0f : 0.0f, 5.0f, 12.0f);
+    ramp(kbRear, k.space ? 1.0f : 0.0f, 8.0f, 12.0f);
+    ramp(kbSteer, (k.d ? 1.0f : 0.0f) - (k.a ? 1.0f : 0.0f), 3.5f, 6.0f);
+    ramp(kbLean, (k.up ? 1.0f : 0.0f) - (k.down ? 1.0f : 0.0f), 5.0f, 6.0f);
+    ramp(kbSide, (k.right ? 1.0f : 0.0f) - (k.left ? 1.0f : 0.0f), 5.0f, 6.0f);
     in.throttle = kbThrottle;
     in.frontBrake = kbFront;
     in.rearBrake = std::max(kbRear, kbFront * 0.5f);   // S frena con las dos, Space sólo atrás
     in.steer = kbSteer;
     in.lean = kbLean;
     in.side = kbSide;
+    return in;
+}
+
+BikeInput Game::ReadPlayerInput(float dt)
+{
+    KeysDown k;
+    k.w = IsKeyDown(KEY_W);
+    k.s = IsKeyDown(KEY_S);
+    k.space = IsKeyDown(KEY_SPACE);
+    k.a = IsKeyDown(KEY_A);
+    k.d = IsKeyDown(KEY_D);
+    k.up = IsKeyDown(KEY_UP);
+    k.down = IsKeyDown(KEY_DOWN);
+    k.left = IsKeyDown(KEY_LEFT);
+    k.right = IsKeyDown(KEY_RIGHT);
+    BikeInput in = KeyboardInput(k, dt);
     in.shiftUp = IsKeyPressed(KEY_E);
     in.shiftDown = IsKeyPressed(KEY_Q);
 
@@ -1213,9 +1230,133 @@ BikeInput Game::BotInput()
     return in;
 }
 
+// ---------------------------------------------------------------- resumen de maniobras (teclas: y frenadas)
+namespace {
+float FlatYaw(Vec3 v) { return std::atan2(v.GetX(), v.GetZ()); }   // + = hacia +X (la izquierda de la moto)
+float WrapPi(float a) { return std::remainder(a, 2.0f * mu::kPi); }
+}
+
+void Game::ManeuverLog::Begin(const Game& g)
+{
+    const Vec3 fwd = g.bike.Rotation() * Vec3::sAxisZ(), vel = g.bike.Velocity();
+    active = true;
+    t0 = g.simTime;
+    v0 = g.bike.speed * 3.6f;
+    dist = 0.0f;
+    heading0 = heading = FlatYaw(fwd);
+    pathYaw0 = pathYaw = Vec3(vel.GetX(), 0.0f, vel.GetZ()).Length() > 1.0f ? FlatYaw(vel) : heading0;
+    roll0 = g.bike.roll;
+    maxRoll = std::fabs(g.bike.roll);
+    maxBeta = 0.0f;
+    minPitch = g.bike.pitch;
+    rearAir = 0.0f;
+    lat = 0.0f;
+    p0 = prevP = g.bike.Position();
+}
+
+void Game::ManeuverLog::Update(const Game& g, float dt)
+{
+    if (!active) return;
+    const Vec3 fwd = g.bike.Rotation() * Vec3::sAxisZ(), vel = g.bike.Velocity(), p = g.bike.Position();
+    dist += Vec3(p.GetX() - prevP.GetX(), 0.0f, p.GetZ() - prevP.GetZ()).Length();
+    prevP = p;
+    heading += WrapPi(FlatYaw(fwd) - WrapPi(heading));
+    float beta = 0.0f;
+    if (Vec3(vel.GetX(), 0.0f, vel.GetZ()).Length() > 1.0f) {
+        pathYaw += WrapPi(FlatYaw(vel) - WrapPi(pathYaw));
+        beta = WrapPi(FlatYaw(vel) - FlatYaw(fwd));
+    }
+    maxRoll = std::max(maxRoll, std::fabs(g.bike.roll));
+    if (g.bike.speed > 5.0f) maxBeta = std::max(maxBeta, std::fabs(beta));   // casi parada la deriva no dice nada
+    minPitch = std::min(minPitch, g.bike.pitch);
+    if (g.bike.wheels[Bike::FRONT].grounded && !g.bike.wheels[Bike::REAR].grounded) rearAir += dt;
+    // De costado: cuánto se corrió respecto de la recta en la que venía (+ = a la derecha).
+    const Vec3 d = p - p0;
+    lat = -(d.GetX() * std::cos(pathYaw0) - d.GetZ() * std::sin(pathYaw0));
+}
+
+void Game::ManeuverLog::Print(const Game& g, const char* what, const std::string& label) const
+{
+    const float T = std::max(g.simTime - t0, 1e-3f), v1 = g.bike.speed * 3.6f;
+    // + = a la derecha (el rumbo del mundo crece hacia la izquierda de la moto).
+    // (sin acentos ni grados: la consola de Windows los muestra mal)
+    std::printf("%s %s: %3.0f -> %3.0f km/h en %.2f s, %.1f m, %.2f g | camino %+.1f rumbo %+.1f grados, de costado %+.1f m | "
+                "incl %+.0f -> %+.0f (max %.0f) deriva max %.1f cabeceo min %.1f cola en el aire %.0f%%%s\n",
+                what, label.c_str(), v0, v1, T, dist, (v0 - v1) / 3.6f / T / 9.81f, -mu::Deg(pathYaw - pathYaw0),
+                -mu::Deg(heading - heading0), lat, mu::Deg(roll0), mu::Deg(g.bike.roll), mu::Deg(maxRoll), mu::Deg(maxBeta),
+                mu::Deg(minPitch), 100.0f * rearAir / T, g.bike.crashed ? "  CAIDA" : "");
+}
+
+// Frenadas (con --telemetry, también jugando): desde que la delantera pasa del 50% hasta que se suelta o para.
+void Game::UpdateManeuverLogs()
+{
+    teclasLog.Update(*this, kDt);
+    if (!opt.telemetry) return;
+    if (!brakeLog.active && bike.frontBrake > 0.5f && bike.speed > 3.0f && !bike.crashed) brakeLog.Begin(*this);
+    else if (brakeLog.active) {
+        brakeLog.Update(*this, kDt);
+        if (bike.frontBrake < 0.1f || bike.speed < 0.3f || bike.crashed) {
+            char label[64];
+            std::snprintf(label, sizeof(label), "t=%.2f", brakeLog.t0);
+            brakeLog.Print(*this, "FRENADA", label);
+            brakeLog.active = false;
+        }
+    }
+}
+
+BikeInput Game::TeclasInput()
+{
+    bike.engine.autoShift = true;
+    if (teclasStep < 0) {
+        const std::string script = opt.test.substr(7);
+        size_t a = 0;
+        while (a <= script.size()) {
+            size_t b = script.find(',', a);
+            if (b == std::string::npos) b = script.size();
+            TeclasStep st;
+            st.text = script.substr(a, b - a);
+            size_t i = 0;
+            for (; i < st.text.size(); ++i) {
+                const char c = st.text[i];
+                if (c == 'W' || c == 'w') st.keys.w = true;
+                else if (c == 'S' || c == 's') st.keys.s = true;
+                else if (c == 'A' || c == 'a') st.keys.a = true;
+                else if (c == 'D' || c == 'd') st.keys.d = true;
+                else if (c == '_') st.keys.space = true;
+                else if (c == '^') st.keys.up = true;
+                else if (c == 'v') st.keys.down = true;
+                else if (c == '<') st.keys.left = true;
+                else if (c == '>') st.keys.right = true;
+                else break;
+            }
+            if (i < st.text.size() && (st.text[i] == '+' || st.text[i] == '-')) st.until = st.text[i++];
+            st.value = (float)std::atof(st.text.c_str() + i);
+            if (!st.text.empty()) teclasSteps.push_back(st);
+            a = b + 1;
+        }
+        teclasStep = 0;
+        teclasStepT0 = simTime;
+        teclasLog.Begin(*this);
+    }
+    while (teclasStep < (int)teclasSteps.size()) {
+        const TeclasStep& st = teclasSteps[teclasStep];
+        const float kmh = bike.forwardSpeed * 3.6f;
+        const bool done = st.until == 't' ? simTime - teclasStepT0 >= st.value - 1e-4f : (st.until == '+' ? kmh >= st.value : kmh <= st.value);
+        if (!done && !(bike.crashed && bike.crashedTime > 1.0f)) break;
+        char label[64];
+        std::snprintf(label, sizeof(label), "%d %-8s t=%.2f", teclasStep + 1, st.text.c_str(), teclasLog.t0);
+        teclasLog.Print(*this, "TECLAS", label);
+        ++teclasStep;
+        teclasStepT0 = simTime;
+        teclasLog.Begin(*this);
+    }
+    return KeyboardInput(teclasStep < (int)teclasSteps.size() ? teclasSteps[teclasStep].keys : KeysDown{}, kDt);
+}
+
 BikeInput Game::TestInput()
 {
     if (opt.test.rfind("netchoque", 0) == 0) return NetChoqueInput();
+    if (opt.test.rfind("teclas:", 0) == 0) return TeclasInput();
     BikeInput in;
     const float t = simTime;
     if (opt.test == "accel") {                   // aceleración a fondo y frenada fuerte
@@ -1367,6 +1508,28 @@ BikeInput Game::TestInput()
         if (t > 4.0f) in.steer = 1.0f;
         // circleNx: a los 8 s se cae en plena curva (ragdoll que sale con la pata afuera).
         if (opt.test.back() == 'x' && t > 8.0f && bike.RiderOnBike()) bike.crashed = true;
+    } else if (opt.test.rfind("giro", 0) == 0 && opt.test.size() > 4 && std::isdigit((unsigned char)opt.test[4])) {
+        // giroN[k][xS]: llega a N km/h (caja automática, piloto neutro), la sostiene 1.5 s y dobla a la derecha con
+        // la dirección en S (sin xS, a fondo) sostenida, manteniendo N con el gas. Con k la dirección sube como con la D
+        // del teclado (rampa de 3.5/s); sin k, de golpe (el stick). Imprime "giro: inicio" cuando empieza a doblar,
+        // para tools/giro.py (radio, guiñada, g lateral, inclinación y cuánto tarda en tirarse).
+        bike.engine.autoShift = true;
+        const char* arg = opt.test.c_str() + 4;
+        const float vt = (float)std::atof(arg) / 3.6f;
+        const char* x = std::strchr(arg, 'x');
+        const float steer = x ? (float)std::atof(x + 1) : 1.0f;
+        const bool keyboard = std::strchr(arg, 'k') != nullptr;
+        const float v = bike.forwardSpeed;
+        if (!testBraking && t > 1.0f && v >= vt - 0.3f) {
+            testBraking = true;
+            testT0 = simTime + 1.5f;
+        }
+        in.throttle = t > 1.0f ? mu::Clamp((vt - v) * 0.4f + 0.25f, 0.0f, 1.0f) : 0.0f;
+        if (testBraking && simTime >= testT0) {
+            if (testSteer == 0.0f) std::printf("giro: inicio t=%.3f v=%.2f\n", simTime, v * 3.6f);
+            testSteer = keyboard ? mu::MoveTowards(testSteer, steer, 3.5f * kDt) : steer;
+            in.steer = testSteer;
+        }
     } else if (opt.test == "grau" || opt.test == "graucurva" || opt.test == "grau2") {
         // Grau (wheelie largo, estilo calle): a 12 km/h, tirado atrás y gas de golpe (embrague); el
         // gas queda a fondo y el piloto atrás 8 s; después se suelta la flecha y baja. graucurva: a

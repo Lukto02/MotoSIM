@@ -1,0 +1,18 @@
+// Prueba (no se entrega): llanura de pasto (agarre del suelo 0.82, el de afuera de la pista) para medir curvas
+// (giroN, circleN). La pista es una franja de 3 m sólo para la largada: el círculo sale enseguida al pasto.
+{
+  "name": "Plaza de pasto (pruebas)",
+  "kind": "prueba · pasto",
+  "bike": "base/motocross",
+  "markers": false,
+  "terrain": {"type": "flat", "size": 2048, "resolution": 2.0, "edge": 10},
+  "start": [0, -350],
+  "track": {
+    "style": "track", "width": 3, "banking": false,
+    "points": [
+      [0, -800], [0, -400], [0, 0], [0, 400], [0, 800],
+      [150, 900], [300, 800], [300, 400], [300, 0], [300, -400], [300, -800], [150, -900]
+    ]
+  },
+  "look": {"preset": "day"}
+}

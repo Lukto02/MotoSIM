@@ -107,6 +107,7 @@ void BikeParams::Register(Tuning& t)
     t.Add("min_turn_radius", &minTurnRadius);
     t.Add("max_lateral_accel", &maxLateralAccel);
     t.Add("bank_turn_gain", &bankTurnGain);
+    t.Add("lean_surface_grip", &leanSurfaceGrip);
     t.Add("max_lean_deg", &maxLeanDeg);
     t.Add("lean_steer_speed_low", &leanSteerSpeedLow);
     t.Add("lean_steer_speed_high", &leanSteerSpeedHigh);
@@ -141,6 +142,9 @@ void BikeParams::Register(Tuning& t)
     t.Add("wheelie_start_deg", &wheelieStartDeg);
     t.Add("wheelie_prediction", &wheeliePrediction);
     t.Add("wheelie_throttle_floor", &wheelieThrottleFloor);
+    t.Add("wheelie_keep_throttle", &wheelieKeepThrottle);
+    t.Add("wheelie_keep_from_deg", &wheelieKeepFromDeg);
+    t.Add("wheelie_keep_full_deg", &wheelieKeepFullDeg);
     t.Add("wheelie_end_deg", &wheelieEndDeg);
     t.Add("wheelie_assist_torque", &wheelieAssistTorque);
     t.Add("wheelie_lean_back_deg", &wheelieLeanBackDeg);
@@ -168,6 +172,7 @@ void BikeParams::Register(Tuning& t)
     t.Add("rear_lift_mitigation", &rearLiftMitigation);
     t.Add("brake_yaw_comp", &brakeYawComp);
     t.Add("brake_transition_release", &brakeTransitionRelease);
+    t.Add("lean_sweep_comp", &leanSweepComp);
     t.Add("tc_slip", &tcSlip);
     t.Add("crash_angle_deg", &crashAngleDeg);
     t.Add("crash_impact_speed", &crashImpactSpeed);
@@ -305,6 +310,7 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
         w.omega = 0.0f;
         w.slipRatio = w.slipAngle = w.gripUsage = 0.0f;
         w.normalForce = w.longForce = w.latForce = 0.0f;
+        w.gripFactor = 1.0f;
         w.suspForce = w.tireForce = Vec3::sZero();
     }
     engine.Reset();
@@ -313,6 +319,7 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     airTime = 0.0f;
     steerAngle = leanTarget = riderLean = legOut = bodyTilt = bodyTiltRate = riderSide = 0.0f;
     steerBase = steerCaster = 0.0f;
+    leanGrip = 1.0f;
     reverseHold = 0.0f;
     prevPos = currPos = position;
     prevRot = currRot = q;

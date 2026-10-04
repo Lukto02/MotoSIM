@@ -17,6 +17,220 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### La de carreras: rework de la frenada (a pedido; sólo la Carrera)
+- **Pedido**: "la moto de carreras frena poco, a veces cuando frenas queda doblando para un costado, etc. quizás tiene poco
+  peso o algo así, pero necesita un rework para comportarse bien". Juega con teclado. Después: "agregá telemetría y probá en
+  el juego todos los comportamientos: ir rápido, doblar y clavar frenos, clavar frenos recto, clavar frenos y luego doblar".
+- **Cómo se midió** (sin ventana, `prueba/plaza_asfalto_ancha`): prueba nueva `teclas:GUION`, que maneja con las mismas
+  rampas del teclado, y `tools/maniobras.py`, que corre diez maniobras a 100/150/200/250 km/h y resume cada frenada (línea
+  `FRENADA`); `frenacurvaN...` con un resumen de "soltar la curva" (cuánto sigue girando el camino 0.5/1/2/3 s después, si
+  queda inclinada para el otro lado) en un barrido de 90 a 250 km/h con la D al 70, 85 y 100% (82 casos).
+- **Qué pasaba** (antes = v0.3.4):
+  - **derecho** frenaba 1.0-1.07 g: 100 → 0 en 39.8 m, 200 → 0 en 140 m. Una deportiva de verdad: 1.0-1.2 g (35-40 m);
+  - **doblar, soltar la D y clavar** (lo más común con teclado): la moto se iba **para el lado contrario** de la curva: el
+    camino giraba 5-12° para afuera y terminaba 5-13 m corrida. Clavando 0.3 s después de soltar, casi nada;
+  - **soltar una curva a fondo sin frenar**, a 150 y 180 km/h (2 de 42 casos): quedaba ~7 s derrapando con la cola afuera
+    (deriva 7-8°, la trasera al 350% de su agarre), **inclinada 13° para el otro lado y doblando 75° para el lado de la
+    curva a 1.7 g**. A 120, 140, 160 o 200, se enderezaba en 0.65 s;
+  - con el teclado también se frena menos cuando la moto cambia de inclinación (`brake_transition_release` 0.6): clavar y
+    doblar desde 100 km/h frenaba 0.91 g (43 m).
+- **Por qué**:
+  - **para el otro lado**: el balance cambia la inclinación con un torque en el centro de masa, así que la moto rola
+    alrededor del centro de masa y no de la línea de los contactos, como una de verdad. Al enderezarse rápido (50° → 10° en
+    0.3 s) los contactos barren hacia afuera a ~0.65 m/s y las cubiertas, rígidas (`cornering_stiffness` 45), empujan para el
+    otro lado (~900 N la delantera: `--wheel-log`, deriva -1° con el manubrio apuntando a la curva). Frenando, con la trasera
+    casi sin carga, ese empuje gira la moto y el camino. En una moto de verdad es al revés: para enderezarse el piloto dobla
+    más y el camino se cierra un poco antes de seguir derecho;
+  - **el derrape sin frenar**: al enderezarse la moto rebota (sube el centro de masa y descarga las ruedas) y frena por el
+    aire y el freno motor (~0.3 g a 150 km/h): la trasera, que llevaba ~1.5 de 1.67 de agarre de costado, se satura primero
+    y la cola sale. Con las dos cubiertas saturadas empujando para el mismo lado la curva se sostiene sola (como un auto en
+    drift neutro) y el balance, que pide 0° porque se soltó la D, la sostiene inclinada para el otro lado (13°: donde su
+    torque iguala al de las cubiertas). Es un estado estable: no sale hasta que bajó 60 km/h;
+  - **frena poco**: el límite era el stoppie (centro de masa a 0.62 m, 0.68 m detrás del contacto de adelante: ~1.1 g) y el
+    freno de adelante (720 Nm en 0.30 m: ~1.04 g con 235 kg).
+- **Qué se hizo**:
+  - clave nueva **`lean_sweep_comp`** (BikePhysics.cpp; 0 en `tuning.ini` = como antes, guardada con `if`): mientras la moto
+    se endereza (rolido y velocidad de rolido de signos opuestos), al contacto de cada cubierta se le resta la velocidad que
+    le da el rolido alrededor del centro de masa (`(ω·fwd) fwd × (contacto − centro de masa)`): las cubiertas no ven el
+    barrido. Tirándose a la curva no actúa: ese empuje hacia adentro ayuda a doblar (con la clave también al tirarse, clavar
+    y doblar desde 150 dobla 97° en vez de 174°);
+  - `carrera.ini`: `lean_sweep_comp` 1, `com_height` -0.06 (centro de masa efectivo a 0.56 m: stoppie a ~1.2 g),
+    `front_brake_torque` 720 → 820, `rear_tire_lat_grip` 1.55 → 1.65 (la trasera con margen sobre la delantera, 1.60),
+    `inertia_yaw` 52 → 60 y `brake_transition_release` 0.6 → 0.3;
+  - **no se tocó el peso** (160 kg + piloto): en esta física las cubiertas empujan en proporción a la carga, así que con
+    más masa (y las inercias, los resortes y los frenos escalados) la moto hace lo mismo pero acelera menos (probado con
+    270 kg: 0-100 en 2.33 s contra 2.08, y frena y dobla igual). Lo que cambia el comportamiento son las proporciones: el
+    centro de masa, la inercia de guiñada, el agarre de cada cubierta y los torques fijos de las ayudas. Tampoco la
+    distancia entre ejes (1.42 m, la de una 1000; una 600 tiene 1.37-1.40): las piezas de `BikeMeshes.cpp` están armadas
+    para esa geometría. Las inercias (cabeceo 62, guiñada 60, rolido 22 kg m²) están en el rango de una deportiva con el
+    piloto agachado.
+- **Probado y descartado**:
+  - `yaw_align` (que `brake_align` actúe sin frenar si la deriva pasa de 3°): baja la deriva del derrape a 3.7° pero la moto
+    sigue doblando 73° inclinada para el otro lado (lo que la sostiene es el agarre, no la deriva). Se sacó del código;
+  - menos balance (`balance_k_high` 4000-4500): saca el derrape pero se tira a la curva más lento (0.35 / 0.72 s) y,
+    soltando para frenar a 200, vuelve a irse 2-3° para afuera;
+  - `rear_tire_lat_grip` 1.75: sin derrapes y con menos cola al tirarse (2-6° en vez de 2-8°), pero el bot de la favela se cae más en
+    la curva de s≈252 (17-18 caídas en 30 min contra 7-12): con más agarre atrás la moto gira menos y pega en la pared. Con
+    1.65 y sin la inercia de guiñada, 1 derrape de 42; con las dos, ninguno en 82;
+  - sin `brake_yaw_comp` (con todo lo nuevo): doblando y clavando sin soltar se abre (de +163° a +22° y -12°): sigue haciendo
+    falta. `brake_align` 4 / 1500 (los de antes): la cola sale 7-8°. `brake_transition_release` 0: frena más pero clavar y
+    doblar dobla menos (88° contra 120° desde 100);
+  - `lean_surface_grip` 1 encima de todo: el parque mejora (14 vueltas en 15 min contra 4) y la favela empeora (25-28
+    caídas en 30 min contra 9-18, en las calles de tierra de s≈1060-1090), igual que antes. Sigue sin activar.
+- **Se comprobó** (`python tools/maniobras.py <exe> --vel 100,150,200,250` y el barrido de soltar la curva):
+
+  | | antes | después | deportiva real (600-1000) |
+  |---|---|---|---|
+  | derecho 100 → 0 | 39.8 m, 1.01 g | 35.9 m, 1.12 g | 35-40 m, 1.0-1.2 g (limita el stoppie) |
+  | derecho 150 / 200 / 250 → 0 | 83 / 140 / 205 m (1.05-1.12 g) | 75 / 128 / 187 m (1.16-1.23 g) | 1.1-1.2 g (con el aire, más arriba) |
+  | doblar, soltar y clavar (100/150/200/250): camino después de soltar | -12 / -8 / -7 / -5° (para afuera), corrida 5-12 m | +9 / +3 / 0 / -1° (para el lado de la curva), 1-4 m | sigue un poco para el lado de la curva y endereza |
+  | lo mismo con gas | -8 / -6 / -5 / -4°, 8-13 m | +2 / 0 / -1 / -2°, 0.6-5 m | |
+  | g de esas frenadas | 0.92-1.11 | 1.05-1.24 | |
+  | clavar y después doblar (100 / 150 / 200) | 0.91 / 0.96 / 1.02 g, dobla 106 / 150 / 163° | 1.11 / 1.11 / 1.15 g, dobla 109 / 148 / 165° | se puede doblar frenando (menos que sin frenar) |
+  | doblando, clavar sin soltar la D | 1.03-1.17 g, dobla 147-182° | 1.14-1.29 g, dobla 152-179° | |
+  | tocar la D frenando | -1 a -2°, 0.99-1.11 g | 0 a +5°, 1.11-1.23 g | |
+  | soltar la curva sin frenar: se queda derrapando | 2 de 42 casos (75° y 13° para el otro lado) | 0 de 82 | se endereza en ~0.5-1 s |
+  | deriva máxima frenando | 3.3-5.3° | 2.7-5.0° | |
+  | 0-100 / 0-200 (`arranquea`) | 2.08 / 4.65 s | 2.08 / 4.48 s | 2.6-3.1 / 5.2-6 s |
+  | giro a fondo 40-100 km/h (`giroNk`) | 1.26-1.30 g, 51-52°, entra en 0.67 s | igual | 1.2-1.4 g, 50-58° |
+
+  - el bot del circuito: 2:11.41 / 2:09.73 / 2:09.73 / 2:09.76 y 0 caídas en 600 s (antes 2:11.65 / 2:09.83 / 2:09.84 /
+    2:09.88, 0 caídas);
+  - la favela, 30 min con la masa corrida ±0.01-0.02 kg (5 muestras de cada una): 9, 9, 11, 12 y 18 caídas (media 11.8)
+    contra 7, 8, 11, 11 y 12 (media 9.8), casi todas en la pared de s≈252 (ver "La Trilheira: frenando fuerte hacía un
+    trompo") y en s≈984, como antes: dentro del ruido;
+  - el parque, 15 min: 4 y 13 vueltas con 1-2 caídas; antes se trababa (0 y 5 vueltas);
+  - las otras motos, idénticas: 54 pruebas (`brakeslide`, `cuerpo`, `flip`, `whip`, `wheelie`, `accel`, `frenada60`,
+    `frenacurva60x1d-1a1`, `launch` de la 450, la 600, la trial, la Trilheira y la 2T; los bots de la pista de motocross,
+    la favela, Los Médanos, el valle y el parque; `giro`) contra el exe de la misma fuente sin el cambio, más
+    `tools/regresion.sh` con las de siempre. El bot de la 450: 1:08.21 / 1:08.01.
+- **Lecciones**:
+  - **Probar como juega el usuario**: las pruebas de frenada eran derechas o con la dirección ya puesta; con teclado se
+    viene doblando, se suelta la D y se clava. `teclas:` maneja por las mismas rampas del teclado y `FRENADA` resume cada
+    frenada (también jugando con ventana y `--telemetry`).
+  - **El rolido de este modelo es alrededor del centro de masa**: cualquier cambio rápido de inclinación arrastra los
+    contactos de costado y las cubiertas responden. Al tirarse a la curva ayuda (empuja para adentro); al enderezarse
+    empuja para afuera, que es lo contrario de una moto de verdad. `lean_sweep_comp` lo saca sólo al enderezarse.
+  - **Con el balance artificial la moto puede quedar en un estado imposible**: inclinada para un lado y doblando para el
+    otro, sostenida por el torque del balance contra el de las cubiertas. Buscar estados así comparando la inclinación con
+    hacia dónde dobla (o `roll` contra `fLat`/`rLat`), no sólo la deriva.
+  - **Un derrape que aparece en 2 de 42 casos es un borde**: la trasera estaba a ~1.0 de uso. Medir con barridos finos de
+    velocidad y dirección, y con margen (82 casos), no con una o dos pruebas.
+  - **El peso no es lo que parece**: con las fuerzas de las cubiertas proporcionales a la carga, más masa sola no cambia
+    cómo frena ni cómo dobla; sólo cambian las proporciones (centro de masa, inercias, agarre de cada rueda, torques fijos).
+  - **El bot de la favela juzga mal el agarre trasero**: con más agarre atrás gira menos en la bajada de s≈241-253 y pega
+    en la pared. Compararlo con 5 muestras de 30 min y mirar dónde se cae.
+
+### Velocidad de giro: revisión contra motos reales (v0.3.4, a pedido; no cambia ninguna moto)
+- **Pedido**: "fijate velocidad de giro, en todas las motos y sobre todas las superficies, revisá si está correcta con
+  contrapartes reales".
+- **Cómo se midió**: prueba nueva `giroN` (Game.cpp: llega a N km/h con la caja automática y el piloto neutro, la
+  sostiene 1.5 s y dobla a la derecha con la dirección a fondo, de golpe como el stick o con `k` en rampa como la D) y
+  `tools/giro.py` (promedio de los últimos 3 s de un giro de ~15 s, más cuánto tarda la inclinación en llegar al 63% y al
+  90% de la final). Desde `pruebas/` (mapas en `pruebas/mods/prueba/maps`): `plaza_tierra` (tierra de pista, suelo 1.0),
+  `plaza_pasto` nueva (pasto, 0.82; una franja de pista de 3 m para la largada), `plaza_calle` nueva (calle de tierra de
+  la favela, 0.84-0.95) y `plaza_asfalto_ancha` (1.08). La arena de Los Médanos agarra como la pista (1.0, `SurfaceGrip`
+  no la distingue). Seis motos x cuatro suelos x 8 a 100 km/h, stick y teclado (~200 corridas).
+- **Resultado en tierra de pista, dirección a fondo** (R = radio, °/s = guiñada del mundo, `wy / cos roll`):
+
+  | moto | 8 km/h | 20 km/h | 40 km/h | 70 km/h | 100 km/h | tirarse a 40 km/h (63% / 90%): stick; teclado |
+  |---|---|---|---|---|---|---|
+  | Motocross 450 | R 1.8 m, 71°/s | R 3.0 m, 107°/s, 1.07 g, 45° | R 14 m, 45°/s, 0.91 g, 48° | R 48 m, 23°/s, 0.80 g, 46° | R 98 m, 16°/s, 0.78 g, 47° | 0.39 / 0.71 s; 0.54 / 0.84 s |
+  | Motocross 600 | R 1.8 m | R 3.1 m, 1.07 g | R 14 m, 0.91 g, 48° | R 50 m, 0.78 g, 46° | R 104 m, 0.74 g, 47° | 0.42 / 0.77 s; 0.57 / 0.90 s |
+  | Dos tiempos | R 1.8 m | R 3.1 m, 1.07 g | R 15 m, 0.90 g, 48° | R 50 m, 0.78 g, 46° | R 99 m, 0.78 g, 47° | 0.39 / 0.71 s; 0.54 / 0.84 s |
+  | Trilheira | R 1.5 m, 85°/s | R 3.0 m, 109°/s, 1.11 g, 46° | R 14 m, 46°/s, 0.93 g, 50° | R 47 m, 24°/s, 0.82 g, 49° | R 99 m, 16°/s, 0.79 g, 50° | 0.42 / 0.72 s; 0.54 / 0.87 s |
+  | Trial | R 1.2 m, 108°/s (a 11 km/h: 1.1 m, 162°/s) | R 3.3 m, 100°/s, 1.02 g, 44° | R 15 m, 43°/s, 0.87 g, 46° | R 48 m, 23°/s, 0.79 g, 48° | no llega (91 km/h) | 0.35 / 0.69 s; 0.51 / 0.83 s |
+  | Carrera (asfalto) | R 2.8 m, 48°/s | R 2.6 m, 133°/s, 1.44 g, 48° (22 km/h) | R 10 m, 63°/s, 1.30 g, 51° | R 32 m, 36°/s, 1.27 g, 52° | R 64 m, 25°/s, 1.26 g, 52° | 0.28 / 0.55 s; 0.40 / 0.68 s |
+
+- **Contra las de verdad** (órdenes de magnitud conocidos, no buscados: la inclinación de equilibrio es atan(a/g) más
+  unos grados por el ancho de la cubierta; el agarre de un taco en tierra dura ~0.8-1.0, en pasto seco ~0.6-0.8, en arena
+  suelta ~0.4-0.6; una cubierta deportiva en asfalto seco 1.1-1.4 (los registros de MotoGP dan 1.2-1.5 g); el radio
+  mínimo es la distancia entre ejes / tan(tope de dirección); un piloto rápido se tira a la curva a 60-100°/s de rolido,
+  o sea 0.5-1 s hasta acostarla):
+  - **Motocross 450/600, 2T y Trilheira en tierra**: 0.78-0.93 g de 40 a 100 km/h (real 0.8-1.0) y radio mínimo 1.5-1.8 m
+    (real ~1.8-2.2 m con 42-45°): **en rango**. Se acuestan 46-50°, 6-8° más de lo que pide atan(a/g) (0.80 g = 39°): el
+    balance sostiene la inclinación pedida (`max_lateral_accel` con la pata afuera, ~47°) y las cubiertas, con deriva,
+    doblan un poco menos. Generoso pero creíble. A 20 km/h llegan a 1.07-1.11 g (a esa velocidad dobla el manubrio, no la
+    inclinación), apenas arriba.
+  - **Trial**: radio 1.1-1.2 m a paso de hombre (real 1.3-1.5 m con 48°) y 108-162°/s: **en rango** (un poco más cerrada).
+  - **Carrera en asfalto**: 1.26-1.30 g y 51-52° (real 1.2-1.4 g, 50-58°): **en rango**. A 22 km/h, 1.44 g en 2.6 m: más que
+    su propio `max_lateral_accel` (a esa velocidad manda el manubrio); se deja.
+  - **Tirarse a la curva**: 0.55-0.77 s hasta el 90% con el stick y 0.68-0.92 s con el teclado (real 0.5-1 s): **en rango**,
+    igual a 40, 70 y 100 km/h; la de carreras es la más rápida, como tiene que ser.
+  - **Las de tierra en pasto, calle de tierra y asfalto doblan igual que en la pista** (mismo radio y g a cada velocidad;
+    a 40 km/h sólo cambia el uso del agarre: 0.71-0.77 en asfalto, 0.77-0.81 en pista, 0.81-0.85 en calle de tierra,
+    0.86-0.91 en pasto). Lo que limita es `max_lateral_accel` (0.97 g), no el agarre: en pasto las cubiertas dan
+    0.82 x 1.10-1.15 = 0.90-0.94 g, justo encima. Un taco en pasto seco real da ~0.6-0.8 g: **generoso**, pero no es de la
+    moto sino del suelo (`Terrain::SurfaceGrip`, 0.82). En pasto a 20 km/h la trasera ya pasa el límite (uso 1.66) y doblan
+    0.97 g en vez de 1.07. **La arena** (Los Médanos) agarra como la pista dura (1.0): una de verdad dobla ~0.4-0.6 g en
+    arena suelta. Ver pendientes en [MOTOS.md](MOTOS.md).
+  - **Carrera con lisas en tierra, pasto o calle de tierra**: dobla 0.37-0.47 g a 40-70 km/h (real 0.3-0.5 g: en rango) pero
+    **acostada 56-57°**, con la trasera deslizando de costado (uso 15-27 veces su agarre), la cola 6-7° afuera y contravolante
+    de 10°: un derrape permanente. Con 0.45 g una moto de verdad va a ~25°; acostada 56° se cae. Es lo único fuera de rango.
+- **Por qué la de carreras se acuesta en la tierra**: el input pide una curvatura hasta `max_lateral_accel` (13 m/s² en la
+  de carreras) sin mirar el suelo, y de ahí sale la inclinación pedida (`leanTarget`), que el balance sostiene. Con
+  `*_tire_loose_grip` 0.35 las cubiertas dan 0.35 x 1.55-1.6 = 0.55 g, así que la moto se acuesta lo del asfalto y desliza.
+- **Qué se hizo**: la clave `lean_surface_grip` (BikePhysics.cpp; 0 en `tuning.ini` = como antes, guardada con `if`). Con 1,
+  si el agarre lateral de las cubiertas en ese suelo (`SurfaceGrip` x `*_tire_loose/paved_grip` x `*_tire_lat_grip`, en g,
+  promedio de las ruedas apoyadas y filtrado ~0.25 s; cada rueda lo guarda en `Wheel::gripFactor`) es menor que
+  `max_lateral_accel`, se pide eso. **Quedó sin activar** en `carrera.ini` (comentada, con los números):
+  - con 1, en tierra se acuesta 27-28° y dobla 0.52-0.54 g (antes 56° y 0.44-0.47), en pasto 24° y 0.46 g, en calle 27°
+    y 0.52 g (las cubiertas al límite, la cola 4.5-6° afuera); en asfalto, idéntica (el agarre pasa de `max_lateral_accel`);
+  - bots de 30 min con la de carreras, 3 muestras de cada uno (la masa ±0.01 kg): pista de motocross de 13-17 caídas a 0-1;
+    parque, de quedarse trabado (0-5 vueltas) a 7-18 vueltas con 2 caídas; **favela, de 7-12 caídas a 19-23**. En la favela
+    se cae en las calles de tierra rectas de s≈1040-1091: con la trasera patinando al 35% (el control de tracción, en tierra
+    con lisas) y menos inclinación, el bot (dirección proporcional, sin amortiguar) zigzaguea cada vez más (±26°) hasta pegar
+    en una casa; también con `--bot-lat` 4.5 y 3.5. Antes el derrape acostado le daba más guiñada para corregir;
+  - con 0.75 o 0.5 (o pidiendo el agarre del suelo sin el `lat_grip`: 0.45 g y 24°) la favela da igual o peor (15-21);
+  - a las de tierra no les sirve: en pasto pediría 0.95 de lo de hoy. Lo que haría más resbaloso al pasto es `SurfaceGrip`.
+
+  Queda para decidir si se activa (es la moto de asfalto: en la tierra se maneja más creíble, pero el bot de la favela se
+  cae el doble).
+- **Se comprobó** (sin la clave activa nada cambia): `tools/regresion.sh` contra el exe de la misma fuente sin el cambio,
+  idéntico en 22 pruebas: las 9 de siempre, `accel`, el bot de motocross, la favela y Los Médanos con la 450, `circle12` de
+  la 600, la trial, la Trilheira y la 2T, el bot de la 600, la Trilheira en la favela, la 2T en el parque, y la de carreras
+  en el circuito, la favela y la pista de motocross (300 s) y en `plaza_tierra`. El bot de la 450: 1:08.21 / 1:08.01. Con la
+  de carreras, 900 s de bot en el circuito, la pista de motocross, la favela y el parque: iguales al paquete v0.3.4 (circuito
+  2:11.65 / 2:09.83 / 2:09.84 / 2:09.88 / 2:10.31 / 2:10.32 sin caídas; motocross 9 caídas; favela 9; parque trabado en s≈418).
+- **Lecciones**:
+  - El giro "a fondo" de esta física no depende del suelo: lo fija `max_lateral_accel` (más la pata afuera y los peraltes).
+    El suelo sólo decide si las cubiertas alcanzan; si no alcanzan, la moto igual se acuesta lo pedido y desliza. Para
+    ver el agarre de un suelo hay que mirar el uso de las cubiertas (`fUse`/`rUse`), no el radio.
+  - La inclinación y la aceleración lateral no están atadas: el balance sostiene `leanTarget` con un torque. Comparar
+    siempre `roll` con atan(g lateral); una diferencia grande (56° con 0.45 g) es un derrape sostenido.
+  - `wy` es la guiñada en el eje de la moto: la del mundo es `wy / cos(roll)`.
+  - El bot es un mal juez de una moto con poca autoridad de giro: su dirección es proporcional y sin amortiguación, y con
+    menos guiñada zigzaguea. Para comparar caídas, varias muestras largas y mirar dónde (`s`) y por qué.
+  - Un mapa de prueba "de pasto" necesita pista para la largada (la moto aparece sobre ella): una franja de 3 m alcanza,
+    pero el giro arranca sobre la tierra; al salir al pasto la de carreras entra en un derrape que ya no suelta.
+
+### En wheelie no se podía acelerar (v0.3.4, a pedido; cambia la 450)
+- **Pasaba**: tirado atrás y con el gas a fondo, la moto subía la trompa y se quedaba ahí casi sin
+  acelerar: en `--test wheelie` la 450 iba de 10 a 12 km/h en 2.5 s y la 600 de 14 a 19 km/h.
+- **Por qué**: el limitador de wheelie (`wheelieCut`, en `BikePhysics.cpp` y `BikePhysics031.cpp`) evita
+  dar la vuelta cortando el gas: en la zona permitida lo dejaba en 0.1 (450) o 0.16 (600). En 2ª y más
+  marchas la zona empieza casi en 0° (`wheelie_gear_fade` 0.35), así que cualquier wheelie se quedaba sin gas.
+- **Qué se hizo**: `wheelie_keep_throttle` (1 en `tuning.ini`; 0 = como antes). En un wheelie de verdad
+  el limitador ya no corta el gas. En cambio anula el cabeceo que mete la tracción de la trasera (la
+  fuerza en el contacto por debajo del centro de masa, multiplicada por `wheelieCut`), y la ayuda que baja
+  la trompa (`wheelie_assist_torque`) queda igual. Así la moto acelera en una rueda y la rueda no sube más.
+  - **Sólo a partir de `wheelie_keep_from_deg`/`full_deg` (5°/12°) de trompa arriba.** Con la trompa
+    apenas despegada (un bache, la salida de una curva) sigue cortando el gas como antes. Sin ese filtro,
+    en 15 min de bot la 450 se caía 9 veces en el circuito y 13 en la favela, contra 5 y 8 de antes.
+  - **El valor tiene que ser 1.** Con 0.7 (una parte del gas cortado y una parte del cabeceo anulado), la
+    450 y la 600 se daban vuelta: la tracción que queda sin compensar sigue levantando la trompa.
+  - **La de carreras queda en 0** (`carrera.ini`): su anti-wheelie electrónico corta el gas a propósito.
+    La trilheira tiene el limitador apagado (manda el grau), así que tampoco cambia.
+- **Se comprobó**:
+  - `--test wheelie` en 1ª: la 450 pasa de 13.5 a 54 km/h a 42° (hasta el corte de 1ª), la 600 de 14 a
+    55 km/h a 55-58°, y la trial y la 2T igual, sin darse vuelta. Soltando el gas bajan solas.
+  - Carrera y trilheira: telemetría idéntica a la v0.3.4 (`launch`, `wheelie`, bot en el circuito y la favela).
+  - Bot de motocross: 450 1:08.21/1:08.01 (antes 1:08.45/1:08.00), 600 1:07.71/1:07.40; parque sin caídas.
+  - Bot de 15 min, caídas: circuito 450 8 (antes 5) y 600 4 (3); favela 450 9 (8) y 600 6 (4). En la ventana
+    de 4 s antes de cada caída no hay ningún wheelie. Casi todas son en las curvas que ya eran justas
+    (circuito s≈1600, favela s≈80 y s≈258). Las de más vienen de que, al arrancar después de reaparecer, el
+    bot sale más rápido y llega distinto a esas curvas.
+
 ### Motocross 600: corte de acelerador en wheelie (v0.3.4)
 - **Pasaba**: la ayuda compartida de la 450 anticipaba 0.35 s y recortaba entre 12 y 27 grados; el limitador tambien reducia wheelie en marchas altas.
 - **Que se hizo**: el perfil de la 450 queda intacto. La 600 usa 32/58 grados, 0.16 s de prediccion y asistencia de 800 Nm. En la 600, la influencia del cuerpo y el gas residual se ajustan por moto.

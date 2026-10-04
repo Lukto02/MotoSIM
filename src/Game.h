@@ -266,6 +266,38 @@ private:
     // Input de teclado suavizado + gatillos del gamepad
     float kbThrottle = 0.0f, kbFront = 0.0f, kbRear = 0.0f, kbSteer = 0.0f, kbLean = 0.0f, kbSide = 0.0f;
     bool rtArmed = false, ltArmed = false;
+    // Las teclas de manejo apretadas en este cuadro. KeyboardInput les pone las rampas (el jugador y la prueba teclas:).
+    struct KeysDown {
+        bool w = false, s = false, space = false, a = false, d = false, up = false, down = false, left = false, right = false;
+    };
+    BikeInput KeyboardInput(const KeysDown& k, float dt);
+
+    // Prueba teclas:GUION (sin ventana, como con el teclado): pasos separados por comas, cada uno con las teclas
+    // apretadas (W A S D, _ = Espacio, ^ v = flechas arriba y abajo, < > = izquierda y derecha; nada = suelta todo)
+    // y hasta cuándo: N (segundos), +N (hasta N km/h) o -N (hasta bajar a N km/h). P. ej. "W+150,D1.5,S-1".
+    struct TeclasStep {
+        KeysDown keys;
+        char until = 't';            // 't' segundos, '+' hasta subir a, '-' hasta bajar a
+        float value = 0.0f;
+        std::string text;
+    };
+    std::vector<TeclasStep> teclasSteps;
+    int teclasStep = -1;
+    float teclasStepT0 = 0.0f;
+    BikeInput TeclasInput();
+    // Resumen de un tramo (un paso de teclas: o una frenada con --telemetry): velocidades, tiempo, distancia, g medias,
+    // cuánto giró el camino y el rumbo, cuánto se corrió de costado, inclinación, deriva y cola en el aire.
+    struct ManeuverLog {
+        bool active = false;
+        float t0 = 0.0f, v0 = 0.0f, dist = 0.0f, pathYaw0 = 0.0f, heading0 = 0.0f, pathYaw = 0.0f, heading = 0.0f;
+        float maxRoll = 0.0f, maxBeta = 0.0f, minPitch = 0.0f, rearAir = 0.0f, lat = 0.0f, roll0 = 0.0f;
+        JPH::Vec3 p0 = JPH::Vec3::sZero(), prevP = JPH::Vec3::sZero();
+        void Begin(const Game& g);
+        void Update(const Game& g, float dt);
+        void Print(const Game& g, const char* what, const std::string& label) const;
+    };
+    ManeuverLog teclasLog, brakeLog;
+    void UpdateManeuverLogs();
 
     // Vueltas
     int trackIndex = -1;
