@@ -71,6 +71,8 @@ struct GameOptions {
     std::string soundLog;            // --sound-log archivo.wav: sin ventana, graba el sonido de la moto propia (motor y cubiertas)
     std::string gfx;                 // --gfx bajo|medio|alto|ultra: ese preset de calidad (después de leer preferencias.ini; no guarda nada)
     bool noPrefs = false;            // --noprefs: no lee ni escribe preferencias.ini (las capturas no dependen de la PC)
+    std::string pad;                 // --pad "T:RX,RY[,CRUZ];...": joystick simulado (stick derecho y cruz) para probar la cámara
+    std::string stickMode;           // --stick camara|cuerpo: el ajuste "Stick derecho" por esa vez (no se guarda)
 };
 
 class Game {
@@ -266,6 +268,23 @@ private:
     // Input de teclado suavizado + gatillos del gamepad
     float kbThrottle = 0.0f, kbFront = 0.0f, kbRear = 0.0f, kbSteer = 0.0f, kbLean = 0.0f, kbSide = 0.0f;
     bool rtArmed = false, ltArmed = false;
+    // Joystick: el stick derecho mueve la cámara (y el cuerpo de costado va con la cruz, ← →) o, en Ajustes "Stick derecho:
+    // Cuerpo", el cuerpo como antes y la cámara con la cruz. Se guarda en preferencias.ini (stick_derecho).
+    bool rightStickCamera = false;                 // sólo la de carreras (StickCamera): por defecto el cuerpo
+    bool prefStickCamera = false;                   // lo guardado (--stick cambia sólo rightStickCamera, por esa vez)
+    // El stick derecho y la cruz de este cuadro: del joystick o, en las pruebas, del guion de --pad.
+    struct PadSticks {
+        bool on = false;             // hay joystick (o guion)
+        float rx = 0.0f, ry = 0.0f;  // stick derecho crudo
+        bool left = false, right = false, up = false, down = false;   // la cruz
+    };
+    PadSticks ReadPad() const;
+    bool SideBody() const;                         // cuerpo de costado: sólo la de carreras
+    bool StickCamera() const;                      // el stick derecho mueve la cámara (las otras motos, siempre)
+    void PadLook(float& x, float& y) const;        // lo que pide la cámara (StickOrbit), según el ajuste
+    // --pad "T:RX,RY[,CRUZ];...": desde T s (simTime) el stick derecho en RX,RY y la cruz apretada (< > ^ v).
+    struct PadStep { float t = 0.0f, rx = 0.0f, ry = 0.0f; bool left = false, right = false, up = false, down = false; };
+    std::vector<PadStep> padScript;
     // Las teclas de manejo apretadas en este cuadro. KeyboardInput les pone las rampas (el jugador y la prueba teclas:).
     struct KeysDown {
         bool w = false, s = false, space = false, a = false, d = false, up = false, down = false, left = false, right = false;

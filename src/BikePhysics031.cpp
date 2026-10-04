@@ -77,6 +77,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     }
 
     const float riderThrottle = in.throttle;                     // lo que gira el piloto (antes de los recortes)
+    if (P->handbrakeYaw > 0.0f) UpdateHandbrake(in, linVel, fwdFlat, 0.0f, dt);   // freno de mano (BikePhysics.cpp)
 
     // Limitador de wheelie predictivo: mira hacia dónde va el pitch (no sólo dónde está) y corta
     // gas antes de que la inercia haga imposible bajar la rueda. Deja hacer wheelies, no loops.
@@ -213,13 +214,20 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     // Frenar fuerte inclinado endereza la moto (geometría de dirección): se abre de la curva en
     // vez de pivotar sobre la delantera por el contacto desplazado del centro de masa.
     leanTarget *= 1.0f - P->brakeStandUp * in.frontBrake * mu::Smoothstep(3.0f, 8.0f, v);
+    // Freno de mano: con la trasera derrapando el piloto lleva la moto más derecha (como slide_upright en BikePhysics.cpp).
+    if (handbrake > 0.0f) leanTarget *= 1.0f - P->slideUpright * handbrake;
     const float kLean = kG * std::tan(mu::Clamp(roll, -1.2f, 1.2f)) / std::max(v2, 1.0f);
     const float kSteer = mu::Lerp(kCmd, kLean, mu::Smoothstep(P->leanSteerSpeedLow, P->leanSteerSpeedHigh, v));
     const float wheelbase = (wheels[FRONT].AxleLocal() - wheels[REAR].AxleLocal()).Length();
     const float maxSteer = mu::Lerp(mu::Rad(P->maxSteerDeg), mu::Rad(P->maxSteerHighSpeedDeg), mu::Smoothstep(3.0f, 20.0f, v));
     // En el aire el manubrio vuelve al centro: aterrizar con la rueda girada es un trompo seguro.
-    const float steerTarget = wasInAir ? 0.0f : mu::Clamp(std::atan(wheelbase * kSteer), -maxSteer, maxSteer);
-    steerBase = mu::MoveTowards(steerBase, steerTarget, P->steerRate * dt);
+    float steerTarget = wasInAir ? 0.0f : mu::Clamp(std::atan(wheelbase * kSteer), -maxSteer, maxSteer);
+    float steerRate = P->steerRate;
+    if (handbrake > 0.0f && !wasInAir) {         // freno de mano: la delantera sigue su camino (BikePhysics.cpp)
+        steerTarget = HandbrakeSteer(steerTarget, linVel, angVel.GetY(), rot * wheels[FRONT].AxleLocal(), fwdFlat, mu::Rad(P->maxSteerDeg));
+        steerRate += 6.0f * handbrake;
+    }
+    steerBase = mu::MoveTowards(steerBase, steerTarget, steerRate * dt);
 
     // Autoalineación (trail): cuando la trasera se cruza, la rueda delantera tiende a apuntar hacia
     // donde va la moto, o sea contravolante automático. Es lo que hace que una moto derrape de
@@ -232,6 +240,8 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         const float rearSlip = std::atan2(-rw.latVel, std::max(std::fabs(rw.longVel), 2.0f));   // + = cola hacia la izquierda
         const float excess = mu::Sign(rearSlip) * std::max(0.0f, std::fabs(rearSlip) - mu::Rad(P->casterDeadzoneDeg));
         casterTarget = mu::Clamp(excess * P->casterAlign, -mu::Rad(30.0f), mu::Rad(30.0f)) * mu::Smoothstep(1.5f, 4.0f, v);
+        // Freno de mano: el piloto deja salir la cola en vez de contravolantear (ver UpdateHandbrake).
+        if (handbrake > 0.0f) casterTarget *= 1.0f - handbrake;
     }
     steerCaster = mu::MoveTowards(steerCaster, casterTarget, 10.0f * dt);
     const float steerStop = mu::Rad(std::max(35.0f, P->maxSteerDeg));   // topes de dirección
@@ -527,6 +537,9 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
             // Apoyada sólo en la delantera (stoppie) nada frena la guiñada: el piloto la mantiene recta.
             if (wheels[FRONT].grounded && !wheels[REAR].grounded)
                 totalTorque -= Vec3::sAxisY() * (angVel.GetY() * P->stoppieYawDamping);
+
+            // Freno de mano: el piloto saca la cola y la sostiene (UpdateHandbrake).
+            if (handbrakeTorque != 0.0f) totalTorque += Vec3::sAxisY() * handbrakeTorque;
         } else {
             // Efecto giroscópico de las ruedas: girando rápido, sus ejes resisten cambiar de dirección
             // y el chasis recibe L x w. Rolar la moto la hace guiñar y guiñar la hace rolar: acostada

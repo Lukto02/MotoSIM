@@ -206,7 +206,7 @@ F8 alterna física/visual y guarda la elección. En red la deformación es sólo
     Ligera 60 / Normal 100 / Densa 150), Viñeta (Apagada / Suave / Media / Fuerte = 0 / 20 / 40 / 60), Grano 0-40,
     Aberración 0-50, Motion blur, Sacudón de cámara, Restablecer imagen; avanzadas (mismo interruptor): Luz del sol
     70-130, Luz ambiental 60-140, Intensidad de sombra 40-100, Viento del pasto 0-150.
-  - **Juego y sonido**: Volumen, Ayuda de teclas, Datos técnicos, Caja, Control de tracción y el grupo TERRENO
+  - **Juego y sonido**: Volumen, Ayuda de teclas, Datos técnicos, Caja, Control de tracción, Stick derecho (JOYSTICK) y el grupo TERRENO
     (Deformación, Blandura, Profundidad máxima, Restaurar suelo, **Restablecer terreno**). Es lo único que toca la física
     del suelo: ninguna fila de Gráficos ni de Imagen la cambia, y los presets tampoco (`soilMode/soilSoftness/soilDepth`).
   - **"Personalizado" automático**: cada setter de calidad llama a `QualityChanged()` (`preset = Renderer::MatchPreset(g)`,
@@ -282,3 +282,58 @@ F8 alterna física/visual y guarda la elección. En red la deformación es sólo
   enviar (320, 238)); (5) en esta máquina no hay MSVC (`tools\compilar.bat` falla): se compiló con MinGW (WinLibs) en una
   carpeta aparte; (6) los scripts de edición con `\n` o `\x..` dentro de heredocs de bash se corrompen (el `\n` de un
   `printf` se convirtió en un salto de línea real): escribir el script con la herramienta de archivos.
+
+## Cámara con el stick derecho y el cuerpo a la cruz (octubre de 2026)
+
+> **El cuerpo de costado, sólo en la de carreras (v0.3.7, a pedido del usuario)**: en las otras no lo notó como una
+> mejora y le complicaba el whip; en la de carreras sí cambia cómo dobla (colgarse hacia adentro), así que ahí queda.
+> `Game::SideBody()` (estilo `race`) decide si la entrada llega (en las otras motos queda en 0) y si se muestran las
+> filas de Controles y de la ayuda (H). En la de carreras, **por defecto el stick derecho es el cuerpo y no hay cámara
+> con el joystick** (a pedido: "en la de carreras dejá por defecto la cámara apagada y el cuerpo con el stick derecho");
+> el ajuste "Stick derecho en la Carrera: Cámara" (`stick_derecho_carrera` en preferencias.ini) pone la cámara en el
+> stick y el cuerpo en la cruz. `Game::StickCamera()`: las otras motos, siempre cámara. Comprobado con ventana y
+> `--pad "0.5:1,0"`: carrera `side=1` y órbita 0; con `--stick camara`, `side=0` y órbita 43°; motocross, órbita 43°.
+> Sin ventana la entrada del jugador no llega (ReadPlayerInput necesita la ventana): estas pruebas van con ventana.
+> Lo de abajo describe cómo era con el cuerpo en todas las motos.
+
+- **Qué pasaba**: con el joystick no había cómo mirar alrededor (la órbita era sólo arrastrando el mouse) y el stick derecho
+  movía el cuerpo de costado. El usuario pidió la cámara en el stick derecho, suave y que al soltarlo vuelva sola, el cuerpo de
+  costado a la cruz y poder intercambiarlos desde Ajustes.
+- **Qué se hizo**:
+  - `ChaseCamera::StickOrbit(x, y, realDt)` (cada cuadro, antes de `Update`): el stick pide una **velocidad** de giro (no un
+    ángulo). Detalle de la cámara en RENDER.md ("Órbita con el joystick").
+  - `Game::ReadPad()` junta el stick derecho y la cruz del joystick (o del guion de `--pad`); `Game::PadLook()` decide qué mueve
+    la cámara según el ajuste: con **Cámara** (default) el stick derecho con zona muerta **redonda** de 0.18 y la curva de
+    `StickCurve` sobre el largo (`StickCurve2`: con una zona muerta por eje, en diagonal suave se perdía un eje); con **Cuerpo**,
+    la cruz a 0.75 (← → gira, ↑ ↓ sube y baja). Con el menú abierto no pide nada (la cruz y los sticks son del menú).
+  - **Cuerpo de costado con la cruz**: ← → de la cruz se suman a ← → del teclado en `ReadPlayerInput` (mismo `KeysDown`), así
+    tienen la misma rampa de `KeyboardInput` (sube a 5/s, baja a 6/s): con una cruz digital no hay saltos de 0 a 1. Sólo con el
+    menú cerrado. ↑ ↓ de la cruz no hacen nada en ese modo (el cuerpo adelante y atrás sigue en el stick izquierdo).
+  - **Ajuste** "Stick derecho: Cámara / Cuerpo" en Juego y sonido, grupo JOYSTICK (Enter, click o ← → lo cambian), con la pista
+    que dice dónde quedó lo otro. `preferencias.ini`: `stick_derecho = camara|cuerpo` (sin la clave, cámara). `--stick
+    camara|cuerpo` lo cambia por esa vez (`rightStickCamera`; lo que se guarda es `prefStickCamera`).
+  - **Controles** y la **ayuda de teclas (H)** siguen al ajuste: "Cuerpo a los costados ← → / cruz" o "/ stick der." y "Mirar
+    alrededor: mouse / stick der." o "/ cruz" (fila nueva de la ayuda: la columna derecha tiene 6 y la izquierda 5; el panel
+    toma la más alta). Las tablas de Controles dejaron de ser `static const` (cambian con el ajuste).
+- **Se comprobó** (exe MSVC, 1280×720, `--pad` porque no hay joystick acá; capturas en
+  `compilaciones/build-msvc-interfaz/cap/`):
+  - `g_yaw90.png` (a fondo a la derecha 0.75 s: llega a 93° mirando de costado y vuelve, al 10% en ~1.3 s), `g_yaw180.png` (a la
+    izquierda 1.45 s: 178°, la moto de frente, y vuelve por el lado corto), `g_pitch.png` (arriba 48° y abajo -15°, sin meterse en
+    el suelo), `g_360.png` (2.6 s a fondo: la vuelta entera, y al soltar vuelve por los 24°-76° que quedaban, no desenrolla la vuelta).
+  - Log `CAM` cuadro a cuadro: sin saltos; la velocidad de la órbita pasa de -161°/s a 0 en ~0.15 s al soltar y la vuelta arranca
+    desde 0 subiendo de a 5-7°/s por cuadro (continua también en los cuadros de 0.2 s de las capturas).
+  - Con `--stick cuerpo` la cruz mueve la cámara y el stick derecho no; con `--stick camara` la cruz mueve el cuerpo (`side=1.00`
+    en la telemetría con la Carrera) y el stick no. **Ojo: la Motocross 450 y la 600 (`original_031 = 1`) no tienen cuerpo de
+    costado**: su física 0.3.1 ignora `in.side` (la telemetría da `side=0` con cualquier entrada); para probarlo, otra moto.
+  - Caído (ragdoll, `--test crashloop --respawn-after -1`), `--side` (gira desde la vista lateral y vuelve a ella) y `--view`
+    (queda fija: el stick no la mueve).
+  - El ajuste: `tools\teclas.ps1` en Juego y sonido, Enter sobre Stick derecho: la pista cambia, y en una copia del exe (en el
+    scratchpad, no en la carpeta de compilación) queda `stick_derecho = cuerpo`; con ese archivo, Controles y la ayuda dicen "cruz"
+    para la cámara y "stick der." para el cuerpo.
+  - Regresión idéntica contra la v0.3.6 (las 7 de PRUEBAS.md).
+- **Lecciones**: (1) una cámara con el stick se maneja por velocidad, con suavizado exponencial (`1 - exp(-k·dt)`) para que acelere
+  y frene igual a cualquier fps; la vuelta, con la solución exacta del resorte críticamente amortiguado (no paso a paso); al pasar
+  de una a otra, la velocidad que traía pasa al resorte (y al revés, al tomar el stick durante la vuelta) para que no haya tirones;
+  (2) la zona muerta de un stick de cámara va redonda y un poco más grande que la de manejo: un stick que no vuelve a 0 trabaría la
+  vuelta atrás; (3) la cruz digital para un eje analógico se pasa por la rampa del teclado, no se inventa otra; (4) antes de
+  concluir que una entrada "no llega", mirar si la moto la usa (la física 0.3.1 de la Motocross no tiene cuerpo de costado).

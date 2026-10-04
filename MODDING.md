@@ -373,6 +373,9 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 | `lean_sweep_comp` | 0 | 1 = while the bike stands up, the tires don't feel the sideways sweep of the contact patches (the lean pivots around the center of mass here, not around the contact line like a real bike). Without it, letting go of a hard turn to brake sends the bike toward the other side (the race bike uses 1) |
 | `rear_lift_load`, `rear_lift_mitigation` | 300, 0.25 | the ABS eases the front brake when the rear carries less than this many N (straight up, by this much) |
 | `slide_pivot` | 800 | below ~13 km/h, rear brake while turning: the rider pushes the tail out (Nm per rad; 0 = off) |
+| `handbrake_yaw` | 0 | "handbrake": slamming the rear brake alone while turning (Space / A over 60-95%, no front brake), the rider kicks the tail out to `handbrake_angle` and holds it there, with the front wheel following its own path (`slide_steer_in` degrees into the turn); Nm per rad of missing tail angle (0 = off; the dirt bikes use 5000, the race bike 0). The bot never brakes the rear that hard |
+| `handbrake_angle`, `handbrake_angle_fast` | 24, 14 | tail angle (degrees) the handbrake looks for with full steering, up to ~30 km/h and from ~70 km/h (with half steering, ~60% of that). On bikes with the slow slide (`slide_*`, below `slide_speed_max`) it only pushes the tail out there: it doesn't cap a bigger slow slide |
+| `handbrake_catch` | 0.6 | seconds the rider catches the tail after letting go of the handbrake (without it, releasing at ~30° with throttle spun the bike) |
 | `crash_impact_speed`, `crash_impact_vertical` | 7, 11 | m/s against something fixed (front/side, or falling flat) that throws the rider off |
 
 Wheelies: while turning on the rear wheel the bike yaws along its path (`wheelie_turn`, Nm per rad/s,

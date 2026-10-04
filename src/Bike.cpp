@@ -173,6 +173,10 @@ void BikeParams::Register(Tuning& t)
     t.Add("brake_yaw_comp", &brakeYawComp);
     t.Add("brake_transition_release", &brakeTransitionRelease);
     t.Add("lean_sweep_comp", &leanSweepComp);
+    t.Add("handbrake_yaw", &handbrakeYaw);
+    t.Add("handbrake_angle", &handbrakeAngle);
+    t.Add("handbrake_angle_fast", &handbrakeAngleFast);
+    t.Add("handbrake_catch", &handbrakeCatch);
     t.Add("tc_slip", &tcSlip);
     t.Add("crash_angle_deg", &crashAngleDeg);
     t.Add("crash_impact_speed", &crashImpactSpeed);
@@ -319,6 +323,8 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     airTime = 0.0f;
     steerAngle = leanTarget = riderLean = legOut = bodyTilt = bodyTiltRate = riderSide = 0.0f;
     steerBase = steerCaster = 0.0f;
+    handbrake = handbrakeTorque = hbSlide = hbRate = hbWant = hbCatch = 0.0f;
+    hbValid = false;
     leanGrip = 1.0f;
     reverseHold = 0.0f;
     prevPos = currPos = position;

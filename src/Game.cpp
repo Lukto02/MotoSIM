@@ -21,6 +21,7 @@
 #include <cstring>
 #include <thread>
 
+
 using JPH::Mat44;
 using JPH::Quat;
 using JPH::Vec3;
@@ -41,6 +42,16 @@ float StickCurve(float v, float deadzone)
     if (a < deadzone) return 0.0f;
     a = (a - deadzone) / (1.0f - deadzone);
     return mu::Sign(v) * std::pow(std::min(a, 1.0f), 1.4f);
+}
+
+// Un stick entero (los dos ejes) con zona muerta redonda y la misma curva: la dirección se conserva (con una zona
+// muerta por eje, en diagonal suave se pierde un eje y la cámara gira "en escalones") y el largo va de 0 a 1.
+Vector2 StickCurve2(float x, float y, float deadzone)
+{
+    const float len = std::sqrt(x * x + y * y);
+    if (len < deadzone) return {0.0f, 0.0f};
+    const float k = StickCurve(len, deadzone) / len;
+    return {x * k, y * k};
 }
 
 // Segundos caído hasta reaparecer solo, o < 0 si el jugador reaparece con R (ver GameOptions::respawnAfter).
@@ -293,6 +304,25 @@ void Game::Init()
     debugVectors = opt.debugVectors;
     if (opt.sideCamera) camera.mode = ChaseCamera::Mode::Side;
     if (opt.viewZoom > 0.0f) camera.FixView(mu::Rad(opt.viewYaw), mu::Rad(opt.viewPitch), opt.viewZoom);
+    if (opt.stickMode == "camara" || opt.stickMode == "cuerpo") rightStickCamera = opt.stickMode == "camara";
+    // --pad "2:1,0;3.5:0,0;6:0,0,<": pasos separados por ';', cada uno desde T s con el stick derecho y la cruz.
+    for (size_t at = 0; at < opt.pad.size();) {
+        size_t end = opt.pad.find(';', at);
+        if (end == std::string::npos) end = opt.pad.size();
+        const std::string step = opt.pad.substr(at, end - at);
+        at = end + 1;
+        PadStep p;
+        char cross[8] = {};
+        if (std::sscanf(step.c_str(), "%f:%f,%f,%7s", &p.t, &p.rx, &p.ry, cross) < 3) {
+            if (!step.empty()) std::printf("--pad: paso sin entender: %s\n", step.c_str());
+            continue;
+        }
+        p.left = std::strchr(cross, '<') != nullptr;
+        p.right = std::strchr(cross, '>') != nullptr;
+        p.up = std::strchr(cross, '^') != nullptr;
+        p.down = std::strchr(cross, 'v') != nullptr;
+        padScript.push_back(p);
+    }
     deformation.physicalRuts = opt.ruts || (PlayerDriving() && renderer.graphics.soilMode == 2);
 
     // Multijugador: nombre (el usuario de Windows si no se pasó --name) y, si se pidió, la partida.
@@ -592,6 +622,9 @@ void Game::Frame(float frameDt)
     // cabeza, la trompa apunta hacia atrás y la cámara se daría vuelta.
     const Quat rot = bike.RenderRotation(alpha);
     const Vec3 heading = Vec3::sAxisY().Cross(rot * -Vec3::sAxisX());
+    float lookX, lookY;
+    PadLook(lookX, lookY);
+    camera.StickOrbit(lookX, lookY, frameDt);
     if (ragdoll.Active()) {
         // Tras una caída la cámara sigue al piloto; sin rumbo propio conserva el que traía.
         camera.Update(dt, ToRl(ragdoll.Position(alpha)), Vector3{0.0f, 0.0f, 0.0f}, ToRl(ragdoll.Velocity()), terrain);
@@ -614,6 +647,17 @@ void Game::Frame(float frameDt)
             camera.cam.position = ToRl(p);
             camera.cam.target = Vector3Add(camera.cam.target, Vector3Scale(shift, 0.3f));
         }
+    }
+    if (!padScript.empty() && opt.telemetry) {
+        // Pruebas de la cámara con --pad: cada cuadro, la órbita que se ve y dónde quedó la cámara respecto de la moto
+        // (azimut desde atrás, + a la izquierda de la moto; elevación sobre el piloto), para medir que no salte.
+        const Vec3 subject = ragdoll.Active() ? ragdoll.Position(alpha) : bike.RenderPosition(alpha);
+        const Vector3 off = Vector3Subtract(camera.cam.position, Vector3Add(ToRl(subject), {0.0f, camera.lookHeight, 0.0f}));
+        const Vec3 h = Vec3(heading.GetX(), 0.0f, heading.GetZ()).NormalizedOr(Vec3::sAxisZ());
+        const float back = -(off.x * h.GetX() + off.z * h.GetZ()), left = off.x * h.GetZ() - off.z * h.GetX();
+        std::printf("CAM t=%.3f dt=%.4f orbita=%.2f,%.2f azimut=%.2f elev=%.2f pedido=%.2f,%.2f\n", simTime, frameDt,
+                    mu::Deg(camera.OrbitYaw()), mu::Deg(camera.OrbitPitch()), mu::Deg(std::atan2(left, back)),
+                    mu::Deg(std::atan2(off.y, std::sqrt(off.x * off.x + off.z * off.z))), lookX, lookY);
     }
     UpdateMenuCamera(frameDt);
     messageTime = std::max(0.0f, messageTime - frameDt);
@@ -1104,7 +1148,7 @@ BikeInput Game::KeyboardInput(const KeysDown& k, float dt)
     in.rearBrake = std::max(kbRear, kbFront * 0.5f);   // S frena con las dos, Space sólo atrás
     in.steer = kbSteer;
     in.lean = kbLean;
-    in.side = kbSide;
+    in.side = SideBody() ? kbSide : 0.0f;
     return in;
 }
 
@@ -1120,6 +1164,13 @@ BikeInput Game::ReadPlayerInput(float dt)
     k.down = IsKeyDown(KEY_DOWN);
     k.left = IsKeyDown(KEY_LEFT);
     k.right = IsKeyDown(KEY_RIGHT);
+    // Con el stick derecho en la cámara, el cuerpo de costado va con la cruz: ← → como las flechas del teclado, con
+    // la misma rampa (KeyboardInput). Con el menú abierto la cruz es del menú.
+    const PadSticks pad = ReadPad();
+    if (SideBody() && pad.on && StickCamera() && menu == Menu::None) {
+        k.left = k.left || pad.left;
+        k.right = k.right || pad.right;
+    }
     BikeInput in = KeyboardInput(k, dt);
     in.shiftUp = IsKeyPressed(KEY_E);
     in.shiftDown = IsKeyPressed(KEY_Q);
@@ -1142,12 +1193,70 @@ BikeInput Game::ReadPlayerInput(float dt)
         float sy = StickCurve(GetGamepadAxisMovement(0, GAMEPAD_AXIS_LEFT_Y), 0.15f);
         if (sx != 0.0f) in.steer = sx;
         if (sy != 0.0f) in.lean = -sy;
-        const float rx = StickCurve(GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X), 0.15f);   // stick derecho: el cuerpo de costado
-        if (rx != 0.0f) in.side = rx;
         if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) in.shiftUp = true;
         if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) in.shiftDown = true;
     }
+    if (SideBody() && pad.on && !StickCamera()) {        // la de carreras, por defecto: el cuerpo de costado con el stick derecho
+        const float rx = StickCurve(pad.rx, 0.15f);
+        if (rx != 0.0f) in.side = rx;
+    }
     return in;
+}
+
+// Cuerpo del piloto a los costados (flechas ← →, la cruz): sólo en la de carreras, donde cambia cómo dobla (colgarse
+// hacia adentro). En las otras se apagó a pedido del usuario (complicaba el whip); se retoma más adelante.
+bool Game::SideBody() const
+{
+    const BikeDef* def = mods.Bike(bikeId);
+    return def && def->style == "race";
+}
+
+// El stick derecho mueve la cámara: siempre, salvo en la de carreras, donde por defecto es el cuerpo (Ajustes "Stick
+// derecho en la Carrera": Cámara lo cambia; preferencias.ini stick_derecho_carrera).
+bool Game::StickCamera() const
+{
+    return !SideBody() || rightStickCamera;
+}
+
+Game::PadSticks Game::ReadPad() const
+{
+    PadSticks p;
+    if (!padScript.empty()) {                            // pruebas (--pad): el último paso que ya empezó
+        p.on = true;
+        for (const PadStep& s : padScript) {
+            if (s.t > simTime) break;
+            p.rx = s.rx;
+            p.ry = s.ry;
+            p.left = s.left;
+            p.right = s.right;
+            p.up = s.up;
+            p.down = s.down;
+        }
+        return p;
+    }
+    if (opt.headless || !IsGamepadAvailable(0)) return p;
+    p.on = true;
+    p.rx = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_X);
+    p.ry = GetGamepadAxisMovement(0, GAMEPAD_AXIS_RIGHT_Y);
+    p.left = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_LEFT);
+    p.right = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_RIGHT);
+    p.up = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_UP);
+    p.down = IsGamepadButtonDown(0, GAMEPAD_BUTTON_LEFT_FACE_DOWN);
+    return p;
+}
+
+void Game::PadLook(float& x, float& y) const
+{
+    x = y = 0.0f;
+    if (menu != Menu::None) return;                      // el menú tiene su cámara, y la cruz y los sticks son del menú
+    const PadSticks p = ReadPad();
+    if (!p.on) return;
+    if (StickCamera()) {
+        const Vector2 s = StickCurve2(p.rx, p.ry, 0.18f);  // zona muerta un poco más grande: un stick que no vuelve a 0 no tiene que trabar la vuelta atrás
+        x = s.x;
+        y = s.y;
+    }
+    // La de carreras con el stick en el cuerpo: sin cámara con el joystick (a pedido del usuario; el mouse sigue).
 }
 
 // Piloto automático para pruebas: persigue un punto de la línea central y regula la velocidad
@@ -1917,6 +2026,7 @@ void Game::LoadPrefs()
     flag("datos_tecnicos", techData);
     flag("caja_automatica", prefAutoShift);
     flag("control_traccion", prefTraction);
+    if (const std::string stick = textOf("stick_derecho_carrera"); !stick.empty()) rightStickCamera = prefStickCamera = stick == "camara";
     bool sound = !muted;
     flag("sonido", sound);
     muted = !sound;
@@ -2009,7 +2119,7 @@ void Game::SavePrefs() const
                              "\npasto_desplazamiento = " + std::to_string(g.grassDisplacement) + "\ntierra_deformacion = " + std::to_string(g.soilMode) +
                              "\ntierra_blandura = " + std::to_string(g.soilSoftness) + "\ntierra_profundidad = " + std::to_string(g.soilDepth) +
                              "\ntierra_relieve = " + std::to_string(g.soilDetail) + "\ntierra_particulas = " + std::to_string(g.soilParticles) +
-                             "\ncontrol_traccion = " + b(prefTraction) + "\nmoto = " + savedBike + "\nnombre = " + savedName + "\n";
+                             "\ncontrol_traccion = " + b(prefTraction) + "\nstick_derecho_carrera = " + (prefStickCamera ? "camara" : "cuerpo") + "\nmoto = " + savedBike + "\nnombre = " + savedName + "\n";
     SaveFileText(PrefsPath().c_str(), const_cast<char*>(text.c_str()));
 }
 
@@ -2653,7 +2763,8 @@ void Game::Draw()
         const Vector2 onScreen = GetWorldToScreen(Vector3Add(ToRl(subject), {0.0f, 0.4f, 0.0f}), camera.cam);
         fx.focus = {mu::Clamp(onScreen.x / (float)GetScreenWidth(), 0.2f, 0.8f), mu::Clamp(onScreen.y / (float)GetScreenHeight(), 0.2f, 0.8f)};
         const float speed = ragdoll.Active() ? ragdoll.Velocity().Length() : bike.speed;
-        fx.speedBlur = motionBlur ? mu::Smoothstep(11.0f, 28.0f, speed) * 0.025f : 0.0f;
+        // Girando la cámara (mouse o joystick) y mirando de costado, menos: el desenfoque es de ir para adelante.
+        fx.speedBlur = motionBlur ? mu::Smoothstep(11.0f, 28.0f, speed) * 0.025f * camera.OrbitBlurFactor() : 0.0f;
         fx.aberration = (0.0015f + mu::Smoothstep(14.0f, 30.0f, speed) * 0.0035f) * renderer.graphics.aberration / 100.0f;
     } else {
         fx.vignette = fx.grain = 0.0f;                  // quedan el FXAA y el estilo de color (siempre puestos)
@@ -2877,42 +2988,46 @@ void Game::DrawHelp(float ui)
         {"A  D  /  stick", "doblar"},
         {"Q  E  /  LB  RB", bike.engine.autoShift ? "cambios (la caja es automática)" : "cambios"},
     };
-    const Pair right[] = {
+    std::vector<Pair> right = {
         {"\xE2\x86\x91  \xE2\x86\x93  /  stick", "cuerpo adelante y atrás"},
-        {"\xE2\x86\x90  \xE2\x86\x92  /  stick der.", "cuerpo a los costados"},
+        {StickCamera() ? "mouse  /  stick der." : "mouse", "mirar alrededor"},
         {"R  /  Y", FreeRide() ? "reaparecer acá cerca" : "reaparecer"},
         {"Esc  /  Start", "menú: ajustes y controles"},
         {"H", "esconder esta ayuda"},
     };
+    if (SideBody())                                  // sólo la de carreras (SideBody)
+        right.insert(right.begin() + 1, {StickCamera() ? "\xE2\x86\x90  \xE2\x86\x92  /  cruz" : "\xE2\x86\x90  \xE2\x86\x92  /  stick der.",
+                                         "cuerpo a los costados"});
     const int rows = 5;
+    const int rowsRight = (int)right.size();
     const float fs = 17.0f * ui, rowH = 22.0f * ui, pad = 14.0f * ui, gap = 12.0f * ui, colGap = 30.0f * ui;
-    auto colWidths = [&](const Pair* p, float& keyW, float& actW) {
+    auto colWidths = [&](const Pair* p, int count, float& keyW, float& actW) {
         keyW = actW = 0.0f;
-        for (int i = 0; i < rows; ++i) {
+        for (int i = 0; i < count; ++i) {
             keyW = std::max(keyW, MeasureTextEx(font, p[i].keys.c_str(), fs, 0.0f).x);
             actW = std::max(actW, MeasureTextEx(font, p[i].action.c_str(), fs, 0.0f).x);
         }
     };
     float k1, a1, k2, a2;
-    colWidths(left, k1, a1);
-    colWidths(right, k2, a2);
+    colWidths(left, rows, k1, a1);
+    colWidths(right.data(), rowsRight, k2, a2);
     const float panelW = pad * 2.0f + k1 + gap + a1 + colGap + k2 + gap + a2;
-    const float panelH = pad + 22.0f * ui + rowH * rows + pad * 0.6f;
+    const float panelH = pad + 22.0f * ui + rowH * (float)std::max(rows, rowsRight) + pad * 0.6f;
     const float x0 = 18.0f * ui, y0 = H - 18.0f * ui - panelH;
     DrawRectangle((int)x0, (int)y0, (int)panelW, (int)panelH, fadeTo(kPanel, a));
     DrawRectangle((int)x0, (int)y0, (int)(44.0f * ui), (int)(2.0f * ui), fadeTo(kAccent, a));
     text("CONTROLES", x0 + pad, y0 + pad - 2.0f * ui, 13.0f * ui, fadeTo(kTextDim, a), 2.0f);
     const std::string more = "todas las teclas: Esc, Controles";
     text(more, x0 + panelW - pad - MeasureTextEx(font, more.c_str(), 14.0f * ui, 0.0f).x, y0 + pad - 3.0f * ui, 14.0f * ui, fadeTo(kTextDim, a));
-    auto column = [&](const Pair* p, float x, float keyW) {
-        for (int i = 0; i < rows; ++i) {
+    auto column = [&](const Pair* p, int count, float x, float keyW) {
+        for (int i = 0; i < count; ++i) {
             const float y = y0 + pad + 22.0f * ui + rowH * (float)i;
             text(p[i].keys, x, y, fs, fadeTo(kText, a));
             text(p[i].action, x + keyW + gap, y, fs, fadeTo(Color{200, 204, 212, 255}, a));
         }
     };
-    column(left, x0 + pad, k1);
-    column(right, x0 + pad + k1 + gap + a1 + colGap, k2);
+    column(left, rows, x0 + pad, k1);
+    column(right.data(), rowsRight, x0 + pad + k1 + gap + a1 + colGap, k2);
 }
 
 // ======================================================================================= red
@@ -3576,6 +3691,13 @@ std::vector<Game::Setting> Game::SettingsItems()
             if (PlayerDriving()) bike.tractionControl = prefTraction;
             SavePrefs();
         });
+        choice("JOYSTICK", "Stick derecho en la Carrera",
+               rightStickCamera ? "Con la Carrera 1000: mira alrededor de la moto y al soltarlo vuelve sola; el cuerpo a los costados va con la cruz (\xE2\x86\x90 \xE2\x86\x92). Las otras motos, siempre la cámara."
+                                : "Con la Carrera 1000: mueve el cuerpo a los costados y la cámara no se mueve con el joystick (con el mouse sí). Las otras motos, siempre la cámara.",
+               rightStickCamera ? "Cámara" : "Cuerpo", [this](int) {
+                   rightStickCamera = prefStickCamera = !rightStickCamera;
+                   SavePrefs();
+               });
         // TERRENO: todo lo que toca la física del suelo (las huellas físicas y la colisión). Ni la calidad ni la imagen lo cambian.
         const char* soilModes[] = {"Apagada", "Visual", "Física (local)"};
         choice("TERRENO", "Deformación", "Surcos con volumen y colisión. En red se usan sólo huellas visuales.", soilModes[g.soilMode], [this](int d) {
@@ -4350,16 +4472,18 @@ void Game::DrawMenu()
             {"Cambios", "Q  E", "LB  RB"},
             {"Caja automática o manual", "F3", "X"},
         };
-        static const Row rider[] = {
+        // El stick derecho y la cruz, según Ajustes ("Stick derecho": la cámara o el cuerpo).
+        std::vector<Row> rider = {
             {"Cuerpo adelante y atrás", "\xE2\x86\x91  \xE2\x86\x93", "stick izq."},
-            {"Cuerpo a los costados", "\xE2\x86\x90  \xE2\x86\x92", "stick der."},
             {"Reaparecer", "R", "Y"},
             {"Volver a empezar", "Retroceso", "Back"},   // a la largada, y los objetos sueltos a su lugar
         };
-        static const Row game[] = {
+        if (SideBody())                              // sólo la de carreras (SideBody)
+            rider.insert(rider.begin() + 1, Row{"Cuerpo a los costados", "\xE2\x86\x90  \xE2\x86\x92", StickCamera() ? "cruz \xE2\x86\x90 \xE2\x86\x92" : "stick der."});
+        const Row game[] = {
             {"Menú, ajustes y controles", "Esc", "Start"},
             {"Pausa", "P", ""},
-            {"Mirar alrededor (arrastrando)", "mouse", ""},
+            {"Mirar alrededor (arrastrando)", "mouse", StickCamera() ? "stick der." : ""},
             {"Acercar la cámara", "rueda", ""},
             {"Cámara de costado", "C", "clic stick der."},
             {"Ayuda de teclas", "H", ""},
@@ -4395,7 +4519,7 @@ void Game::DrawMenu()
             if (!toolLines.back().empty() && width(font, next, ts) > maxW) toolLines.push_back(t);
             else toolLines.back() = next;
         }
-        const int nDriving = (int)(sizeof(driving) / sizeof(driving[0])), nRider = (int)(sizeof(rider) / sizeof(rider[0]));
+        const int nDriving = (int)(sizeof(driving) / sizeof(driving[0])), nRider = (int)rider.size();
         const int nGame = (int)(sizeof(game) / sizeof(game[0]));
         const float top = y + 84.0f * scale;
         const float tablesH = std::max(48.0f * scale + 16.0f * scale + (float)(nDriving + nRider) * rh, 24.0f * scale + (float)nGame * rh);
@@ -4403,7 +4527,7 @@ void Game::DrawMenu()
         DrawRectangleRounded({x - 24.0f * scale, top - 16.0f * scale, maxW + 48.0f * scale, panelH}, 0.04f, 6,
                              alpha(Color{10, 12, 16, 200}, fade));
         float leftY = table(x, top, "MANEJO", driving, nDriving);
-        leftY = table(x, leftY + 16.0f * scale, "PILOTO", rider, nRider);
+        leftY = table(x, leftY + 16.0f * scale, "PILOTO", rider.data(), nRider);
         const float rightY = table(x + tableW + gapX, top, "JUEGO", game, nGame);
         float py = std::max(leftY, rightY) + 18.0f * scale;
         text(font, "PARA PROBAR", x, py, 14.0f * scale, alpha(kAccent, fade), 2.0f);

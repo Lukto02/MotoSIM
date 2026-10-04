@@ -131,6 +131,9 @@ suspensión, neumáticos, frenos, dirección y balance, aire, motor y caja. Las 
   Probar las frenadas como con teclado (viniendo inclinada y soltando, tocando la dirección), no sólo derecho:
   ver `frenacurva` en [PRUEBAS.md](PRUEBAS.md).
 - **Derrape lento**: `slide_pivot` (freno trasero doblando debajo de ~13 km/h: el piloto empuja la cola).
+- **Freno de mano**: `handbrake_yaw` (0 en `tuning.ini`; 5000 en las de tierra, 0 en la de carreras, a pedido): doblando
+  y clavando el trasero (Espacio / A) la cola sale a `handbrake_angle` / `handbrake_angle_fast` (24° / 14° con la
+  dirección a fondo, despacio / rápido) y la moto cierra la curva; ver [FISICA.md](FISICA.md), "Freno de mano".
 - **Golpes**: `crash_impact_speed` y `crash_impact_vertical` (m/s contra algo fijo para salir despedido).
 - **Wheelie**: `wheelie_turn`/`wheelie_align` (doblando en una rueda la moto gira a la par de su
   trayectoria; ver [FISICA.md](FISICA.md)) y el grau (`grau_*`, sólo la Trilheira).

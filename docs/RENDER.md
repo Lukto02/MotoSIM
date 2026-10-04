@@ -738,3 +738,30 @@ que era real, lo que se arregló y lo que se descartó con evidencia.
   corrida antes de culpar a una cascada; (5) `look` dentro de ±10% no mueve una imagen que ya está en el hombro del tonemap: si
   hace falta más, la palanca es el grade o la exposición, no `sun_color`; (6) una cascada lejana barata (48 m a 1024) en Bajo
   arregla el corte y el sombreado plano de un solo golpe, pero hay que medirla en una integrada.
+
+## Órbita con el joystick y el motion blur (octubre de 2026)
+
+- **Qué pasaba**: la cámara del juego (`ChaseCamera`) sólo giraba arrastrando el mouse (`Orbit`, ángulo directo); se pidió girarla
+  con el stick derecho, suave, sin tirones a pocos fps, y que al soltar vuelva sola. La vuelta del mouse usaba el resorte paso a
+  paso (`Spring`, Euler semi-implícito), que depende del dt.
+- **Qué se hizo** (`src/Camera.*`; el uso desde el juego y el ajuste, en MENU.md):
+  - `StickOrbit(x, y, realDt)`: x, y en -1..1 (ya con zona muerta y curva) piden una velocidad: 3.0 rad/s de yaw (~170°/s) y
+    1.5 rad/s de pitch a fondo. La velocidad llega a la pedida con `1 - exp(-8·dt)` (~0.12 s) y al soltar frena con `exp(-14·dt)`
+    (~12° de envión desde a fondo). El yaw no se envuelve mientras se gira (se puede dar la vuelta entera); el pitch queda entre
+    -0.3 y 1.1 rad sobre la altura normal (los mismos topes del mouse) y la velocidad se apaga sola en los últimos 0.18 rad
+    (no frena de golpe contra el tope).
+  - **La vuelta**: 0.45 s después de soltar el stick (0.35 con el mouse, como antes) un resorte críticamente amortiguado lleva la
+    órbita a 0 con la **solución exacta** (`CriticalDamp`: `x = (x + (v + ωx)·dt)·e^(-ω·dt)`), ω = 3: igual a cualquier fps,
+    nunca se pasa, por el lado más corto (`remainder` del yaw). Lo que quedaba del envión pasa como velocidad inicial del
+    resorte y, si se toma el stick durante la vuelta, la velocidad de la vuelta pasa al stick: no hay saltos de velocidad.
+  - La órbita corre con el **tiempo real** del cuadro (`realDt`, tope 0.05 s), no con el de la física: en cámara lenta gira igual y
+    en pausa se puede mirar la moto quieta. Un cuadro trabado gira como mucho 0.05 s (no salta).
+  - Se suma encima del seguimiento de siempre (gira la posición de persecución alrededor del piloto, como el mouse): sigue
+    funcionando con la cámara lateral (C), caído (sigue al ragdoll), con el piso (`eye.y` sobre el terreno) y con el recorte contra
+    las paredes de la favela, que se aplica después. `--view` (`FixView`) la deja fija y la cámara del menú es otra.
+  - **Motion blur**: `OrbitBlurFactor()` = `(1 - smoothstep(0.4, 1.8, giro visible en rad/s)) · (0.35 + 0.65·|cos yaw|)`. El
+    desenfoque es radial, de ir para adelante: girando rápido o mirando de costado embarraba la pantalla. Se multiplica en
+    `fx.speedBlur` (mouse y joystick); con la cámara normal es 1 (nada cambia).
+- **Se comprobó**: log `CAM` cuadro a cuadro con `--pad` (PRUEBAS.md) y series de capturas a 1280×720 con el bot (MENU.md, "Cámara
+  con el stick derecho"): velocidad continua al soltar, al empezar la vuelta y en los cuadros largos de las capturas; girando a
+  170°/s a 50 km/h la imagen se ve nítida (`cap/a_061.png`). Regresión idéntica (la cámara no toca la física).

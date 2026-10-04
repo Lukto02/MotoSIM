@@ -55,6 +55,66 @@ void Bike::UpdateWheelConfig()
     r.travel = P->rear.travel;
 }
 
+// Freno de mano (handbrake_yaw > 0; ver FISICA.md, "Freno de mano"): doblando y clavando el freno trasero solo
+// (Espacio, el botón A), el piloto saca la cola hasta el ángulo que busca y la sostiene ahí con el cuerpo y el
+// manubrio, en vez de seguir inclinado con la trasera trabada (que no sostiene nada de costado, pero tampoco empuja la
+// cola: el contravolante automático la mantenía derecha). Es un PD sobre la cola afuera: pasado el ángulo, la frena
+// (no termina en un trompo). La delantera sigue su camino, apuntada slide_steer_in grados hacia la curva
+// (HandbrakeSteer): empuja hacia adentro sin frenar de costado. Al soltar el freno o la dirección, durante
+// handbrake_catch segundos el piloto ataja la cola (el mismo PD, hacia la moto derecha): si no, con la cola a ~30° y
+// gas, la trasera patinando no agarraba y el contravolante (topado en 30°) no alcanzaba: trompo.
+// lowSlide (0..1): cuánto manda el derrape lento de siempre (slideIntent, debajo de slide_speed_max): ahí el freno de
+// mano sólo saca la cola (no la frena: el cavalo de pau de la Trilheira llega a 55-60°) y no toca el manubrio.
+// Lo usan las dos físicas (BikePhysics.cpp y BikePhysics031.cpp, con lowSlide 0); sólo se llama con handbrake_yaw > 0.
+void Bike::UpdateHandbrake(const BikeInput& in, Vec3 linVel, Vec3 fwdFlat, float lowSlide, float dt)
+{
+    const Vec3 flatVel(linVel.GetX(), 0.0f, linVel.GetZ());
+    const Vec3 rightFlat(-fwdFlat.GetZ(), 0.0f, fwdFlat.GetX());          // fwd × up, en el plano
+    const float spd = flatVel.Length();
+    const float beta = spd > 1.5f ? std::atan2(flatVel.Dot(rightFlat), std::max(flatVel.Dot(fwdFlat), 0.0f) + 0.2f) : 0.0f;   // + = va a la derecha del rumbo
+    hbTurn = std::fabs(in.steer) > 0.1f ? mu::Sign(in.steer) : (beta != 0.0f ? -mu::Sign(beta) : hbTurn);
+    const float slide = -beta * hbTurn;                                     // + = cola afuera de la curva
+    const float rate = hbValid ? (slide - hbSlide) / dt : 0.0f;
+    hbRate += (rate - hbRate) * std::min(1.0f, dt * 20.0f);
+    hbSlide = slide;
+    hbValid = spd > 1.5f;
+    hbLow = lowSlide;
+    handbrake = handbrakeTorque = 0.0f;
+    hbCatch = std::max(0.0f, hbCatch - dt / std::max(P->handbrakeCatch, 0.01f));
+    if (crashed || !riderOnBike || !wheels[REAR].grounded) return;
+    // Clavado (el bot frena atrás hasta 0.6: no lo usa), sin el de adelante y doblando.
+    handbrake = mu::Smoothstep(0.6f, 0.95f, in.rearBrake) * (1.0f - mu::Smoothstep(0.1f, 0.4f, in.frontBrake)) *
+                mu::Smoothstep(0.15f, 0.4f, std::fabs(in.steer)) * mu::Smoothstep(1.5f, 3.0f, spd);
+    hbCatch = std::max(hbCatch, handbrake);
+    const float catching = (hbCatch - handbrake) * mu::Smoothstep(1.5f, 3.0f, spd);
+    if (handbrake <= 0.0f && catching <= 0.0f) return;
+    const float K = P->handbrakeYaw;
+    auto pd = [&](float target) { return mu::Clamp(K * (target - slide) - 0.25f * K * hbRate, -0.6f * K, 0.6f * K); };
+    float tq = 0.0f;
+    if (handbrake > 0.0f) {
+        hbWant = mu::Rad(mu::Lerp(P->handbrakeAngle, P->handbrakeAngleFast, mu::Smoothstep(8.0f, 20.0f, spd))) *
+                 mu::Lerp(0.6f, 1.0f, mu::Smoothstep(0.4f, 1.0f, std::fabs(in.steer)));
+        float out = pd(hbWant);
+        if (out < 0.0f) out *= 1.0f - lowSlide;                            // pasada: con el derrape lento la ataja el pedal
+        tq += out * handbrake;
+    }
+    if (catching > 0.0f) tq += pd(0.0f) * catching;
+    handbrakeTorque = -hbTurn * tq;                                         // a la derecha (hbTurn +) = -Y
+}
+
+// Freno de mano: la delantera sigue su propio camino (el trail la arrastra) y el piloto la apunta slide_steer_in grados
+// hacia la curva mientras la cola no llegó al ángulo buscado. Devuelve el manubrio pedido (sólo con handbrake > 0).
+float Bike::HandbrakeSteer(float steerTarget, Vec3 linVel, float yawRate, Vec3 frontOffset, Vec3 fwdFlat, float maxSteerRad) const
+{
+    const Vec3 rightFlat(-fwdFlat.GetZ(), 0.0f, fwdFlat.GetX());
+    // Sólo con la guiñada: el rolido mueve el eje de costado (inclinada ~55°, el bamboleo hacía oscilar el manubrio).
+    const Vec3 frontAxleVel = linVel + Vec3(0.0f, yawRate, 0.0f).Cross(Vec3(frontOffset.GetX(), 0.0f, frontOffset.GetZ()));
+    const float frontPath = std::atan2(frontAxleVel.Dot(rightFlat), std::max(frontAxleVel.Dot(fwdFlat), 0.5f));   // + = va a la derecha del rumbo
+    const float rel = mu::Clamp(mu::Rad(P->slideSteerIn) + 0.35f * (hbWant - hbSlide), -maxSteerRad, 2.0f * mu::Rad(P->slideSteerIn));
+    const float aligned = mu::Clamp(frontPath + rel * hbTurn, -maxSteerRad, maxSteerRad);
+    return mu::Lerp(steerTarget, aligned, handbrake * (1.0f - hbLow));
+}
+
 void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, const Terrain& terrain)
 {
     if (P->original031 >= 0.5f) {
@@ -123,6 +183,8 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     }
 
     const float riderThrottle = in.throttle;                     // lo que gira el piloto (antes de los recortes)
+    if (P->handbrakeYaw > 0.0f)                   // freno de mano (antes de que el piloto module el pedal)
+        UpdateHandbrake(in, linVel, fwdFlat, 1.0f - mu::Smoothstep(P->slideSpeedMax - 4.0f, P->slideSpeedMax, v), dt);
 
     // Derrape con el freno trasero: con la trasera trabada la cola da la vuelta alrededor de la
     // delantera (una rueda trabada no sostiene nada de costado). El piloto dosifica el pedal: afloja
@@ -404,6 +466,8 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
         const float aligned = mu::Clamp(frontPath + rel * slideTurn, -mu::Rad(P->maxSteerDeg), mu::Rad(P->maxSteerDeg));
         steerTarget = mu::Lerp(steerTarget, aligned, slideSteer);
     }
+    if (handbrake > 0.0f && !wasInAir)           // freno de mano (más rápido que el derrape lento de arriba)
+        steerTarget = HandbrakeSteer(steerTarget, linVel, angVel.GetY(), rot * wheels[FRONT].AxleLocal(), fwdFlat, mu::Rad(P->maxSteerDeg));
     // Frenando fuerte y derecho (brake_align): la rueda delantera es libre y el trail la hace seguir su
     // propio camino, así que no empuja de costado. Con el manubrio "fijo", en cuanto la moto giraba un poco la
     // delantera empujaba de costado y la hacía girar más (la trasera descargada no la sostiene): la moto se
@@ -419,7 +483,9 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
         const float frontPath = std::atan2(vf.Dot(rightFlat), std::max(vf.Dot(fwdFlat), 0.5f));   // + = va a la derecha del rumbo
         steerTarget = mu::Lerp(steerTarget, mu::Clamp(frontPath + steerTarget, -maxSteer, maxSteer), brakeFree);
     }
-    steerBase = mu::MoveTowards(steerBase, steerTarget, (P->steerRate + 6.0f * slideSteer + 6.0f * brakeFree) * dt);
+    float steerRate = P->steerRate + 6.0f * slideSteer + 6.0f * brakeFree;
+    if (handbrake > 0.0f) steerRate += 6.0f * handbrake * (1.0f - slideSteer);
+    steerBase = mu::MoveTowards(steerBase, steerTarget, steerRate * dt);
 
     // Autoalineación (trail): cuando la trasera se cruza, la rueda delantera tiende a apuntar hacia
     // donde va la moto, o sea contravolante automático. Es lo que hace que una moto derrape de
@@ -436,6 +502,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
         // (la cola da la vuelta alrededor de la delantera) en vez de dejar que se enderece solo.
         casterTarget *= 1.0f - std::max(slideSteer, P->slideHoldBars * slideIntent * (1.0f - mu::Smoothstep(P->slideSpeedMax - 4.0f, P->slideSpeedMax, v)));
         casterTarget *= 1.0f - brakeFree;                    // frenando derecho ya sigue su camino (arriba)
+        if (handbrake > 0.0f) casterTarget *= 1.0f - handbrake * (1.0f - hbLow);   // freno de mano: deja salir la cola
     }
     steerCaster = mu::MoveTowards(steerCaster, casterTarget, 10.0f * dt);
     const float steerStop = mu::Rad(std::max(35.0f, P->maxSteerDeg));   // topes de dirección
@@ -983,6 +1050,8 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                     totalTorque += Vec3::sAxisY() * (tq * amount);
                 }
             }
+            // Freno de mano: el piloto saca la cola y la sostiene (UpdateHandbrake).
+            if (handbrakeTorque != 0.0f) totalTorque += Vec3::sAxisY() * handbrakeTorque;
             // Frenando fuerte (brake_align): la moto vuelve a apuntar hacia donde va. Sin esto, con la trasera
             // descargada, un poco de inclinación hacía girar la moto, la delantera se alineaba sola con el camino
             // y la moto seguía cangrejeando ~9° (a 250 km/h, con la cola saltando, un wobble). Vale también

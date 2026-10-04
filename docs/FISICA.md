@@ -17,6 +17,81 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### Freno de mano: doblando y clavando el trasero, la cola sale (a pedido; las de tierra, no la de carreras)
+- **Pedido**: "el espacio o A en joystick para el freno de mano debería ser el freno trasero [...] quiero que cuando
+  doblás y lo clavás la moto deslice un poco más de la cola". Espacio / A ya eran el freno trasero solo (`Game.cpp`).
+  Después: "estos cambios que no afecten a la moto de carreras".
+- **Cómo se midió**: `tools/derrape.py` (nuevo; desde `pruebas/`, `prueba/plaza_tierra`, con las rampas del teclado):
+  acelera a 30/50/70 km/h, dobla 1 s con la D y clava el trasero sin soltar la D hasta 5 km/h (`clava`), o 1.2 s y sale
+  con gas doblando (`clava_sale`), o soltando la D (`clava_suelta`), o derecho (`recto`).
+- **Qué pasaba** (v0.3.6):
+  - **450 y 600** (`BikePhysics031.cpp`): la trasera se trababa enseguida y la cola quedaba a 7-10° (mediana) casi
+    hasta parar, con la moto acostada 52-59° yendo con la delantera sola (el camino giraba 26-51°). Debajo de ~20 km/h
+    se cruzaba de golpe 54-75°. La 600 soltando a 70 km/h con gas se caía;
+  - **2T, Trilheira, Trial** (`BikePhysics.cpp`): a 50-70 km/h la cola a 10-31° (mediana) y al final hasta 35-57°;
+    a 30 km/h, 6-12°.
+- **Por qué**:
+  - la trasera trabada no sostiene nada de costado (en la 031 la elipse de agarre se la come: uso 150-200, fuerza
+    lateral ~10 N), pero **tampoco empuja la cola**: nada la saca. La delantera agarra y el contravolante automático
+    (`caster_align` 2, tope 30°) la mantiene alineada. Cuando el tope ya no alcanza (despacio), trompo;
+  - el derrape de la física nueva (`slideIntent`: el piloto dosifica el pedal, sostiene el manubrio, `slide_pivot`) es
+    para despacio: se apaga entre `slide_speed_max` − 4 y `slide_speed_max` (9-13 m/s). La 031 no tiene nada de eso.
+- **Qué se hizo**: claves nuevas (`Bike::UpdateHandbrake` y `HandbrakeSteer`, en `BikePhysics.cpp`; las llaman las dos
+  físicas, guardadas con `if`: con `handbrake_yaw` 0, el de `tuning.ini`, no se calcula nada):
+  - **`handbrake_yaw`** (Nm por rad): con el trasero a más del 60-95% (el bot frena atrás hasta 0.6: no lo usa), sin el
+    de adelante y doblando, un PD de guiñada lleva la cola a **`handbrake_angle`** / **`handbrake_angle_fast`** (24° hasta
+    ~30 km/h, 14° desde ~70, con la dirección a fondo; con media dirección ~60%) y la frena si se pasa (no hay trompo);
+  - la delantera sigue su camino (contravolante automático apagado) apuntada `slide_steer_in` (6°) hacia la curva: empuja
+    hacia adentro y **cierra la curva** sin frenar de costado. En la 031, además, la moto va más derecha (`slide_upright`);
+  - al soltar el freno o la D, durante **`handbrake_catch`** (0.6 s) el mismo PD ataja la cola hacia 0;
+  - en la física nueva, debajo de `slide_speed_max` (donde manda el derrape lento de siempre) sólo saca la cola: no la
+    frena ni toca el manubrio, así el cavalo de pau de la Trilheira (55-60° a ~10 km/h) sigue igual;
+  - `handbrake_yaw` 5000 en `motocross.ini`, `motocross600.ini`, `dostiempos.ini`, `trilheira.ini` y `trial.ini`.
+    La de carreras, nada (idéntica).
+- **Probado y descartado** (en la 450):
+  - el PD solo, con menos contravolante y el manubrio de siempre: la cola salía 16-28°, pero la delantera quedaba cruzada
+    respecto de su camino, saturada (uso 5-9), y frenaba de costado: 0.75-0.85 g (el doble). Al soltar con gas, con la cola
+    a ~28°, trompo de 140°: la trasera patinaba con el gas y el contravolante, topado en 30°, no alcanzaba (de ahí
+    `handbrake_catch`);
+  - la delantera siguiendo el camino de su eje con toda la velocidad angular: inclinada ~55°, el rolido mueve el eje de
+    costado y el manubrio oscilaba ±40° a 5 Hz; la moto se caía hacia adentro. Se usa sólo la guiñada;
+  - la delantera justo en su camino (sin los 6° hacia adentro): el camino se **abría** 12-32°. La trasera trabada frena a
+    lo largo de la moto, que apunta hacia adentro: empuja para afuera;
+  - un término con la velocidad de la cola en el manubrio (como el del derrape lento): oscilaba;
+  - sin la excepción del derrape lento: la Trilheira a ~9 km/h pasaba de 58° a 26°.
+- **Se comprobó** (`python ../tools/derrape.py <exe> --bike ...`; cola = mediana / máxima con más de 10 km/h; camino =
+  cuánto giró la dirección de marcha hasta 5 km/h):
+
+  | `clava` a 30 / 50 / 70 km/h | antes: cola | antes: camino, g | después: cola | después: camino, g |
+  |---|---|---|---|---|
+  | Motocross 450 | 9/54, 9/75, 7/73 | +33° 0.53, +26° 0.43, +34° 0.41 | 25/28, 28/30, 28/30 | +47° 0.48, +82° 0.41, +100° 0.41 |
+  | Motocross 600 | 10/70, 7/74, 3/70 | +27° 0.50, +35° 0.41, +51° 0.42 | 27/28, 28/30, 26/30 | +63° 0.42, +100° 0.40, +116° 0.41 |
+  | 2T | 6/22, 27/44, 10/44 | +8° 0.33, +52° 0.37, +57° 0.37 | 25/34, 30/46, 27/50 | +12° 0.35, +63° 0.39, +99° 0.44 |
+  | Trilheira | 12/28, 31/50, 23/57 | +18° 0.35, +64° 0.43, +81° 0.44 | 24/30, 37/53, 29/60 | +7° 0.35, +61° 0.45, +91° 0.48 |
+  | Trial | 8/16, 19/35, 11/37 | +13° 0.39, +36° 0.45, +42° 0.46 | 13/28, 28/42, 24/43 | +49° 0.53, +41° 0.47, +73° 0.52 |
+
+  - por velocidad (450): ~29° entre 10 y 45 km/h, ~21° arriba de 45. Las máximas de 40-60° de la 2T, la Trilheira y la
+    Trial son del final, debajo de ~30 km/h: el derrape lento de siempre (`slide_angle_max` 65 / 85);
+  - `clava_sale` (1.2 s y sale con gas): la 450, cola 21-25° y camino +23/+34/+45° (antes 4-9° y +9/+12/+24°); sale
+    derecha en todas, también la 600 a 70 km/h (antes se caía). Sin caídas en ninguna maniobra;
+  - exagerando (cambiar de la D a la A clavando, desde 90 km/h hasta parar, toques cortos, en tierra y asfalto): cola
+    máxima 19-34°, sin trompos ni caídas;
+  - `recto` y `clava_suelta`: iguales (derecho no se cruza más);
+  - la de carreras, idéntica (`brakeslide*` y `teclas:` en `plaza_asfalto_ancha`; el bot del circuito);
+  - regresión contra la v0.3.6, idéntica: las 9 de siempre menos `brakeslide` (es el freno de mano: con
+    `handbrake_yaw` 0 da idéntica, igual que `brakeslide2.5/3.5/b` en las 6 motos), más `cuerpo`, `wheelie`, `accel`,
+    `frenada60`, `frenacurva60x1d-1a1`, `brakestraight`, `circle12`, `whip`, `flip` y `airrot` de las 6 motos, y los bots
+    (motocross 450 y 600, 1:04.26 / 1:04.10; favela 300 s; circuito; parque; Los Médanos; valle).
+- **Lecciones**:
+  - **Una rueda trabada no saca la cola**: deja de sostenerla, pero si nada la empuja la moto sigue con la delantera, y
+    el contravolante automático la mantiene derecha. Un "freno de mano" necesita que el piloto ponga la guiñada.
+  - **La delantera cruzada frena**: si la moto gira y la delantera no sigue su camino, va saturada de costado y la moto
+    se clava. Que siga su camino con unos grados hacia la curva da el giro sin la frenada.
+  - **El manubrio que sigue un camino, sólo con la guiñada**: con la moto acostada el rolido mueve el eje de costado y
+    realimenta el manubrio (oscilación). Con `-0.3·rate` de la cola, lo mismo.
+  - **Atajar al soltar**: con la cola a ~30° y gas, la trasera patina y no agarra; el contravolante tiene tope de 30°.
+  - **El bot frena atrás hasta 0.6**: un umbral de pedal arriba de eso (0.6-0.95) deja los bots bit a bit iguales.
+
 ### La de carreras: rework de la frenada (a pedido; sólo la Carrera)
 - **Pedido**: "la moto de carreras frena poco, a veces cuando frenas queda doblando para un costado, etc. quizás tiene poco
   peso o algo así, pero necesita un rework para comportarse bien". Juega con teclado. Después: "agregá telemetría y probá en

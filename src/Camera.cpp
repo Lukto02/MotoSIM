@@ -20,6 +20,24 @@ void Spring(float& x, float& v, float target, float targetVel, float omega, floa
     x += v * dt;
 }
 
+// Resorte críticamente amortiguado hacia 0, con la solución exacta: da lo mismo a 30 que a 240 cuadros por segundo
+// (el de arriba, paso a paso, depende del dt) y nunca se pasa de largo.
+void CriticalDamp(float& x, float& v, float omega, float dt)
+{
+    const float e = std::exp(-omega * dt), c = v + omega * x;
+    x = (x + c * dt) * e;
+    v = (v - omega * c * dt) * e;
+}
+
+// Órbita con el joystick.
+constexpr float kStickYawRate = 3.0f;       // rad/s con el stick a fondo (~170°/s)
+constexpr float kStickPitchRate = 1.5f;
+constexpr float kStickAccel = 8.0f;         // 1/s: llega a la velocidad pedida en ~0.12 s (63%)
+constexpr float kStickRelease = 14.0f;      // 1/s: al soltar frena en ~0.07 s (sigue ~12° de envión a fondo)
+constexpr float kPitchMin = -0.3f, kPitchMax = 1.1f;   // ni bajo el suelo ni cenital (los de la órbita del mouse)
+constexpr float kReturnDelayMouse = 0.35f, kReturnDelayStick = 0.45f;
+constexpr float kReturnOmega = 3.0f;        // vuelta atrás: 90° en ~1.3 s al 10%, sin rebote
+
 } // namespace
 
 void ChaseCamera::Reset(Vector3 bikePos, Vector3 bikeForward)
@@ -33,6 +51,7 @@ void ChaseCamera::Reset(Vector3 bikePos, Vector3 bikeForward)
     fov = fovMin;
     trauma = fovKick = 0.0f;
     orbitYaw = orbitPitch = orbitYawS = orbitPitchS = orbitYawVel = orbitPitchVel = 0.0f;
+    yawRate = pitchRate = visibleRate = 0.0f;
     orbitIdle = 10.0f;
     cam.position = pos;
     cam.target = look;
@@ -132,33 +151,79 @@ void ChaseCamera::Orbit(float dYaw, float dPitch)
 {
     // Tope por frame: un tirón del mouse (p. ej. al volver el foco a la ventana) no da vuelta la cámara.
     orbitYaw += mu::Clamp(dYaw, -0.3f, 0.3f);
-    orbitPitch = mu::Clamp(orbitPitch + mu::Clamp(dPitch, -0.3f, 0.3f), -0.3f, 1.1f);   // ni bajo el suelo ni cenital
+    orbitPitch = mu::Clamp(orbitPitch + mu::Clamp(dPitch, -0.3f, 0.3f), kPitchMin, kPitchMax);   // ni bajo el suelo ni cenital
     orbitYawVel = orbitPitchVel = 0.0f;
+    yawRate = pitchRate = 0.0f;
     orbitIdle = 0.0f;
+    stickDriven = false;
 }
 
 void ChaseCamera::UpdateOrbit(float dt)
 {
-    // Soltado el mouse, vuelve atrás de la moto con un resorte críticamente amortiguado: arranca y
-    // llega suave, por el lado más corto.
+    // La órbita corre con el tiempo real del cuadro (StickOrbit), no con el de la física: en cámara lenta el stick
+    // gira igual de rápido y en pausa se puede mirar la moto quieta.
+    if (orbitDt >= 0.0f) dt = std::min(orbitDt, 0.05f);
+    orbitDt = -1.0f;
     orbitIdle += dt;
     if (fixedView) {                   // pruebas: vista fija pedida por línea de comandos
         orbitYaw = orbitYawS = fixedYaw;
         orbitPitch = orbitPitchS = fixedPitch;
         zoom = zoomS = fixedZoom;
+        yawRate = pitchRate = visibleRate = 0.0f;
         return;
     }
-    if (orbitIdle > 0.35f) {
+
+    // Joystick: el stick pide una velocidad de giro y la cámara llega a ella con una aceleración suave (exponencial:
+    // igual a cualquier dt). Tomarlo mientras vuelve sola sigue con la velocidad que traía la vuelta (sin tirón).
+    const bool held = stickX != 0.0f || stickY != 0.0f;
+    if (held) {
+        if (!stickDriven || orbitIdle > kReturnDelayStick) {
+            yawRate += orbitYawVel;
+            pitchRate += orbitPitchVel;
+        }
+        orbitYawVel = orbitPitchVel = 0.0f;
+        orbitIdle = 0.0f;
+        stickDriven = true;
+    }
+    if (held || yawRate != 0.0f || pitchRate != 0.0f) {
+        const float k = 1.0f - std::exp(-(held ? kStickAccel : kStickRelease) * dt);
+        yawRate += (-stickX * kStickYawRate - yawRate) * k;
+        pitchRate += (stickY * kStickPitchRate - pitchRate) * k;
+        // Cerca de los topes de altura la velocidad se apaga sola (no frena de golpe contra el límite).
+        const float room = pitchRate > 0.0f ? kPitchMax - orbitPitch : orbitPitch - kPitchMin;
+        const float pitchStep = pitchRate * mu::Smoothstep(0.0f, 0.18f, room);
+        orbitYaw += yawRate * dt;      // sin envolver: se puede dar la vuelta entera
+        orbitPitch = mu::Clamp(orbitPitch + pitchStep * dt, kPitchMin, kPitchMax);
+        if (!held && orbitIdle > kReturnDelayStick) {
+            // Empieza la vuelta: lo que quedaba del envión pasa al resorte (la velocidad no salta).
+            orbitYawVel += yawRate;
+            orbitPitchVel += pitchStep;
+            yawRate = pitchRate = 0.0f;
+        }
+    }
+
+    // Soltado el mouse o el stick, vuelve atrás de la moto con un resorte críticamente amortiguado: arranca y llega
+    // suave, sin pasarse, por el lado más corto.
+    if (orbitIdle > (stickDriven ? kReturnDelayStick : kReturnDelayMouse) && yawRate == 0.0f && pitchRate == 0.0f) {
         orbitYaw = std::remainder(orbitYaw, 2.0f * mu::kPi);
-        Spring(orbitYaw, orbitYawVel, 0.0f, 0.0f, 3.0f, dt);
-        Spring(orbitPitch, orbitPitchVel, 0.0f, 0.0f, 3.0f, dt);
+        CriticalDamp(orbitYaw, orbitYawVel, kReturnOmega, dt);
+        CriticalDamp(orbitPitch, orbitPitchVel, kReturnOmega, dt);
     }
     // Lo que se ve sigue a lo pedido suavizado, siempre por la diferencia angular más corta: cruzar
     // los 180° no hace que la cámara se dé vuelta por el otro lado.
     const float follow = 1.0f - std::exp(-20.0f * dt);
+    const float before = orbitYawS;
     orbitYawS = std::remainder(orbitYawS + std::remainder(orbitYaw - orbitYawS, 2.0f * mu::kPi) * follow, 2.0f * mu::kPi);
     orbitPitchS += (orbitPitch - orbitPitchS) * follow;
     zoomS = mu::Damp(zoomS, zoom, 10.0f, dt);
+    if (dt > 0.0f) visibleRate = mu::Damp(visibleRate, std::fabs(std::remainder(orbitYawS - before, 2.0f * mu::kPi)) / dt, 12.0f, dt);
+}
+
+float ChaseCamera::OrbitBlurFactor() const
+{
+    const float turning = 1.0f - mu::Smoothstep(0.4f, 1.8f, visibleRate);
+    const float facing = 0.35f + 0.65f * std::fabs(std::cos(orbitYawS));   // de costado queda un tercio
+    return turning * facing;
 }
 
 void ChaseCamera::Zoom(float steps) { zoom = mu::Clamp(zoom * (1.0f - 0.1f * steps), 0.6f, 2.5f); }

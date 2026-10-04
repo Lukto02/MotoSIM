@@ -1,5 +1,16 @@
-﻿MotoSim v0.3.6 - motos para jugar solo o con amigos en la red local
+﻿MotoSim v0.3.7 - motos para jugar solo o con amigos en la red local
 ===================================================================
+
+NOVEDADES DE LA v0.3.7
+- CÁMARA CON EL STICK DERECHO: en el joystick, el stick derecho mira alrededor de la moto (de costado, hacia
+  atrás, arriba y abajo), suave, y al soltarlo la cámara vuelve sola a la vista de siempre. Con la Carrera 1000
+  el stick derecho sigue siendo el cuerpo: en Ajustes -> Juego y sonido, "Stick derecho en la Carrera: Cámara"
+  lo pasa a la cámara (y el cuerpo a la cruz).
+- FRENO DE MANO: doblando y clavando el freno de atrás (Espacio / A), la cola sale y se sostiene de costado
+  (unos 20-30°) y la moto cierra la curva; al soltarlo sale derecha. En las motos de tierra (motocross 450 y
+  600, 2T, Trilheira y Trial); la Carrera 1000 frena como antes.
+- CUERPO A LOS COSTADOS SÓLO EN LA CARRERA 1000: en las otras motos complicaba el whip y se sacó (las flechas
+  ← → ya no hacen nada ahí); en la de carreras sigue, porque cambia cómo dobla.
 
 NOVEDADES DE LA v0.3.6
 - PILOTO MÁS LIVIANO: el personaje tiene un tercio menos de polígonos, con las mismas animaciones, la
@@ -234,7 +245,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.
@@ -252,14 +263,18 @@ CONTROLES
   Doblar / inclinar ....... A / D (stick izquierdo)
   Whip / scrub (en el aire) A / D (stick izquierdo al costado)
   Piloto adelante / atrás . Flechas arriba / abajo (stick arriba / abajo)
-  Cuerpo a los costados ... Flechas izquierda / derecha (stick derecho); con la Carrera 1000,
+  Cuerpo a los costados ... sólo la Carrera 1000: flechas izquierda / derecha (stick derecho),
                             hacia adentro de la curva para colgarte
   Grau (Trilheira) ........ flecha abajo + W de golpe; con la rueda arriba, W suelto = grau lento,
                             W apretado = grau rápido; soltá la flecha para bajar la rueda
   Cambios ................. Q / E (LB / RB)   F3 (X): caja automática o manual (se recuerda)
   Reaparecer .............. R (Y)   al caerte no reaparecés solo; en Los Médanos, ahí donde quedaste
   Volver a empezar ........ Retroceso (Back)   a la largada, y los objetos sueltos a su lugar
-  Cámara .................. arrastrá con el mouse para girarla, rueda para acercar; C cámara lateral
+  Cámara .................. arrastrá con el mouse o mové el stick derecho para mirar alrededor (al
+                            soltar vuelve sola atrás); rueda para acercar; C (clic del stick derecho)
+                            cámara lateral. Con la Carrera 1000 el stick derecho es el cuerpo: en
+                            Ajustes -> Juego y sonido, "Stick derecho en la Carrera: Cámara" lo cambia
+                            (y el cuerpo pasa a la cruz ← →)
   Menú .................... Esc (Start en el joystick)
   Pausa ................... P
   Ayuda de teclas ......... H   (sale sola los primeros segundos)

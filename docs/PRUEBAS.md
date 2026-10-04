@@ -135,6 +135,7 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | manejar como con el teclado | `--test "teclas:W+150,D1.5,S-1"`: pasos separados por comas con las teclas apretadas (W A S D, `_` Espacio, `^` `v` flechas arriba y abajo, `<` `>` izquierda y derecha) y hasta cuándo (`N` s, `+N` hasta N km/h, `-N` hasta bajar a N). Pasa por las mismas rampas que el teclado (`Game::KeyboardInput`) con caja automática. Imprime una línea `TECLAS` por paso: km/h, s, metros, g, cuánto giró el camino y el rumbo (+ = a la derecha), cuánto se corrió de costado respecto de la recta en que venía, inclinación al empezar y al terminar, deriva máxima (arriba de 18 km/h), cabeceo mínimo y cola en el aire |
 | cada frenada, también jugando | con `--telemetry`, una línea `FRENADA` desde que la delantera pasa del 50% hasta que se suelta o para (los mismos datos que `TECLAS`). Jugando con ventana: `MotoSim.exe --telemetry --telemetry-dt 1000 > frenadas.txt` |
 | las maniobras de frenar y doblar | `python tools/maniobras.py <exe> [--bike base/carrera] [--map prueba/plaza_asfalto_ancha] [--vel 100,150,200] [--solo recta,dobla_suelta] [--crudo]`: frenar derecho, doblar y clavar soltando la D (sin gas y con gas), doblando sin soltar, clavar y después doblar, tocar la D frenando, soltar la curva sin frenar, una chicana y un toque de freno doblando; una línea por maniobra (la frenada o el último paso). En el circuito las que doblan se salen de la pista: usar una plaza |
+| el freno de mano (Espacio / A doblando) | desde `pruebas/`: `python ../tools/derrape.py <exe> [--bike base/motocross] [--map prueba/plaza_tierra] [--vel 30,50,70] [--solo clava,recto]`: con las rampas del teclado, dobla con la D y clava el trasero hasta parar (`clava`), o 1.2 s y sale con gas (`clava_sale`), o soltando la D (`clava_suelta`), o derecho (`recto`); una línea por maniobra con la cola (máxima, mediana y por franja de velocidad), cuánto giró el camino y el rumbo, g, trasera trabada, cómo sale y si se cayó |
 | el freno de cada rueda en cada paso | `--wheel-log T0 T1`: además de lo de la rueda, una línea `freno` (vueltas, patinaje, si está retenida, freno, uso y agarre máximo) |
 | bajar la escadaria a N km/h | `--map favela --spawn 68 --test bajadaN` (sigue la línea) y `python tools/escalera.py 74 88` |
 | un salto a N km/h | `python tools/saltos.py <exe> sandbox/medanos 300 370 40,50,60 ambos --time 16`: aparece en S, entra al salto que despega en s = 370 (La Cadena 3) sin tocar nada (`bajadaN`) y con el bot a N; aire, altura, vy al tocar, cabeceo y si se cae (ver [MAPAS.md](MAPAS.md), "Medir un salto"). Todos los de la vuelta de Los Médanos: `python tools/medanos.py --medir <exe> 40,50,60,70` |
@@ -187,6 +188,14 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   preset sale de la placa (esta PC, RTX 5070: Alto). Ejemplo: `--size 1280 720 --nohud --map base/motocross --test pose
   --view 200 12 3 --gfx medio --screenshot 3 f.png --time 4`. La red de seguridad de fps no corre con `--size`, capturas,
   pruebas, bot, `--noprefs` ni `--gfx`.
+- **Joystick simulado** (no hay joystick en esta PC): `--pad "T:RX,RY[,CRUZ];..."` pone el stick derecho en RX,RY (crudo,
+  -1..1; Y + = abajo) y la cruz apretada (`<` `>` `^` `v`) desde T s de `simTime`, como un joystick conectado (cámara y cuerpo de
+  costado según el ajuste). `--stick camara|cuerpo` elige el ajuste "Stick derecho" por esa vez (no se guarda). Con `--telemetry`
+  imprime cada cuadro `CAM t= dt= orbita=yaw,pitch azimut= elev= pedido=x,y` (grados) para medir que la cámara no salte; la
+  serie de MENU.md ("Cámara con el stick derecho") se sacó con `--noprefs --bot --size 1280 720 --telemetry --pad
+  "3:1,0;3.75:0,0;7:-1,0;8.45:0,0;11:0,1;11.8:0,0;13.5:0,-1;14.1:0,0;16:1,0;18.6:0,0" --screenshot 2.5 a.png --shots-every 0.25
+  --time 22`. Ojo: cada cuadro con captura tarda ~0.2 s y la órbita toma como mucho 0.05 s por cuadro, así que con capturas
+  gira menos por segundo de `simTime` que jugando.
 - Ajustes tiene tres páginas: con `tools\teclas.ps1`, `RIGHT` sobre la primera fila pasa de Gráficos a Imagen y a Juego y
   sonido; las filas de cada página y sus posiciones están en MENU.md. Para el mouse, `PostMessage` a la ventana
   (`WM_MOUSEMOVE`, `WM_LBUTTONDOWN/UP`) con las coordenadas de la captura **divididas por la escala de pantalla de Windows** (125%: 320, 238

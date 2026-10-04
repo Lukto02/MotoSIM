@@ -188,6 +188,12 @@ struct BikeParams {
     // cubiertas empujan para el otro lado (soltando una curva para frenar, la moto se iba para el lado contrario). En una de
     // verdad la moto rola alrededor de la línea de los contactos, que no se mueven. Sólo mientras se endereza.
     float leanSweepComp = 0.0f;
+    // Freno de mano (Espacio / botón A): doblando y clavando el freno trasero, el piloto hace salir la cola hasta
+    // handbrake_angle grados (handbrake_angle_fast a ~70 km/h o más) y la sostiene ahí. Torque de guiñada en Nm por rad
+    // que le falta a la cola (0 = nada, como antes). Al soltar, durante handbrake_catch s el piloto ataja la cola.
+    float handbrakeYaw = 0.0f;
+    float handbrakeAngle = 24.0f, handbrakeAngleFast = 14.0f;
+    float handbrakeCatch = 0.6f;
     float tcSlip = 0.35f;            // slip trasero tolerado por el control de tracción
     float crashAngleDeg = 72.0f;
     // Golpe fuerte contra algo fijo: el piloto sale despedido (m/s con que se acercaban). De frente o de
@@ -263,6 +269,8 @@ public:
     // BikePhysics.cpp: todas las fuerzas, antes de cada paso de Jolt.
     void PrePhysics(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
     void PrePhysics031(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
+    void UpdateHandbrake(const BikeInput& in, JPH::Vec3 linVel, JPH::Vec3 fwdFlat, float lowSlide, float dt);   // freno de mano (handbrake_yaw)
+    float HandbrakeSteer(float steerTarget, JPH::Vec3 linVel, float yawRate, JPH::Vec3 frontOffset, JPH::Vec3 fwdFlat, float maxSteerRad) const;
     void PostPhysics();
 
     // drawRider: el piloto generado; livery: colores y número (uno por jugador).
@@ -298,6 +306,13 @@ public:
     float slideRate = 0.0f;                  // rad/s con que se abre la cola (suavizado)
     float slideWant = 0.0f, slideTurn = 1.0f;    // ángulo de derrape que busca el piloto y hacia qué lado
     float slideIntent = 0.0f;                // 0..1: derrape buscado (freno trasero solo)
+    float handbrake = 0.0f;                  // 0..1: freno de mano (handbrake_yaw): trasero clavado doblando
+    float handbrakeTorque = 0.0f;            // Nm de guiñada (+Y) que pone el piloto para sacar o sostener la cola
+    float hbSlide = 0.0f, hbRate = 0.0f;     // cola afuera (rad, + hacia afuera de la curva) y con qué rapidez se abre
+    float hbWant = 0.0f, hbTurn = 1.0f;      // cola que busca (rad) y hacia qué lado dobla
+    float hbCatch = 0.0f;                    // 0..1: atajando la cola después de soltar el freno de mano
+    float hbLow = 0.0f;                      // 0..1: cuánto manda el derrape lento de siempre (slideIntent)
+    bool hbValid = false;
     float clutchPop = 0.0f;                  // s que quedan del pico de torque del embrague soltado de golpe
     float sinceThrottleLow = 0.0f;           // s desde que el gas estaba casi cerrado (para detectar el golpe de gas)
     bool popArmed = false;

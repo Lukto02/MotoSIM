@@ -87,7 +87,7 @@ el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de 
 | Freno trasero (solo: derrape) | A | Espacio |
 | Dirección / inclinación | Stick izq. X | A / D |
 | Piloto adelante / atrás | Stick izq. Y | ↑ / ↓ |
-| Cuerpo a los costados | Stick der. X | ← / → |
+| Cuerpo a los costados (sólo la Carrera 1000) | Stick der. X (con el ajuste en Cámara, la cruz ← / →) | ← / → |
 | Bajar / subir marcha | LB / RB | Q / E |
 | Reaparecer (caído no reaparece solo; en la pista, en la pista; en un mapa libre, donde quedaste, mirando para donde ibas) | Y | R |
 | Volver a empezar (a la largada, y los objetos sueltos a su lugar) | Back | Retroceso |
@@ -95,7 +95,7 @@ el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de 
 | Pausa (no anda en red) | — | P |
 | Caja automática / manual (arranca en automática; se recuerda) | X | F3 |
 | Cámara lateral (debug) | R3 | C |
-| Cámara orbital | — | arrastrar con el mouse (rueda: zoom); al soltar vuelve sola atrás |
+| Cámara orbital (al soltar vuelve sola atrás) | Stick der. (la Carrera: sólo con el ajuste "Stick derecho en la Carrera: Cámara") | arrastrar con el mouse (rueda: zoom) |
 | Ayuda de teclas (sale sola al empezar; en pausa también) | — | H |
 | Datos técnicos (velocidad, motor, suspensión, agarre, cuadros por segundo) | — | T |
 | Sonido | — | M |
