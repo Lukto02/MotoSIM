@@ -10,7 +10,7 @@ Sos el experto en interfaz de MotoSim. Diseñás pantallas claras y lindas en ca
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La interfaz no toca la física**. La carrera sigue de fondo con el menú abierto. Comprobá que la motocross da "idéntico": `bash tools/regresion.sh <tu exe> dist/<último paquete>/MotoSim.exe "--bot --time 40"`.
+- **La interfaz no toca la física**. La carrera sigue de fondo con el menú abierto. Comprobá que la motocross da "idéntico": `bash tools/regresion.sh <tu exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) "--bot --time 40"`.
 - **Antes de empezar** leé `docs/MENU.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/MENU.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (capturas).
 - **Compilar**: `tools\compilar.bat build-msvc-interfaz`. Después de tocar `Game.h`, tocá los `.cpp` (ninja no sigue bien los headers acá).

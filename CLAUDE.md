@@ -10,7 +10,7 @@ Comentarios del código, textos del juego y documentación de desarrollo en cast
   motos → `docs/MOTOS.md`, física → `docs/FISICA.md`, piloto/ragdoll → `docs/PILOTO.md`, mapas →
   `docs/MAPAS.md`, pruebas → `docs/PRUEBAS.md`, menú → `docs/MENU.md`, sonido → `docs/SONIDO.md`, gráficos → `docs/RENDER.md`,
   red → `docs/RED.md`. Ahí están las trampas conocidas.
-- Compilar: `tools\compilar.bat [carpeta] [release]` (por defecto `build-msvc`, con VS 2022 Build Tools;
+- Compilar: `tools\compilar.bat [carpeta] [release]` (por defecto `build-msvc`, dentro de `compilaciones/`, con VS 2022 Build Tools;
   reusa las dependencias de `build\_deps`). Después de tocar un `.h`, tocar los `.cpp` que lo incluyen.
 - También compila en Mac (`./build.sh`; el workflow `.github/workflows/build.yml` prueba Windows y
   Mac en cada push y PR). Lo de un sistema va detrás de `if(APPLE)` / `if(MSVC)` o probando rutas de
@@ -22,7 +22,7 @@ En `.claude/agents/` hay un agente experto por área: `motosim-motos`, `motosim-
 `motosim-graficos`, `motosim-fisica`, `motosim-piloto`, `motosim-sonido`, `motosim-interfaz`,
 `motosim-red` y `motosim-paquete` (armar y verificar una versión). Traen el contexto, las reglas y cómo
 probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Detalle en `docs/README.md`.
-- Cada uno compila en `build-msvc-<área>`, así pueden trabajar a la vez; si dos tocan los mismos
+- Cada uno compila en `compilaciones/build-msvc-<área>`, así pueden trabajar a la vez; si dos tocan los mismos
   archivos, de a uno o cada uno en su worktree.
 - No hacen commits; al terminar informan con una sección **Lecciones**. Quien los lanzó revisa que
   estén anotadas en `docs/` antes de commitear.
@@ -51,8 +51,9 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
 ## Dónde está cada cosa
 
 - **El código de la última versión es la raíz del repo** (`main`); nunca una copia dentro de `dist/`.
-  `dist/` tiene sólo paquetes (`MotoSim-vX/` + zip); lo viejo o de pruebas, en `dist/_archivo/`. Compilaciones
-  en `build-*` de la raíz. Detalle en `docs/PRUEBAS.md` ("Carpetas y versiones").
+  Los modelos del piloto, en `modelos/`. `dist/vX/` tiene el paquete de cada versión (`MotoSim-vX/` + zip); lo
+  viejo o de pruebas, en `dist/_archivo/`. Todas las compilaciones, en `compilaciones/` (no va a git). Detalle en
+  `docs/PRUEBAS.md` ("Carpetas y versiones").
 - Estructura del código: README ("Estructura").
 - Motos: `mods/<mod>/bikes/*.json` + `.ini`; estilos en `src/BikeStyles.*` y piezas en
   `src/BikeMeshes.cpp` (una sección por estilo).

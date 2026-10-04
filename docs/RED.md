@@ -91,7 +91,7 @@ del roce más fuerte medido. Con la trompa, el del muro: una moto que viene de f
 (de frente a 8+8 km/h, 5.5 m/s, no cae nadie; a 12+12, 7.4, caen los dos).
 
 ### Cómo se comprobó
-`python tools/netchoque.py build-msvc-red/motocross.exe build-msvc-red/motocross.exe caso...` (motocross,
+`python tools/netchoque.py compilaciones/build-msvc-red/motocross.exe compilaciones/build-msvc-red/motocross.exe caso...` (motocross,
 LAN de una PC, ~15 ms de ida y vuelta). La última columna es lo que decidía la regla vieja con los mismos
 contactos (la telemetría imprime, entre corchetes, la medición vieja).
 

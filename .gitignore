@@ -1,6 +1,7 @@
 # Compilaciones (CMake baja raylib y Jolt solo) y paquetes para compartir
 build/
 build-*/
+compilaciones/
 out/
 .vs/
 dist/
@@ -13,7 +14,7 @@ screenshot*.png
 *.log
 *.wav
 
-# Modelo de piloto de reserva: el juego usa Low_Poly_Motorcyclist_2 (éste sólo si falta aquél)
+# Modelo de piloto viejo (32 MB, el juego ya no lo usa)
 Low_Poly_Motorcycle_Racer_rigged.gltf
 Low_Poly_Motorcycle_Racer_rigged_deps/
 

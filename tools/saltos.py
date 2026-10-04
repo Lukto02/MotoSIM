@@ -12,7 +12,7 @@
 #
 # Uso (desde la raíz del proyecto):
 #   python tools/saltos.py <exe> <mod/mapa> <spawn> <s_labio> <km/h,km/h,...> [bajada|bot|ambos] [--time T]
-#   p. ej. python tools/saltos.py build-msvc/motocross.exe sandbox/medanos 240 446 40,50,60 ambos --time 30
+#   p. ej. python tools/saltos.py compilaciones/build-msvc/motocross.exe sandbox/medanos 240 446 40,50,60 ambos --time 30
 # s_labio: la s de la pista donde despega (--test profile la da; o correr una vez y mirar "despega").
 import os, re, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor

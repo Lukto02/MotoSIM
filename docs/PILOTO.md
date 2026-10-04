@@ -1,10 +1,13 @@
 # Piloto: modelo, IK y ragdoll
 
-El piloto que se ve es el modelo glTF `Low_Poly_Motorcyclist_3_rigged.gltf` (huesos con nombres estilo
-Mixamo, con los dedos; riggeado con `tools/riggear_piloto.py`, ver "Riggear un modelo nuevo"). De
-respaldo, si no está: `Low_Poly_Motorcyclist_2_rigged.gltf` (la mano en un solo hueso) y
-`Low_Poly_Motorcycle_Racer_rigged.gltf`. **El modelo 2 queda en el proyecto a pedido del usuario** ("no borres
-el viejo, dejalo de backup"): no se borra aunque ya no sea el principal. Si no se encuentra ninguno, se usa el piloto generado
+El piloto que se ve es el modelo 2 (desde la v0.3.4, con la pose, la IK y los dedos de la primera v0.3.1; ver
+[PORT-ORIGINAL031.md](PORT-ORIGINAL031.md)): `Low_Poly_Motorcyclist_2_lowpoly.gltf`, el mismo modelo con un tercio
+menos de triángulos (ver "Menos triángulos: el modelo 2 reducido"), y si no está, el original
+`Low_Poly_Motorcyclist_2_rigged.gltf` (la mano en un solo hueso; los dedos son virtuales, `BuildGrip`). Lo de
+abajo sobre el modelo 3 (`Low_Poly_Motorcyclist_3_rigged.gltf`, riggeado con `tools/riggear_piloto.py`) es de
+cuando era el principal; hoy queda en el proyecto sin usarse. **Los modelos viejos quedan en el proyecto a pedido
+del usuario** ("no borres el viejo, dejalo de backup"): no se borran aunque no sean el principal. Si no se
+encuentra ninguno, se usa el piloto generado
 (`Rider.cpp`; F9 cambia entre los dos, `--genrider` arranca con el generado). **Las pruebas visuales del
 piloto se hacen con el modelo**: es el principal y el que muestra los problemas de la malla.
 
@@ -344,7 +347,7 @@ Tres causas, una detrás de la otra:
 ## Medir la holgura (tools/holgura)
 
 Cuánto se mete el piloto (el modelo, skineado) en la moto. No va en el juego: `python tools/holgura/armar.py`
-arma una copia en `build-msvc-holgura/` (src, mods, `RiderClearance.cpp/.h` de `tools/holgura` y un enganche
+arma una copia en `compilaciones/build-msvc-holgura/` (src, mods, `RiderClearance.cpp/.h` de `tools/holgura` y un enganche
 en `Game::Draw` después de `riderModel.Skin()`) y la compila; el exe se corre **con ventana** desde la raíz
 del proyecto (ahí están el modelo y `mods/`). Si `Game.cpp` cambia y el enganche no entra, el script avisa.
 - **Qué mide**, en cada pose: (A) vértices del piloto adentro de cada primitiva cerrada de las piezas de la
@@ -352,7 +355,7 @@ del proyecto (ahí están el modelo y `mods/`). Si `Game.cpp` cambia y el enganc
   superficie; (B) puntos de la superficie de la moto cada 1.2 cm adentro de las piezas del piloto (lo que A
   no ve: un caño fino que atraviesa un muslo). Por zona del cuerpo (el hueso que más pesa); la mano en el
   puño y la bota en la estribera, aparte.
-- **Barrido**: `bash tools/holgura/barrido.sh build-msvc-holgura/b/motocross.exe <carpeta> <etiqueta>` (las
+- **Barrido**: `bash tools/holgura/barrido.sh compilaciones/build-msvc-holgura/b/motocross.exe <carpeta> <etiqueta>` (las
   cinco motos, 3-6 min cada una; la de carreras, más) y `python tools/holgura/tabla.py <carpeta> antes
   despues` para la tabla. El CSV trae por pose también el ajuste (`sube`, `centro`, `abre`, `tob`), lo que
   queda según las pruebas del propio ajuste (`pAsiento`, `pPierna`, `pBota`, `pManubrio`), el alcance del
@@ -430,3 +433,76 @@ vértice y siguen el skinning: no se deslizan al mover el cuerpo. El casco y el 
 su atlas; el traje usa tejido fino filtrado y la luz real. Las normales de la ropa se recalculan
 soldadas por posición para eliminar cortes de iluminación entre islas UV. El arreglo del aro sigue.
 Verificado desde atrás y de costado con el glTF principal: `build/soil-checks/rider-clean.png`.
+
+## Menos triángulos: el modelo 2 reducido (tools/reducir_piloto.py)
+
+- **Pedido**: bajarle el polycount al piloto sin que cambien las animaciones ni la textura.
+- **Cómo era** (`Low_Poly_Motorcyclist_2_rigged.gltf`): una malla, una primitiva, 5210 triángulos y 5901 vértices
+  (2607 posiciones distintas: una sola pieza cerrada), 24 huesos, un material, una textura PNG de 2048² (7.9 MB).
+  El `.bin` pesaba 8.2 MB, pero 7.9 MB eran una copia de la textura que ningún accesor ni imagen usa (la imagen
+  se lee del PNG): la malla son 0.34 MB, y las dos animaciones de Blender (que el juego no usa), unos KB.
+  Las UV son de un desplegado automático: **674 islas, y 2622 de las 7815 aristas son costura** (34%); en 1023
+  posiciones se cruzan tres islas o más. Por zona (hueso que más pesa): manos 1166 triángulos (22%), cabeza 778
+  (15%), canillas 711, muslos 398, cadera 266...
+- **Qué usa el código**: sólo `meshes[0]`; los huesos por nombre; las posiciones de reposo de los huesos. El
+  skinning es en la CPU, vértice por vértice, cada cuadro (`RiderModel::Skin`). **Los dedos se arman midiendo los
+  vértices de la mano** (`BuildGrip`: los que tienen ≥ 0.5 de peso de `LeftHand` / `RightHand`, en cortes de 3-4 mm
+  a lo largo de los dedos): reduciendo también las manos, la flexión de los dedos cambiaba (la derecha, de
+  40/58/61° a 51/34/105°) y el agarre se veía distinto. Por eso las manos no se tocan.
+- **Qué se hizo**: `python tools/reducir_piloto.py Low_Poly_Motorcyclist_2_rigged.gltf Low_Poly_Motorcyclist_2_lowpoly.gltf`
+  (Python + numpy, sin Blender; por defecto `--objetivo 0.65 --error 40 --cabeza 8 --pies 6 --costura 4 --uv 2
+  --peso-max 0.25 --manos-fijas 1`; tarda ~20 s y da siempre lo mismo). No se usó el Decimate de Blender: al
+  reexportar, Blender reescribe nodos, matrices de bind, animaciones y material, e interpola UV y pesos. Acá:
+  - **Colapsos de medio lado**: el vértice que se va se junta con un vecino que queda donde estaba. Todo vértice
+    del resultado es uno del original con sus bytes (posición, normal, UV, huesos y pesos): no se interpola nada.
+  - **Costuras**: un vértice sin costura va con cualquier vecino de su isla; uno en medio de una costura (dos
+    copias, dos aristas de costura), sólo a lo largo de ella y cada copia con la del vecino del mismo lado; los
+    cruces de islas no se tocan. Ninguna isla se queda sin triángulos.
+  - **Orden**: cuádricas de error (Garland-Heckbert) en posición + UV (1 unidad de UV = 2 m: 1 texel ~ 1 mm), más
+    planos que sostienen cada costura en 3D y el borde de su isla en la UV (×4). Se rechaza lo que da vuelta un
+    triángulo (más de 60° en 3D, o en la UV), lo que lo deja muy fino, lo que rompe la variedad (condición del
+    enlace) y juntar vértices con pesos distintos (más de 0.25): codos, rodillas y hombros conservan sus anillos.
+  - **Zonas**: cuesta 8 veces más sacar de la cabeza (con 4-5 el casco se veía facetado de perfil) y 6 de los pies
+    (la punta de la bota quedaba en bloque); las manos, fijas. Tope: 40 mm de desvío medio por la importancia de
+    la zona.
+  - El glTF nuevo es el original con la malla cambiada: nodos, esqueleto, matrices de bind, animaciones y
+    material iguales; el `.bin` sin la copia de la textura; la textura copiada byte a byte (mismo SHA-256) a
+    `Low_Poly_Motorcyclist_2_lowpoly_deps/`.
+  - `Game.cpp` busca primero `Low_Poly_Motorcyclist_2_lowpoly.gltf` y después el original; `package_release.py`
+    empaqueta el reducido. **El original queda en el proyecto, sin tocar.**
+- **Resultado**: 5210 → **3484 triángulos (33% menos)**, 5901 → 4726 vértices. Por zona: cabeza 778 → 516, manos
+  1166 → 1166, canillas 711 → 355, muslos 398 → 237, cadera 266 → 116, brazos 484 → 254, antebrazos 406 → 231,
+  pies y botas 503 → 304, columna 275 → 170, hombros 181 → 106, cuello 42 → 29. Sin las manos, 4044 → 2318 (43%
+  menos). Archivos: `.bin` 8.2 MB → 0.29 MB; el zip del paquete, 17.8 → 9.8 MB.
+- **Por qué no más**: con las costuras respetadas, el piso (sacar todo lo que se puede) es ~2050 triángulos, y ahí
+  el casco y las botas se ven facetados (hasta 4 cm de desvío). Con la cabeza a importancia 4 y sin tope: 40% menos
+  y el casco ya muestra facetas de perfil. Más que eso pide tocar las UV (rehacer la textura) o las manos (cambia
+  el agarre).
+- **Se comprobó**:
+  - Que sólo cambia la malla: nodos, skins, animaciones y material iguales; los 222 accesores de fuera de la malla
+    con los mismos bytes; los 4726 vértices idénticos a uno del original; la textura con el mismo SHA-256.
+  - Desvío (distancia de cada vértice original a la superficie reducida, en reposo): mediana 0, percentil 95 4.6
+    mm, lo peor 13 mm (una canilla); cabeza p95 3.3 mm (lo peor 6); manos 0. Textura (dónde queda, en el reducido,
+    el punto de la textura de cada vértice original): p95 6.9 mm; 78 de 5901 vértices, en bordes de islas, quedan a
+    más de 3 texels de su isla: en las capturas no se ve.
+  - El juego lo carga ("24 huesos (+10 de dedos) y 4726 vértices") y los dedos dan la misma flexión que con el
+    original (51/38/76° y 40/58/61°).
+  - Capturas con ventana, original y reducido: cuatro vistas fijas de `--test pose` (costado, frente, atrás,
+    arriba) y parado, curva (`circle3x`), `wheelie`, en el aire (`airlean`), `brake`, la caída de `crashloop`, la
+    cara y las manos de cerca: iguales; la textura no se corre y las manos son las mismas.
+  - Telemetría de `crashloop` con ventana (20 s, con caída y ragdoll): idéntica con los dos modelos (el ragdoll no
+    depende de los vértices). Regresión contra la v0.3.5 (`wheelie`, `accel`): idéntica. `package_release.py` en
+    una copia del repo arma el paquete con el reducido y el juego lo carga desde ahí.
+  - Fps: con vsync, 16.7 ms con los dos; el skinning en la CPU recorre un 20% menos de vértices.
+- **Lecciones**:
+  - Un modelo "low poly" de tienda puede tener un tercio de las aristas como costura de UV: un decimador que
+    respete la textura no puede sacar nada en los cruces de islas. Contar islas y costuras antes de prometer un
+    porcentaje.
+  - Medir la textura con "¿dónde queda en el modelo nuevo el punto de la textura de cada vértice viejo?" (buscar
+    ese punto en las UV nuevas y comparar posiciones 3D): la distancia 3D sola no ve las texturas corridas. Las
+    islas de uno o dos triángulos desaparecen con un colapso: hay que contar triángulos por isla.
+  - El error de una cuádrica pesada por área no está en mm: para un tope que se entienda, dividir por el área que
+    junta (desvío medio) y usar la pesada sólo para el orden.
+  - Si el código mide la malla (acá, los dedos con los vértices de la mano), esa zona no se reduce, o el
+    resultado cambia aunque la malla se vea igual.
+  - Mirar el `.bin` además de la malla: éste traía la textura dos veces.

@@ -1,14 +1,14 @@
-"""Arma la carpeta dist/MotoSim-vX/ y su zip, sin preferencias ni archivos de pruebas.
+"""Arma la carpeta dist/vX/MotoSim-vX/ y su zip (dist/vX/MotoSim-vX.zip), sin preferencias ni archivos de pruebas.
 
 Uso: python tools/package_release.py [--mac] <motocross.exe | motocross>
 
-- Con --mac arma dist/MotoSim-vX-mac/ y su zip con el binario de Mac (se llama MotoSim, con permiso de
+- Con --mac arma dist/vX/MotoSim-vX-mac/ y su zip con el binario de Mac (se llama MotoSim, con permiso de
   ejecución dentro del zip) y un LEEME con los pasos para abrirlo en Mac arriba; sin --mac, el de Windows.
 - La versión sale de src/Version.h.
 - El LEEME.txt del paquete sale de LEEME.txt (en la raíz del repo, con las novedades arriba): se escribe
   en UTF-8 con BOM y CRLF. Si no dice la versión de Version.h (no se actualizó), el script se detiene.
 - Nada depende de esta PC: sólo el exe que se le pasa y archivos del repo (sirve igual en el workflow
-  de GitHub, con el exe en build-release/Release/, y en local con el de MinGW).
+  de GitHub, con el exe en build-release/Release/, y en local con compilaciones/build-release/motocross.exe).
 - Rehace la carpeta y el zip cada vez (borra los de la misma versión).
 """
 from pathlib import Path
@@ -28,8 +28,8 @@ if not exe.is_file():
     sys.exit(f'no existe el ejecutable: {exe}')
 version = re.search(r'MOTOSIM_VERSION "([^"]+)"', (root/'src/Version.h').read_text(encoding='utf-8')).group(1)
 name = f'MotoSim-{version}-mac' if mac else f'MotoSim-{version}'
-folder = root/'dist'/name
-output = root/'dist'/f'{name}.zip'
+folder = root/'dist'/version/name
+output = root/'dist'/version/f'{name}.zip'
 
 # El LEEME tiene que ser el de esta versión.
 leeme = (root/'LEEME.txt').read_text(encoding='utf-8-sig').replace('\r\n', '\n')
@@ -44,12 +44,14 @@ def wanted(path):
 
 exe_name = 'MotoSim' if mac else 'MotoSim.exe'
 files = [(exe, exe_name)]
-for item in ['tuning.ini', 'MODDING.md', 'Low_Poly_Motorcyclist_2_rigged.gltf']:
+for item in ['tuning.ini', 'MODDING.md']:
     files.append((root/item, item))
-for sub in ['mods', 'Low_Poly_Motorcyclist_2_rigged_deps']:
-    for path in sorted((root/sub).rglob('*')):
+# El modelo del piloto está en modelos/ del repo; en el paquete va junto al ejecutable.
+files.append((root/'modelos'/'Low_Poly_Motorcyclist_2_lowpoly.gltf', 'Low_Poly_Motorcyclist_2_lowpoly.gltf'))
+for base, sub in [(root, 'mods'), (root/'modelos', 'Low_Poly_Motorcyclist_2_lowpoly_deps')]:
+    for path in sorted((base/sub).rglob('*')):
         if wanted(path):
-            files.append((path, path.relative_to(root).as_posix()))
+            files.append((path, path.relative_to(base).as_posix()))
 for source, relative in files:
     if not source.is_file():
         sys.exit(f'falta {source}')
@@ -83,7 +85,7 @@ else:
     readme = b'\xef\xbb\xbf' + leeme.replace('\n', '\r\n').encode('utf-8')
 
 # Carpeta (se prueba desde ahí) y zip (sale de la misma lista).
-(root/'dist').mkdir(exist_ok=True)
+folder.parent.mkdir(parents=True, exist_ok=True)
 if folder.exists():
     shutil.rmtree(folder)
 for source, relative in files:

@@ -1,5 +1,10 @@
-﻿MotoSim v0.3.5 - motos para jugar solo o con amigos en la red local
+﻿MotoSim v0.3.6 - motos para jugar solo o con amigos en la red local
 ===================================================================
+
+NOVEDADES DE LA v0.3.6
+- PILOTO MÁS LIVIANO: el personaje tiene un tercio menos de polígonos, con las mismas animaciones, la
+  misma textura y el mismo agarre de las manos. Además el paquete pesa la mitad (traía la textura del
+  piloto repetida adentro del modelo sin usarla).
 
 NOVEDADES DE LA v0.3.5
 - WHEELIE CON GAS: tirado atrás y a fondo, la moto ahora acelera en una rueda (antes el limitador cortaba
@@ -229,7 +234,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.

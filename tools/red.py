@@ -2,7 +2,7 @@
 # resumen de lo que cada uno ve del otro (moto, distancia, ping, corrección). Sirve para probar dos
 # versiones entre sí (p. ej. el paquete nuevo contra el anterior). Ver docs/RED.md.
 # Uso: python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>
-#   p. ej. python tools/red.py dist/MotoSim-v0.2.6/MotoSim.exe base/trial build-msvc/motocross.exe base/carrera
+#   p. ej. python tools/red.py dist/v0.3.5/MotoSim-v0.3.5/MotoSim.exe base/trial compilaciones/build-msvc/motocross.exe base/carrera
 # La salida del anfitrión va a un archivo en la carpeta temporal (nunca dentro de un paquete): con un pipe
 # que nadie lee mientras corre el cliente, se llena, el anfitrión se traba en el printf y parece un
 # problema de red.

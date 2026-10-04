@@ -9,7 +9,7 @@
 #
 # Uso (desde la raíz del proyecto):
 #   python tools/tramo.py <exe> <mod/mapa> <spawn> <s0> <s1> <km/h,km/h,...> [bot|bajada|ambos] [--time T]
-#   p. ej. python tools/tramo.py build-msvc/motocross.exe sandbox/medanos 600 650 850 40,50,60,70 ambos --time 30
+#   p. ej. python tools/tramo.py compilaciones/build-msvc/motocross.exe sandbox/medanos 600 650 850 40,50,60,70 ambos --time 30
 # Ojo: "bajada" no frena en las curvas; una caída pasando s1 suele ser la curva que viene, no el tramo.
 import os, re, subprocess, sys
 from concurrent.futures import ThreadPoolExecutor
