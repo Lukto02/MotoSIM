@@ -224,6 +224,7 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
     m.bike = j.Str("bike", m.bike);
     m.generator = Lower(j.Str("generator", ""));
     m.markers = j.Bool("markers", m.generator.empty());
+    m.racingLine = j.Bool("racing_line", false);   // la línea ideal en el suelo (Assists.cpp): sólo en los circuitos
     if (!m.generator.empty() && m.generator != "favela" && m.generator != "circuit")
         warn("generator desconocido \"" + m.generator + "\" (\"favela\" o \"circuit\")");
     m.botSpeed = j.Num("bot_speed", m.botSpeed);

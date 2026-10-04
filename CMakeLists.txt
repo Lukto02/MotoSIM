@@ -65,6 +65,7 @@ FetchContent_MakeAvailable(raylib JoltPhysics)
 add_executable(motocross
     src/main.cpp
     src/Game.cpp
+    src/Assists.cpp
     src/PhysicsWorld.cpp
     src/Render.cpp
     src/BikeMeshes.cpp

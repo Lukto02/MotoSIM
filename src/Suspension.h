@@ -11,6 +11,9 @@ struct SuspensionParams {
     float bumpStop = 150000.0f;      // N/m pasado el recorrido total
     float bumpDamping = 12000.0f;    // N/(m/s) del tope al comprimir
     float maxDamperVelocity = 6.0f;  // recorte de seguridad de la velocidad que ve el amortiguador (m/s)
+    // Las de abajo, siempre al final: Bike.h inicializa las de arriba por posición ({travel, spring, ...}).
+    float reboundBottoming = 0.0f;   // rebote: amortiguación extra (x veces) cuanto más hundida está (0 = como siempre)
+    float reboundBottomingFrom = 0.5f; // desde qué fracción del recorrido empieza (llega entera al fondo)
 };
 
 struct SuspensionState {
@@ -19,6 +22,7 @@ struct SuspensionState {
     float force = 0.0f;              // N
 };
 
-// Actualiza el estado con la compresión geométrica nueva y devuelve la fuerza (>= 0).
-float UpdateSuspension(const SuspensionParams& p, SuspensionState& s, float compression, float dt);
+// Actualiza el estado con la compresión geométrica nueva y devuelve la fuerza (>= 0). loaded: la cubierta apoya en el
+// piso (reboundBottoming sólo frena el rebote que levanta el chasis, no la rueda que se estira en el aire).
+float UpdateSuspension(const SuspensionParams& p, SuspensionState& s, float compression, float dt, bool loaded = true);
 

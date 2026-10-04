@@ -1,5 +1,19 @@
-﻿MotoSim v0.3.7 - motos para jugar solo o con amigos en la red local
+﻿MotoSim v0.3.8 - motos para jugar solo o con amigos en la red local
 ===================================================================
+
+NOVEDADES DE LA v0.3.8
+- MINIMAPA arriba a la derecha: el relieve, la pista, tu moto y las de los demás en red. Norte arriba o
+  girando con la moto (Ajustes -> Juego y sonido, o la tecla N para cambiarlo o apagarlo).
+- LÍNEA IDEAL en la pista de motocross y el autódromo: la trazada de carrera (abrir, tocar el vértice, salir
+  abierto) dibujada en el suelo adelante tuyo, verde si llegás bien a la curva y roja donde hay que frenar.
+  La tecla L la prende y apaga.
+- HUD: el número de vuelta, la última y la mejor pasan arriba a la izquierda (el cronómetro sigue arriba al
+  centro). En red, el código de la partida se ve sólo en el menú de pausa (Esc; F10 lo copia).
+- REINICIAR CARRERA en el menú de pausa: a la largada con el cronómetro en cero (la mejor vuelta queda).
+- DERRAPE CON EL FRENO DE MANO: mientras colea, la moto queda inclinada hacia la curva (40-45°) en vez de
+  enderezarse, y la cola entra y sale suave, sin tirones.
+- TRIAL 300: ya no sale despedida para arriba al caer alto (de cola o de trompa); la suspensión absorbe
+  igual que antes y vuelve a su lugar suave, sin hacer de resorte.
 
 NOVEDADES DE LA v0.3.7
 - CÁMARA CON EL STICK DERECHO: en el joystick, el stick derecho mira alrededor de la moto (de costado, hacia
@@ -233,7 +247,8 @@ CÓMO ABRIRLO
 
 JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
 1. Uno crea la partida: menú -> "Crear partida en red". Aparece el CÓDIGO para invitar
-   (por ejemplo 60N00-VM07N); con C (o F10 corriendo) se copia para mandarlo por WhatsApp.
+   (por ejemplo 60N00-VM07N); con C (o F10) se copia para mandarlo por WhatsApp. Corriendo, el código
+   se ve con Esc (en el menú, abajo a la derecha).
 2. La primera vez, Windows pregunta si deja pasar a MotoSim por el firewall: marcá
    "Redes privadas" (y también "públicas" si tu wifi figura como pública) y "Permitir acceso".
    Hacelo en las dos PCs.
@@ -245,7 +260,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.
@@ -269,7 +284,8 @@ CONTROLES
                             W apretado = grau rápido; soltá la flecha para bajar la rueda
   Cambios ................. Q / E (LB / RB)   F3 (X): caja automática o manual (se recuerda)
   Reaparecer .............. R (Y)   al caerte no reaparecés solo; en Los Médanos, ahí donde quedaste
-  Volver a empezar ........ Retroceso (Back)   a la largada, y los objetos sueltos a su lugar
+  Volver a empezar ........ Retroceso (Back), o "Reiniciar carrera" en el menú: a la largada, la vuelta
+                            desde cero (la mejor queda) y los objetos sueltos a su lugar
   Cámara .................. arrastrá con el mouse o mové el stick derecho para mirar alrededor (al
                             soltar vuelve sola atrás); rueda para acercar; C (clic del stick derecho)
                             cámara lateral. Con la Carrera 1000 el stick derecho es el cuerpo: en
@@ -279,6 +295,9 @@ CONTROLES
   Pausa ................... P
   Ayuda de teclas ......... H   (sale sola los primeros segundos)
   Datos técnicos .......... T   (velocidad, motor, suspensión, agarre y cuadros por segundo)
+  Minimapa ................ N   arriba a la derecha: norte arriba, gira con la moto o apagado
+  Línea de frenada ........ L   en la pista de motocross y el autódromo: la línea ideal en el suelo,
+                            verde si vas bien, amarilla y roja donde hay que frenar
   Sonido .................. M
   Surcos de tierra ........ F8   físicos o sólo visuales (se recuerda; en red, siempre visuales)
   Pantalla completa ....... F11 o Alt+Enter (o en el menú: Ajustes); el juego se acuerda

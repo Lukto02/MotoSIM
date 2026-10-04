@@ -77,8 +77,29 @@ public:
     std::atomic<bool> scraping{false}, scrapeTerrain{false};
     std::atomic<float> scrapeX{0.0f}, scrapeY{0.0f}, scrapeZ{0.0f}, scrapeDX{0.0f}, scrapeDZ{0.0f}, scrapeSpeed{0.0f};
     std::atomic<float> impactSpeed{0.0f}, impactNormalY{0.0f};   // golpe contra algo fijo (ver LastImpact)
+    std::atomic<float> hardLandingSpin{1.0f};                    // ver PhysicsWorld::SetHardLandingSpin
 
 private:
+    // Golpe seco contra el piso (la llanta o el chasis: la moto con la suspensión y la cubierta al fondo) que la haría
+    // girar más para el lado que ya gira: cayendo de cola, la trasera hace tope detrás del centro de masa y el cuerpo
+    // rígido (moto + piloto) convierte la caída en cabeceo (-3 -> -13 rad/s en un paso); la trompa pega después a 5-9 m/s
+    // y ese giro se vuelve velocidad hacia arriba: la moto salía despedida. En una de verdad la mitad de la masa es el
+    // piloto, que no está atornillado: frena con las piernas sobre los posapiés, cerca del centro de masa, y casi no la
+    // hace girar. Acá, en ese golpe la moto cuenta con más inercia de giro (1 / hard_landing_spin). Los golpes que frenan
+    // el giro (la trompa que pega después, el aterrizaje derecho) no se tocan.
+    void HardLanding(const Body& me, const Body& other, const ContactManifold& m, ContactSettings& s, bool aMine)
+    {
+        const Vec3 n = aMine ? -m.mWorldSpaceNormal : m.mWorldSpaceNormal;   // hacia donde empuja el piso a la moto
+        if (n.GetY() < 0.5f) return;                                           // sólo el piso, no paredes
+        const RVec3 p = aMine ? m.GetWorldSpaceContactPointOn1(0) : m.GetWorldSpaceContactPointOn2(0);
+        const float closing = -(me.GetPointVelocity(p) - other.GetPointVelocity(p)).Dot(n);
+        if (closing < 2.0f) return;                                            // raspar o apoyarse: como siempre
+        const Vec3 r = Vec3(p - me.GetCenterOfMassPosition());
+        if (r.Cross(n).Dot(me.GetAngularVelocity()) <= 0.0f) return;           // frena el giro: como siempre
+        if (aMine) s.mInvInertiaScale1 = hardLandingSpin.load();
+        else s.mInvInertiaScale2 = hardLandingSpin.load();
+    }
+
     void Note(const Body& a, const Body& b, const ContactManifold& m, ContactSettings& s, bool added)
     {
         const bool aMine = a.GetObjectLayer() == Layers::MOVING, bMine = b.GetObjectLayer() == Layers::MOVING;
@@ -107,6 +128,7 @@ private:
             }
         }
         if (other.GetObjectLayer() != Layers::REMOTE) {
+            if (other.GetObjectLayer() == Layers::STATIC && hardLandingSpin.load() < 1.0f) HardLanding(me, other, m, s, aMine);
             touched = true;
             // Golpe contra algo fijo (no la cola raspando): la velocidad con que se acercaban al tocarse.
             if (added && other.GetObjectLayer() == Layers::STATIC &&
@@ -216,6 +238,8 @@ void PhysicsWorld::Step(float dt)
 }
 
 bool PhysicsWorld::AnyContact() const { return filters->contacts.touched; }
+
+void PhysicsWorld::SetHardLandingSpin(float s) { filters->contacts.hardLandingSpin = s; }
 
 PhysicsWorld::Impact PhysicsWorld::LastImpact() const
 {

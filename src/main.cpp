@@ -41,6 +41,8 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--noprefs")) opt.noPrefs = true;            // pruebas: sin leer ni escribir preferencias.ini
         else if (!std::strcmp(argv[i], "--pad")) opt.pad = next();                  // pruebas: joystick simulado (ver Game.h)
         else if (!std::strcmp(argv[i], "--stick")) opt.stickMode = next();          // pruebas: stick derecho camara|cuerpo (no guarda)
+        else if (!std::strcmp(argv[i], "--minimapa")) opt.miniMap = next();         // pruebas: norte|gira|no (no guarda; también con el bot)
+        else if (!std::strcmp(argv[i], "--linea")) opt.brakeLine = next();          // pruebas: línea de frenada si|no (no guarda; también con el bot)
         else if (!std::strcmp(argv[i], "--datos")) opt.techData = true;            // panel de datos técnicos (T) a la vista
         else if (!std::strcmp(argv[i], "--bike")) opt.bike = next();                // mod/moto
         else if (!std::strcmp(argv[i], "--map")) opt.map = next();                  // motocross | favela | mod/mapa

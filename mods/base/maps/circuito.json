@@ -8,6 +8,7 @@
   "description": "Recta de casi un kilómetro, horquilla a fondo de frenos, chicana, eses rápidas y un curvón final. Asfalto, pianos y tribunas.",
   "hint": "Frená con la moto derecha antes de la horquilla  ·  flechas ←/→: colgate hacia adentro de la curva",
   "bike": "base/carrera",
+  "racing_line": true,     // a closed circuit: the racing line on the ground turns green / red for braking (L in game)
   "color": "#e53935",
   "order": 3,
 

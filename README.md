@@ -98,6 +98,8 @@ el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de 
 | Cámara orbital (al soltar vuelve sola atrás) | Stick der. (la Carrera: sólo con el ajuste "Stick derecho en la Carrera: Cámara") | arrastrar con el mouse (rueda: zoom) |
 | Ayuda de teclas (sale sola al empezar; en pausa también) | — | H |
 | Datos técnicos (velocidad, motor, suspensión, agarre, cuadros por segundo) | — | T |
+| Minimapa (arriba a la derecha): norte arriba, gira con la moto o apagado | — | N |
+| Línea de frenada (en los circuitos: la línea ideal, verde / amarilla / roja según haya que frenar) | — | L |
 | Sonido | — | M |
 | Pantalla completa | — | F11 o Alt+Enter (también en Ajustes); se recuerda en `preferencias.ini` |
 | Marcha atrás (lenta) | auto: mantener LT parado · manual: LB desde 1ª | auto: mantener S parado · manual: Q desde 1ª |
@@ -109,7 +111,8 @@ máxima). Se elige con flechas, mouse o joystick (stick o cruz; también 1, 2, 3
 derecho del mouse vuelven. Jugar solo / seguir, crear partida en red (abre la sala con el código grande, C
 lo copia, y los pilotos conectados), unirse (el código en casilleros, Ctrl+V lo pega), mapa, moto, tu nombre
 (el que ven los demás; se recuerda), **Ajustes**, **Controles** (todas las teclas y botones) y salir.
-Corriendo, F10 copia el código de invitación (anfitrión).
+En el menú, "Reiniciar carrera" (como Retroceso: a la largada, la vuelta desde cero, la mejor queda). El código de invitación
+se ve sólo con el menú abierto (en la tarjeta de abajo a la derecha); F10 lo copia, corriendo o en el menú (anfitrión).
 
 **Ajustes** (en el menú principal y en el de la partida en red; se guardan solos en `preferencias.ini`, se
 cambien ahí o con su tecla), en **tres páginas** (la primera fila, Sección, las cambia con ← →; LB y RB en el joystick):
@@ -117,7 +120,7 @@ cambien ahí o con su tecla), en **tres páginas** (la primera fila, Sección, l
 "Personalizado" si tocás algo suelto; sombras, distancia de dibujado, pasto, filtro de texturas, resolución de imagen,
 FXAA, pantalla completa y unas opciones avanzadas), **Imagen** (estilo de color, brillo, niebla, viñeta, grano, aberración,
 motion blur, sacudón de cámara y, en avanzadas, luz del sol y ambiental, intensidad de sombra y viento del pasto) y **Juego y
-sonido** (volumen (M lo apaga), ayuda de teclas (al empezar, siempre o nunca), datos técnicos (T), caja (F3), control de
+sonido** (volumen (M lo apaga), ayuda de teclas (al empezar, siempre o nunca), datos técnicos (T), minimapa (N), línea de frenada (L), caja (F3), control de
 tracción (F6) y la deformación del terreno). ↑ ↓ eligen, ← → o Enter cambian. Si hay un `preferencias.ini` de una versión
 anterior a los presets, se copia a `preferencias.ini.v1.bak` y los gráficos vuelven a los recomendados para tu placa.
 
@@ -572,7 +575,8 @@ normal) y `--norider` dibuja la moto sola; p. ej. `--test pose --flat --side --n
 Menú: `--menu join|name|lobby|maps|bikes|ajustes|controles|principal` abre esa pantalla al arrancar (con `--host`
 para ver la sala o, con `principal`, el menú de la partida en red); `--menu no` arranca corriendo, como "Jugar
 solo" (con la ayuda de teclas del principio). `--datos` muestra los datos técnicos (T) sin tocar
-`preferencias.ini`. `--gfx bajo|medio|alto|ultra` aplica ese preset de calidad encima de lo leído y no guarda nada
+`preferencias.ini`. `--minimapa norte|gira|no` y `--linea si|no|toda` muestran el minimapa y la línea de frenada también con el
+bot o una prueba (no se guardan; `toda`: la vuelta entera, para mirarla desde arriba). `--gfx bajo|medio|alto|ultra` aplica ese preset de calidad encima de lo leído y no guarda nada
 (mientras dura, el archivo de preferencias no se escribe); `--noprefs` ni lee ni escribe `preferencias.ini` (capturas que no
 dependen de la PC). `--respawn-here`: en un mapa libre, las pruebas reaparecen donde quedaron, como el
 jugador con R (con `--telemetry` imprime `REAPARECE`: dónde, a cuánto y con qué pendiente).
@@ -603,6 +607,7 @@ los mapas de prueba que no se empaquetan.
 src/
   main.cpp               argumentos y arranque
   Game.cpp/.h            loop, input, HUD, vueltas, efectos, bot de pruebas
+  Assists.cpp            minimapa del HUD, línea ideal de los circuitos (K1999) y línea de frenada en el suelo
   PhysicsWorld.cpp/.h    boilerplate de Jolt
   Bike.cpp/.h            parámetros, creación, reset y dibujo de moto y piloto
   BikePhysics.cpp        TODA la física de la moto (ruedas, suspensión, neumáticos, balance, aire)
