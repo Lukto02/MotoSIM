@@ -157,6 +157,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     // gas antes de que la inercia haga imposible bajar la rueda. Deja hacer wheelies, no loops.
     const float pitchRate = angVel.Dot(right);                    // + = nariz arriba
     wheelieCut = 0.0f;
+    wheelieKeep = 0.0f;
     if (P->wheelieEndDeg > P->wheelieStartDeg && wheels[REAR].grounded && !wheels[FRONT].grounded) {
         // Con el piloto neutro la rueda sube un poco y baja sola; tirado atrás se puede sostener
         // un wheelie más alto (el stick decide, no la marcha).
@@ -168,7 +169,13 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
         const float end = start + (P->wheelieEndDeg - P->wheelieStartDeg);
         const float predicted = pitch + std::max(0.0f, pitchRate) * std::max(0.0f, P->wheeliePrediction);
         wheelieCut = mu::Smoothstep(mu::Rad(start), mu::Rad(end), predicted);
-        in.throttle *= 1.0f - wheelieCut * (1.0f - mu::Clamp(P->wheelieThrottleFloor, 0.0f, 0.6f));
+        // Con wheelie_keep_throttle, en un wheelie de verdad (la trompa arriba de wheelie_keep_from_deg) el gas
+        // no se corta: el limitador anula en cambio el cabeceo que mete la tracción (abajo, en la trasera) y
+        // la moto acelera en una rueda. Con la trompa apenas despegada (un bache, la salida de una curva)
+        // sigue cortando como antes: dejar el gas ahí hacía caer más a los bots en la favela y el circuito.
+        wheelieKeep = mu::Clamp(P->wheelieKeepThrottle, 0.0f, 1.0f)
+                    * mu::Smoothstep(mu::Rad(P->wheelieKeepFromDeg), mu::Rad(P->wheelieKeepFullDeg), pitch);
+        in.throttle *= 1.0f - wheelieCut * (1.0f - wheelieKeep) * (1.0f - mu::Clamp(P->wheelieThrottleFloor, 0.0f, 0.6f));
     }
 
     // Grau (freestyle de favela): con la delantera en el aire el piloto sostiene la moto con el gas y
@@ -341,7 +348,20 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     const Vec3 rightFlat = Vec3(right.GetX(), 0.0f, right.GetZ()).NormalizedOr(Vec3::sAxisX());
     const float sinBank = mu::Clamp(groundN.Dot(rightFlat) * (in.steer >= 0.0f ? 1.0f : -1.0f) * P->bankTurnGain, -0.5f, 0.5f);
     const float cosBank = std::sqrt(1.0f - sinBank * sinBank);
-    const float muLat = P->maxLateralAccel / kG * (1.0f + P->legOutGrip * legAmount);
+    float muLat = P->maxLateralAccel / kG * (1.0f + P->legOutGrip * legAmount);
+    // Con poco agarre (lisas en la tierra o el pasto) el piloto no pide la curva del asfalto, sino la que dan las cubiertas
+    // ahí (suelo × cubierta × agarre lateral, en g): sin esto la de carreras se acostaba 56° en la tierra y doblaba a 0.4 g
+    // deslizando de costado (ver FISICA.md, "Velocidad de giro"). Con más agarre que max_lateral_accel no cambia nada.
+    if (P->leanSurfaceGrip > 0.0f) {
+        float grip = 0.0f, onGround = 0.0f;
+        for (const Wheel& w : wheels)
+            if (w.grounded) {
+                grip += w.gripFactor;
+                onGround += 1.0f;
+            }
+        if (onGround > 0.0f) leanGrip += (std::min(1.0f, grip / onGround / (P->maxLateralAccel / kG)) - leanGrip) * std::min(1.0f, 4.0f * dt);   // ~0.25 s
+        muLat *= 1.0f - P->leanSurfaceGrip * (1.0f - leanGrip);
+    }
     const float maxAccel = kG * (sinBank + muLat * cosBank) / std::max(cosBank - muLat * sinBank, 0.3f);
     const float kMax = std::min(1.0f / P->minTurnRadius, maxAccel / std::max(v2, 0.01f));
     // Sin tocar el manubrio, el cuerpo de costado dobla (más despacio): la moto sigue al peso. Con el
@@ -733,7 +753,11 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             Vec3 fwdG = (fwd - n * fwd.Dot(n)).NormalizedOr(fwdFlat);
             if (i == FRONT) fwdG = Quat::sRotation(n, -steerAngle) * fwdG;
             const Vec3 latG = n.Cross(fwdG);                        // hacia la izquierda
-            const Vec3 pointVel = b.GetPointVelocity(contactPoint);
+            Vec3 pointVel = b.GetPointVelocity(contactPoint);
+            // El barrido del contacto por el rolido alrededor del centro de masa (lean_sweep_comp, ver Bike.h), sólo
+            // mientras se endereza: tirándose a la curva ese empuje hacia adentro ayuda a doblar (frenando también).
+            if (P->leanSweepComp > 0.0f && angVel.Dot(fwd) * roll < 0.0f)
+                pointVel -= (fwd * (angVel.Dot(fwd) * P->leanSweepComp)).Cross(contactPoint - com);
             w.longVel = pointVel.Dot(fwdG);
             w.latVel = pointVel.Dot(latG);
 
@@ -772,6 +796,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                 const float paved = groundIsObject ? 1.0f : terrain.PavedAmount(contactPoint.GetX(), contactPoint.GetZ());
                 ti.surfaceGrip *= mu::Lerp(tp.looseGrip, tp.pavedGrip, paved);
             }
+            w.gripFactor = ti.surfaceGrip * tp.latGrip;            // agarre lateral (en g): para lean_surface_grip, no cambia las fuerzas
             TireParams tpTurn = tp;                                 // con la pata afuera muerde más de costado
             tpTurn.latGrip *= 1.0f + P->legOutGrip * legAmount;
             TireSolveOutput to = SolveTireForces(tpTurn, ti);
@@ -838,6 +863,13 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             w.suspForce = suspF;
             w.tireForce = tireF;
             applyAt(suspF + tireF, contactPoint);
+            // Wheelie con gas (wheelie_keep_throttle): la tracción de la trasera, debajo del centro de masa,
+            // levanta la trompa. Dentro de la zona del limitador se anula esa parte (lo que el piloto hace con
+            // el cuerpo y el freno trasero): la moto sigue acelerando y la rueda no sube más.
+            if (i == REAR && wheelieCut > 0.0f && wheelieKeep > 0.0f && to.longForce > 0.0f) {
+                const float lift = (contactPoint - forceCenter).Cross(fwdG * to.longForce).Dot(right);
+                if (lift > 0.0f) totalTorque -= right * (lift * wheelieCut * wheelieKeep);
+            }
         } else {
             w.grounded = false;
             w.onTerrain = false;

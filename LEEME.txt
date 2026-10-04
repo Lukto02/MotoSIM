@@ -1,5 +1,15 @@
-﻿MotoSim v0.3.4 - motos para jugar solo o con amigos en la red local
+﻿MotoSim v0.3.5 - motos para jugar solo o con amigos en la red local
 ===================================================================
+
+NOVEDADES DE LA v0.3.5
+- WHEELIE CON GAS: tirado atrás y a fondo, la moto ahora acelera en una rueda (antes el limitador cortaba
+  el gas y se quedaba casi parada). La rueda no sube de más: si te pasás, la trompa baja sola. La moto de
+  carreras sigue con su anti-wheelie electrónico.
+- PISTA DE MOTOCROSS CON PERALTES MÁS EMPINADOS: las curvas tienen berms de hasta ~35° en el borde de
+  afuera (antes ~22°), con entradas y salidas suaves. Se dobla a fondo en casi todo el ancho y cada curva
+  se pasa un 20-25 % más rápido (el bot hace la vuelta en 1:04 en vez de 1:08).
+- MOTO DE CARRERAS: frena más (de 100 a 0 en 36 m, antes 40 m) y ya no se va para el costado contrario
+  cuando venís doblando, soltás la curva y clavás los frenos: sigue derecho o apenas hacia la curva.
 
 NOVEDADES DE LA v0.3.4
 - Fisicas, personaje y animaciones de la primera 0.3.1 en la motocross 450.
@@ -219,7 +229,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.

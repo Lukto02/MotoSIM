@@ -126,6 +126,8 @@ suspensión, neumáticos, frenos, dirección y balance, aire, motor y caja. Las 
   de pista, bajo (la de carreras 0.2); si no, frenando no dobla. `brake_transition_release`: afloja la
   delantera mientras la moto cambia mucho de inclinación (para motos que descargan mucho la trasera).
   `brake_yaw_comp`: frenando inclinada, cancela el giro hacia afuera del freno en el contacto (si no, se abre).
+  `lean_sweep_comp`: al enderezarse, las cubiertas no ven el barrido de los contactos (el rolido del modelo es alrededor
+  del centro de masa); sin eso, soltando la curva para frenar la moto se va para el otro lado.
   Probar las frenadas como con teclado (viniendo inclinada y soltando, tocando la dirección), no sólo derecho:
   ver `frenacurva` en [PRUEBAS.md](PRUEBAS.md).
 - **Derrape lento**: `slide_pivot` (freno trasero doblando debajo de ~13 km/h: el piloto empuja la cola).
@@ -235,6 +237,13 @@ corte a 16500, 330 km/h, frenos, geometría). Lo que más importó:
   `rear_lift_mitigation` 0.25 (1-1.16 g en recta; S + D dobla), `brake_transition_release` 0.6 (soltando la
   curva para frenar se iba para el otro lado), y `brake_yaw_comp` 1 con `brake_align` 8 / `brake_align_torque`
   2000 (frenando inclinada sin soltar, se abría). Ver [FISICA.md](FISICA.md).
+- **Rework de la frenada** (a pedido: "frena poco, a veces cuando frenás queda doblando para un costado"): frenaba
+  1.0-1.07 g derecha (40 m desde 100); soltando la curva para clavar se iba 5-12° para el otro lado; y soltando una curva a
+  fondo a 150-180 km/h a veces quedaba derrapando 7 s inclinada para el otro lado. Ahora `lean_sweep_comp` 1 (clave nueva),
+  `com_height` -0.06, `front_brake_torque` 820, `rear_tire_lat_grip` 1.65, `inertia_yaw` 60 y `brake_transition_release`
+  0.3: 1.12-1.23 g derecha (36 m desde 100), soltando y clavando sigue un poco para el lado de la curva (0 a +9°), sin
+  derrapes en 82 casos. El peso no se tocó (en esta física más masa sólo acelera menos). Se mide con `teclas:` y
+  `tools/maniobras.py` (como con el teclado). Ver [FISICA.md](FISICA.md), "La de carreras: rework de la frenada".
 - En el aire (después de la v0.2.7): giraba igual que la motocross (un mortal atrás entero, whips de 31°). Con `air_pitch_rate`
   1.2, `air_pitch_torque` 250 y `air_body_tilt_deg` 15 el mortal se queda en ~160°, frenar un giro tarda 0.6 s y el
   whip es de 13°. El bot del autódromo no vuela: mismas vueltas.
@@ -372,7 +381,7 @@ circuito de obstáculos harían tope.
 | Peso/potencia | ~0.85 / ~0.7 kg/hp | 0.65 kg/hp | ok |
 | 0-100 / 0-200 | 2.6-3.1 s (limita el wheelie) / ~5.2-6 s | 2.1 s (la delantera apenas despegada el 71% del tiempo) / 4.75 s | rápida, arcade |
 | Final | 299 limitada, ~310 libre; 320-330 en Superbike | 328 km/h | ok |
-| Frenada | 1.1-1.3 g (limita el stoppie) | 0.96 g de 60, 1.01 de 100, 1.08 de 200, derecha, sin levantar la cola | ok |
+| Frenada | 1.1-1.3 g (limita el stoppie); 100 → 0 en 35-40 m | 1.08 g de 60, 1.11 de 100 (35-36 m), 1.18 de 200, derecha, sin levantar la cola (antes 0.96-1.08 g, 40 m) | **ajustado** (rework) |
 | Lateral e inclinación | 1.3-1.5 g con lisas, 55-60° (MotoGP hasta 64°) | 1.25-1.30 g de 45 a 110 km/h, 52° | ok |
 | Giro mínimo | 3.2-3.6 m (26-30° de manubrio) | 2.8 m (28°) | ok |
 | Suspensión y sag | 120 / 120-130 mm, sag 30-35 mm | 120 / 130 mm, sag 36 / 38 mm | ok |
@@ -403,6 +412,21 @@ igual que antes.
 
 ## Pendientes conocidos
 
+- **La de carreras, al tirarse a la curva a 100-150 km/h sin gas, saca la cola 5-8°** (deriva; con gas 5-7°, a 200-250
+  1-6°): la trasera se acerca a su límite por el aire y el freno motor. Con `rear_tire_lat_grip` 1.75 baja a 2-6°, pero el
+  bot de la favela se cae más (ver [FISICA.md](FISICA.md), "La de carreras: rework de la frenada").
+- **La de carreras pesa 160 kg** (una 1000 de verdad, 190-205 lleno): se dejó, porque acá más masa sólo acelera menos.
+
+- **Velocidad de giro** (revisada en la v0.3.4 con `giroN` en cuatro suelos; tabla en [FISICA.md](FISICA.md), "Velocidad de
+  giro"): todas en rango contra las de verdad, salvo:
+  - **la de carreras con lisas en la tierra o el pasto se acuesta 56°** doblando a 0.45 g (derrape permanente). La clave
+    `lean_surface_grip = 1` en `carrera.ini` lo corrige (27° y 0.53 g), pero el bot de la favela se cae el doble; quedó
+    comentada, para decidir;
+  - **las de tierra doblan igual en pasto, calle de tierra y asfalto que en la pista** (0.91 g a 40 km/h): manda
+    `max_lateral_accel`, y el pasto (`SurfaceGrip` 0.82) apenas lo alcanza. Para que el pasto se note habría que bajar su
+    agarre en `Terrain::SurfaceGrip` (cambia también la 450 y los bots fuera de la pista);
+  - **la arena de Los Médanos agarra como la tierra de pista** (`SurfaceGrip` no mira `sand`): una de verdad dobla
+    ~0.4-0.6 g en arena suelta. Sería una clave del mapa (área de mapas).
 - **El 0 a 100 de la ficha** limita el empuje a 0.8 g para todas; debería salir de la geometría (centro
   de masa respecto de la rueda trasera): la de carreras aguanta más.
 - **El control de tracción no mira la inclinación**: a fondo acostada la trasera se va (el bot se abre

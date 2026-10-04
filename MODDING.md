@@ -174,8 +174,9 @@ track with berms, a bowl and a quarter pipe on flat ground.
   "width": 9,          // meters
   "scale": 1.0,        // multiplies every position in the map (points, start, features, objects...)
   "style": "track",    // "track" or "street"
-  "bank_height": 1.9,  // outer berm height in meters (0..4); initial track uses 2.8
-  "bank_gain": 34,     // curvature gain (0..100); initial track uses 52
+  "bank_height": 1.9,  // outer berm height in meters (0..4); initial track uses 4.0
+  "bank_gain": 34,     // curvature gain (0..100); initial track uses 100 (the berm is then smoothed over
+                       // about +-20 m, so in practice bank_gain sets how high it gets)
   "banking": true      // berms on the outside of the corners (default: true for "track")
 }
 ```
@@ -362,12 +363,14 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 |---|---|---|
 | `front_tire_loose_grip`, `rear_tire_loose_grip` | 1 | grip multiplier on dirt and grass (a racing slick: 0.35) |
 | `front_tire_paved_grip`, `rear_tire_paved_grip` | 1 | grip multiplier on asphalt, concrete and objects |
+| `lean_surface_grip` | 0 | 1 = where the tires grip sideways less than `max_lateral_accel` (ground × `*_loose/paved_grip` × `*_lat_grip`), the rider asks for that much and leans less (slicks on dirt). 0 = always asks for `max_lateral_accel` |
 | `brake_align` | 0 | braking hard, the bike lines up with where it goes, also while turning (in a straight line the front wheel also follows its own path) (1/s; the race bike uses 8, the dirt bikes 4) |
 | `brake_align_torque` | 1500 | how hard `brake_align` lines the bike up (Nm per rad/s; the others use 2000) |
 | `brake_align_from`, `brake_align_full` | 0.2, 0.6 | front brake where `brake_align` starts and where it acts fully (the Trilheira: 0.55 and 0.95, only when braking really hard, like the S key does) |
 | `brake_align_free` | 1 | braking straight with `brake_align`, how much the front wheel is let go to follow its own path (0 = not at all: only the bike lines up) |
 | `brake_yaw_comp` | 0 | braking while leaned, how much of the outward yaw from the brake force at the contact patch is cancelled (1 = all; the race bike uses 1). Without it the bike stays leaned but runs wide |
-| `brake_transition_release` | 0 | while the bike is changing lean a lot (what the rider asks vs what it has), the ABS eases the front brake by up to this much: stand it up first, then brake (the race bike uses 0.6) |
+| `brake_transition_release` | 0 | while the bike is changing lean a lot (what the rider asks vs what it has), the ABS eases the front brake by up to this much: stand it up first, then brake (the race bike uses 0.3) |
+| `lean_sweep_comp` | 0 | 1 = while the bike stands up, the tires don't feel the sideways sweep of the contact patches (the lean pivots around the center of mass here, not around the contact line like a real bike). Without it, letting go of a hard turn to brake sends the bike toward the other side (the race bike uses 1) |
 | `rear_lift_load`, `rear_lift_mitigation` | 300, 0.25 | the ABS eases the front brake when the rear carries less than this many N (straight up, by this much) |
 | `slide_pivot` | 800 | below ~13 km/h, rear brake while turning: the rider pushes the tail out (Nm per rad; 0 = off) |
 | `crash_impact_speed`, `crash_impact_vertical` | 7, 11 | m/s against something fixed (front/side, or falling flat) that throws the rider off |

@@ -56,6 +56,9 @@ El formato completo está en `MODDING.md`. Esto es lo aprendido armándolos.
 
 - `bot_speed` (m/s, default 17) es lo más rápido que va el bot; `bot_lateral` (m/s², default el de la
   línea de comandos, 6) cuánto encara las curvas. Mira adelante `max(60, v²/8 + 20)` m.
+- El bot **no lee los peraltes**: frena para cada curva con `sqrt(bot_lateral / curvatura)` igual en plano
+  que en un berm. En una pista con peraltes empinados hay que subirle `bot_lateral` en el mapa para que los
+  aproveche (la de motocross usa 9, ver "Pista de motocross" abajo).
 - El bot no sabe levantar la rueda delantera: en mapas de obstáculos (trial) los cajones grandes
   necesitan una rampita adelante y un `bot_speed` bajo (7 m/s en el de trial).
 - Si queda trabado 4 s contra algo, reaparece.
@@ -94,6 +97,87 @@ copia temporal del mapa con otro `bot_speed`). La s del labio sale de `--test pr
   (del perfil de la vuelta) y `--medir <exe> 40,50,60,70 [nombre]` corre `saltos.py` en cada uno.
 
 ## Lecciones por mapa
+
+### Pista de motocross (base/motocross): peraltes más empinados (octubre de 2026, sobre la v0.3.4)
+El usuario: "agrega mas slope a las curvas del mapa de motocross inicial, para poder doblar mas rapido aun"
+(en la v0.3.4 ya se habían subido una vez, de 1.9 m / 34 a 2.8 m / 52).
+
+**Cómo sale el peralte** (`Track.cpp` y `Berm` en `Terrain.cpp`): por cada punto, `min(bank_height,
+(|curvatura| − 0.012) · bank_gain)`, y después tres pasadas de promedio de ±7 m. El promedio es lo que manda:
+con 2.8 / 52 el tope de 2.8 m nunca se alcanzaba (la curva más cerrada llegaba a 2.0 m). De costado es una
+parábola, `bank · t²` con `t` de 0 en el borde de adentro a 1 en el de afuera: plano adentro, la pendiente
+crece hacia afuera (en el centro, `atan(bank/2/hw)`; en el borde de afuera, `atan(bank/hw)`), sigue
+subiendo hasta 1.8 m fuera de la pista y ahí hace el lomo y baja al terreno en el hombro de 9 m.
+
+**Qué se hizo**: sólo el `.json`, los dos topes que permite el formato: `bank_height` 4.0 y `bank_gain` 100.
+Por la cuenta de arriba (replicada en Python, mismo spline y mismos promedios) quedan las cinco curvas:
+
+| Curva (s del vértice, radio) | Peralte antes → ahora | Centro de la pista | Borde de afuera | Cara más empinada (fuera de la pista) |
+|---|---|---|---|---|
+| 1 (205, R 14.7, berm izq.) | 1.82 → 3.08 m | 11.4° → 18.9° | 22.1° → 34.4° | ~23° → ~35° |
+| 2 (357, R 17.4, der.) | 1.57 → 2.92 m | 9.9° → 18.0° | 19.2° → 33.0° | ~20° → ~34° |
+| 3 (546, R 13.0, izq.) | 2.00 → 3.24 m | 12.5° → 19.8° | 24.0° → 35.7° | 24.2° → 36.1° |
+| 4 (713, R 29.5, izq., la rápida) | 0.84 → 1.62 m | 5.4° → 10.2° | 10.6° → 19.9° | ~11° → ~21° |
+| 5 (879, R 18.8, izq.) | 1.48 → 2.83 m | 9.3° → 17.5° | 18.2° → 32.2° | ~19° → ~33° |
+
+El ensanche del promedio no se tocó, así que las entradas y salidas siguen igual de suaves (el peralte crece
+en ~20 m). Los saltos quedan fuera: a ±5 m de cada obstáculo el peralte es ≤ 5 cm. Sobre la línea central
+la altura sube a lo sumo ~0.35 m más en las curvas (un cuarto del peralte extra) y la pendiente a lo largo cambia ≤ 2.1% (fuera de las
+curvas ≤ 0.3%, `--test profile` antes y después).
+
+**Lo que da la física con más peralte** (la de la 450 y la 600, `BikePhysics031.cpp`): el límite de la
+curva es `g·(sen θ + μ cos θ)/(cos θ − μ sen θ)` con el peralte θ bajo la moto (topeado a sen θ = 0.5), pero
+la inclinación tiene tope (`max_lean_deg` 55, o sea 1.43 g). Con μ ≈ 0.97 alcanza **θ ≥ 11°** para llegar
+a ese tope: un peralte más alto no deja doblar más fuerte donde ya había 11°, sino que **ensancha la franja
+donde se dobla a fondo**. Esa franja va de `t = tan 11° · hw / bank` al borde de afuera: en las curvas 1, 2,
+3 y 5 pasó de empezar a la mitad de la pista (t 0.44-0.59) a 2.6-3 m del borde de adentro (t 0.27-0.31),
+o sea de ~45% a ~70% del ancho; en la 4 antes no existía (t 1.04) y ahora es la mitad de afuera. Además,
+a la misma velocidad el agarre usado es menor.
+
+**El bot no lee el peralte**: su velocidad en cada curva es `sqrt(bot_lateral / curvatura)` (6 m/s² por
+defecto), así que sólo con el peralte nuevo dio casi las mismas vueltas (3000 s: 450 1:07.5-1:08.2 contra 1:07.7-1:08.6).
+Para que aproveche la pista el mapa lleva `bot_lateral` 9:
+- con el mismo bot, peralte viejo contra nuevo (300 s): 450 1:05.1-1:05.4 → 1:04.7-1:04.9, 600 1:04.6-1:04.8
+  → 1:04.1-1:04.3; agarre usado en el vértice de la curva 2 0.70 → 0.60, en la 4 0.76 → 0.70;
+- `bot_lateral` 10 anduvo igual de bien y 11 no: con 11 el bot llega a la cara del doble (s 422) todavía
+  inclinado 18-21° y la Trilheira se cae al aterrizar en 44 de 46 vueltas. Con 9 despega derecho (−1° a +2°).
+
+**Velocidad en las curvas** (bot, 3000 s desde `--spawn 300`, mediana de 43-46 pasadas; mínima en ±12 m del
+vértice, inclinación máxima):
+
+| Curva | 450 antes | 450 ahora | 600 antes | 600 ahora |
+|---|---|---|---|---|
+| 1 | 34.4 km/h, 38° | 42.2 km/h, 44° | 34.4, 38° | 42.3, 44° |
+| 2 | 36.9, 28° | 45.5, 35° | 37.0, 27° | 45.5, 35° |
+| 3 | 32.0, 43° | 39.4, 47° | 32.1, 43° | 39.5, 47° |
+| 4 | 48.3, 44° | 58.7, 50° | 48.3, 44° | 58.8, 50° |
+| 5 | 38.3, 27° | 47.1, 41° | 38.4, 26° | 47.1, 40° |
+
+(En la 4 el bot llega a su `bot_speed` de 17 m/s, 61 km/h.)
+
+**Cómo se comprobó** (exe de la v0.3.4 con los mods de la fuente, corriendo desde una carpeta propia):
+- `--headless --map base/motocross --bot --time 150 --telemetry`: **450 1:04.92 / 1:04.77** (antes 1:08.45 /
+  1:08.00 con este exe), **600 1:04.27 / 1:04.22** (antes 1:07.71 / 1:07.63);
+- 3000 s (46 vueltas) con la 450, la 600, la trial, la Trilheira y la 2T: 0 caídas y 0 `GOLPE`, como antes;
+  vueltas 450 1:04.4-1:05.1, 600 1:03.5-1:04.4, trial 1:04.6-1:05.5, Trilheira 1:03.8-1:04.5, 2T 1:04.0-1:04.7;
+- la de carreras (lisas en la tierra) 1200 s: 3 caídas (antes 10);
+- capturas del bot en la curva 3 (`--bot --view 160 6 2.2 --screenshot 40.5`): el berm se ve como pared de
+  tierra lisa, sin quiebres.
+
+Lecciones:
+- **Antes de subir `bank_height`, mirar si se llega al tope**: el promedio de ±7 m baja el pico, y lo que
+  sube el peralte es `bank_gain`. Hoy los dos están al máximo del formato; más haría falta tocar el código
+  (los topes de `Maps.cpp` o el promedio de `Track.cpp`) y por la física no aporta mucho.
+- **Doblar más rápido lo limita la inclinación**, no el peralte (con ≥ 11° bajo la moto). Para más haría
+  falta tocar la física de la moto (`max_lean_deg`, el tope de `sinBank`).
+- **El punto débil de la pista es el aterrizaje del doble** (s 446-460): el bot cae de trompa en la bajada y
+  enseguida dobla hacia la curva 3. Ya antes la Trilheira y la 2T pasaban por ahí inclinadas más de 50° casi
+  todas las vueltas (y no se caían); con el peralte nuevo y `bot_lateral` 6, la 2T se cayó ahí 6 veces en 17
+  vueltas, con 9 ninguna. Cualquier cambio de la pista o del bot: medir la inclinación al despegar (s 427-430)
+  y la máxima al aterrizar (s 445-465) con las cinco motos.
+- **El lomo de afuera**: pasando el borde de la pista la cara sigue subiendo 1.8 m más y el lomo queda a 4.2 m
+  en la curva 3 (+27° a −29° en un metro). Quien se abra de más vuela por arriba del berm, como en uno de
+  verdad; adentro de la pista no hay quiebres.
 
 ### Autódromo Sierra de los Vientos (circuito)
 Lo hizo un agente; su informe tiene el trazado curva por curva:

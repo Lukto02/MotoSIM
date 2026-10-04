@@ -43,12 +43,16 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
 - **"Compilá" = paquete**: cuando el usuario pide compilar, se termina armando el paquete para compartir
   con la versión + 0.0.1 (`src/Version.h`: v0.2.6 → v0.2.7...), sin preguntar el nombre; si da uno, ése.
   Procedimiento en `docs/PRUEBAS.md` ("Paquete para compartir") o con el agente `motosim-paquete`; cada
-  versión se publica en GitHub Releases con su zip (la sección de descargas del repo). El
+  versión se publica en GitHub Releases con su zip (la sección de descargas del repo): al mergear a `main`
+  el cambio de `Version.h`, los workflows `release.yml` y `release-mac.yml` crean la release solos. El
   protocolo de red (`kProtocol` en `Multiplayer.cpp`) sube sólo cuando cambia el formato de los paquetes.
 - Las pruebas visuales del piloto, con el modelo glTF (el principal).
 
 ## Dónde está cada cosa
 
+- **El código de la última versión es la raíz del repo** (`main`); nunca una copia dentro de `dist/`.
+  `dist/` tiene sólo paquetes (`MotoSim-vX/` + zip); lo viejo o de pruebas, en `dist/_archivo/`. Compilaciones
+  en `build-*` de la raíz. Detalle en `docs/PRUEBAS.md` ("Carpetas y versiones").
 - Estructura del código: README ("Estructura").
 - Motos: `mods/<mod>/bikes/*.json` + `.ini`; estilos en `src/BikeStyles.*` y piezas en
   `src/BikeMeshes.cpp` (una sección por estilo).

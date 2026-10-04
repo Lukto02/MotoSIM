@@ -82,6 +82,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     // gas antes de que la inercia haga imposible bajar la rueda. Deja hacer wheelies, no loops.
     const float pitchRate = angVel.Dot(right);                    // + = nariz arriba
     wheelieCut = 0.0f;
+    wheelieKeep = 0.0f;
     if (P->wheelieEndDeg > P->wheelieStartDeg && wheels[REAR].grounded && !wheels[FRONT].grounded) {
         // Con el piloto neutro la rueda sube un poco y baja sola; tirado atrás se puede sostener
         // un wheelie más alto (el stick decide, no la marcha).
@@ -93,7 +94,13 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         const float end = start + (P->wheelieEndDeg - P->wheelieStartDeg);
         const float predicted = pitch + std::max(0.0f, pitchRate) * std::max(0.0f, P->wheeliePrediction);
         wheelieCut = mu::Smoothstep(mu::Rad(start), mu::Rad(end), predicted);
-        in.throttle *= 1.0f - wheelieCut * (1.0f - mu::Clamp(P->wheelieThrottleFloor, 0.0f, 0.6f));
+        // Con wheelie_keep_throttle, en un wheelie de verdad (la trompa arriba de wheelie_keep_from_deg) el gas
+        // no se corta: el limitador anula en cambio el cabeceo que mete la tracción (abajo, en la trasera) y
+        // la moto acelera en una rueda. Con la trompa apenas despegada (un bache, la salida de una curva)
+        // sigue cortando como antes: dejar el gas ahí hacía caer más a los bots en la favela y el circuito.
+        wheelieKeep = mu::Clamp(P->wheelieKeepThrottle, 0.0f, 1.0f)
+                    * mu::Smoothstep(mu::Rad(P->wheelieKeepFromDeg), mu::Rad(P->wheelieKeepFullDeg), pitch);
+        in.throttle *= 1.0f - wheelieCut * (1.0f - wheelieKeep) * (1.0f - mu::Clamp(P->wheelieThrottleFloor, 0.0f, 0.6f));
     }
 
     // Control de tracción opcional: recorta gas cuando la trasera patina de más (deja algo de
@@ -445,6 +452,13 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
             w.suspForce = suspF;
             w.tireForce = tireF;
             applyAt(suspF + tireF, contactPoint);
+            // Wheelie con gas (wheelie_keep_throttle): la tracción de la trasera, debajo del centro de masa,
+            // levanta la trompa. Dentro de la zona del limitador se anula esa parte (lo que el piloto hace con
+            // el cuerpo y el freno trasero): la moto sigue acelerando y la rueda no sube más.
+            if (i == REAR && wheelieCut > 0.0f && wheelieKeep > 0.0f && to.longForce > 0.0f) {
+                const float lift = (contactPoint - forceCenter).Cross(fwdG * to.longForce).Dot(right);
+                if (lift > 0.0f) totalTorque -= right * (lift * wheelieCut * wheelieKeep);
+            }
         } else {
             w.grounded = false;
             // En el aire la suspensión sólo empuja la rueda (fuerza interna): el chasis recibe la

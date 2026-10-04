@@ -5,14 +5,17 @@
   "description": "Rectas con saltos, whoops y peraltes de tierra. La pista de siempre.",
   "bike": "base/motocross",
   "order": 1,             // place in the map list (lower = first; mods default to 100)
+  // The berms let the bike corner at full lean on most of the track width: the bot takes the corners
+  // harder than the default 6 m/s^2 (see docs/MAPAS.md, "Pista de motocross").
+  "bot_lateral": 9,
 
   "terrain": { "type": "hills", "height": 10, "scale": 0.011, "detail": 0.5, "edge": 14 },
 
   "track": {
     "style": "track",     // smoothed base, long shoulders, berms in the corners
     "width": 9,
-    "bank_height": 2.8,
-    "bank_gain": 52,
+    "bank_height": 4.0,   // maximum allowed: with the smoothing the tightest berm ends at 3.2 m
+    "bank_gain": 100,     // maximum allowed: center of the tight corners 17-20 deg, outer face 33-36 deg
     "scale": 0.95,        // multiplies every point below
     // Closed loop through these points (x, z in meters). Start straight first.
     "points": [
