@@ -27,7 +27,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 3. **Carpeta `dist/MotoSim-vX/`**:
    - `MotoSim.exe` (el `motocross.exe` renombrado) y `tuning.ini`;
    - `mods/` completa (**sin** `pruebas/`) y `MODDING.md`;
-   - `Low_Poly_Motorcyclist_3_rigged.gltf` con `Low_Poly_Motorcyclist_3_rigged_deps/` (el modelo del piloto; el 2 ya no va);
+   - el modelo del piloto que usa la versión con su carpeta `_deps` (desde la v0.3.4, `Low_Poly_Motorcyclist_2_rigged`; lo elige el script);
    - `LEEME.txt`.
    - **Sin `preferencias.ini`**.
    - Todo eso (carpeta y zip) lo arma `python tools/package_release.py <exe>` (el mismo script del workflow de GitHub); corrélo
@@ -46,8 +46,10 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
    - **Revisá que no haya `preferencias.ini` justo antes del zip** (en la v0.2.6 apareció uno antes de las capturas con ventana y no se supo de dónde).
 6. **Zip**: lo hace `tools/package_release.py` (rehace la carpeta y el zip). Revisá la lista de archivos del zip.
 7. **Historial**: actualizá en `docs/PRUEBAS.md` y en el README ("Versión para compartir") qué paquete es el último.
-8. **GitHub Releases**: después de que se mergee el PR, quien te lanzó etiqueta el commit (`vX`) y publica
-   la release con el zip. El procedimiento está en `docs/PRUEBAS.md` ("Paquete para compartir", paso 6).
+8. **GitHub Releases**: al mergear el PR a `main`, los workflows `release.yml` (Windows) y `release-mac.yml` (Mac)
+   crean la release `vX` con los zips solos; quien te lanzó revisa que haya salido y borra la rama.
+9. **Carpetas**: `dist/` tiene sólo paquetes (`MotoSim-vX/` + zip); nada de copias del código ni carpetas de prueba
+   ahí (lo viejo, en `dist/_archivo/`). Ver `docs/PRUEBAS.md` ("Carpetas y versiones").
    Dejá lista en el informe la descripción de la release: "Cómo jugar" y las novedades del LEEME.
 
 ## Tu informe final
