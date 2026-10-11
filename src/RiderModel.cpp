@@ -2,11 +2,16 @@
 
 #include "RiderModel.h"
 
+#include "BikeStyleDef.h"
 #include "MathUtil.h"
 #include "raymath.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace {
@@ -21,6 +26,32 @@ constexpr float kMaxReach = 0.97f;       // brazo como mucho al 97%: nunca del t
 constexpr float kMaxExtraPitch = 0.45f;  // rad que puede sumar el torso para llegar al manubrio...
 constexpr float kMaxHipShift = 0.3f;     // ...y después m que se acerca la cadera
 constexpr float kThrottleRoll = 0.45f;   // rad que gira la mano derecha sobre el puño con el gas a fondo
+
+// Cuerpo con masa (RiderMotion). w en rad/s (2π·frecuencia propia); zeta 1 = crítico, menos rebota apenas.
+// Las "fuerzas" son aceleraciones de la moto (m/s², rad/s²) que el cuerpo siente por inercia.
+constexpr float kBaseW = 13.0f;                  // la pose pedida, suavizada (riderLean y legOut van en rampa)
+constexpr float kHipsW[3] = {9.0f, 12.0f, 8.0f}; // cadera: costado, arriba (piernas), adelante
+constexpr float kHipsZeta[3] = {0.8f, 0.7f, 0.75f};
+constexpr float kHipsGain[3] = {0.35f, 1.0f, 0.5f};      // fracción de la aceleración que la mueve
+constexpr float kHipsLimit[3] = {0.04f, 0.055f, 0.05f};  // m (saturación suave); arriba, kHipsUp
+constexpr float kHipsUp = 0.03f;
+constexpr float kVertAdapt = 0.6f;               // s: los músculos se acomodan a una carga vertical sostenida
+constexpr float kVertLight = 0.5f;               // de lo que alivia (despegar, caer) siente la mitad: estira menos de lo que se hunde
+constexpr float kTorsoW = 7.5f, kTorsoZeta = 0.65f;
+constexpr float kPitchPerAcc = 1.5f;             // rad/s² de torso por m/s² adelante (un péndulo de ~0.65 m)
+constexpr float kRollPerAcc = 1.0f;
+constexpr float kTorsoInertia = 0.6f;            // fracción del giro de la moto que el torso no acompaña al instante
+constexpr float kPitchLimit = 0.32f, kRollLimit = 0.28f;   // rad (saturación suave)
+constexpr float kFold = 3.0f;                    // rad de torso adelante por m que se hunde la cadera (absorbe con todo el cuerpo)
+constexpr float kInward = 0.12f;                 // rad de torso hacia adentro por g de curva
+constexpr float kAirUpright = 0.25f;             // en el aire, fracción del cabeceo / tumbado de la moto que el torso compensa
+constexpr float kHeadW = 10.0f, kHeadZeta = 0.85f;
+constexpr float kHeadLookAhead = 0.45f;          // s: mira hacia donde va a estar apuntando la curva
+constexpr float kHeadLevel = 0.45f;              // fracción del tumbado que la cabeza endereza (horizonte)
+constexpr float kOutW = 7.0f;                    // pata afuera (crítico)
+constexpr float kRagdollBlend = 0.35f;           // s: del cuerpo como se veía al ragdoll
+
+float SoftLimit(float x, float lim) { return lim * std::tanh(x / lim); }
 
 Vector3 V(JPH::Vec3 v) { return {v.GetX(), v.GetY(), v.GetZ()}; }
 Quaternion Q(JPH::Quat q) { return {q.GetX(), q.GetY(), q.GetZ(), q.GetW()}; }
@@ -46,7 +77,232 @@ void TwoBoneIK(Vector3 a, Vector3 target, float l1, float l2, Vector3 pole, Vect
     tip = Vector3Add(a, Vector3Scale(dir, dist));
 }
 
+bool PoseLog()
+{
+    static const bool on = std::getenv("MOTOSIM_PILOTO_LOG") != nullptr;
+    return on;
+}
+
 } // namespace
+
+// ---------------------------------------------------------------------------------------------- cuerpo con masa
+
+void RiderMotion::Spring::Step(float target, float force, float w, float zeta, float dt)
+{
+    // Semi-implícito en pasos de a lo sumo 1/240 s: estable con w hasta ~100 y cualquier cuadro.
+    const int n = std::max(1, (int)std::ceil(dt * 240.0f));
+    const float h = dt / (float)n;
+    for (int i = 0; i < n; ++i) {
+        v += (w * w * (target - x) - 2.0f * zeta * w * v + force) * h;
+        x += v * h;
+    }
+}
+
+RiderPose RiderMotion::Apply(const RiderPose& base, const Bike& bike, const Input& in)
+{
+    using JPH::Vec3;
+    using JPH::Quat;
+    // El dt de verdad (un cuadro largo, p. ej. al guardar una captura, también movió la moto todo eso: con un dt
+    // recortado la velocidad salía al doble y parecía un golpe). Los resortes van en pasos chicos (Spring::Step).
+    const float dt = mu::Clamp(in.dt, 0.0f, 0.25f);
+    const float tv = 0.035f * in.smooth, ta = 0.04f * in.smooth;   // filtros de velocidad y aceleración
+    // Un punto fijo de la moto, más o menos en la cadera: lo que siente el cuerpo (con el giro de la moto).
+    const Vec3 anchor = in.pos + in.rot * Vec3(0.0f, 0.30f, -0.25f);
+    // Aparece, reaparece o se teletransporta: arranca quieto en la pose pedida.
+    // (Respawn, reaparecer cerca o girada: más de 1 m o 0.6 rad en un cuadro, imposible andando.)
+    const float jump = (anchor - prevAnchor).Length();
+    const float turn = 2.0f * std::acos(mu::Clamp(std::fabs(prevRot.Dot(in.rot)), 0.0f, 1.0f));
+    if (!valid || jump > std::max(1.0f, 120.0f * dt) || turn > 0.6f) {
+        valid = true;
+        prevAnchor = anchor;
+        prevRot = in.rot;
+        velF = accF = angVelF = angAccF = Vec3::sZero();
+        groundS = in.ground;
+        vertSlow = 0.0f;
+        warm = 2;
+        for (Spring& s : dof) s.Set(0.0f);
+        dof[Lean].Set(base.lean);
+        dof[OutL].Set(base.legOut[0]);
+        dof[OutR].Set(base.legOut[1]);
+        for (int k = 0; k < 3; ++k) {
+            hipsS[k].Set(base.hips[k]);
+            shouldersS[k].Set(base.shoulders[k]);
+        }
+    }
+    const BikeStyleDef& style = GetBikeStyle(bike.Params() ? bike.Params()->visualStyle : 0);
+
+    // --- Lo que mide el cuerpo: aceleración y giro de la moto (diferencias de su transformación, filtradas).
+    if (dt > 1e-5f && warm > 0) {
+        // Recién aparecido: la velocidad que trae, sin aceleración (si no, de 0 a la velocidad de golpe parecía
+        // un tirón de 50 m/s²).
+        Quat dq = (prevRot.Conjugated() * in.rot).Normalized();
+        if (dq.GetW() < 0.0f) dq = -dq;
+        Vec3 axis;
+        float angle;
+        dq.GetAxisAngle(axis, angle);
+        velF = (anchor - prevAnchor) / dt;
+        angVelF = angle > 1e-6f ? axis * (angle / dt) : Vec3::sZero();
+        accF = angAccF = Vec3::sZero();
+        --warm;
+    } else if (dt > 1e-5f) {
+        const Vec3 vel = (anchor - prevAnchor) / dt;
+        const Vec3 velPrev = velF;
+        velF += (vel - velF) * (1.0f - std::exp(-dt / tv));
+        accF += ((velF - velPrev) / dt - accF) * (1.0f - std::exp(-dt / ta));
+        Quat dq = (prevRot.Conjugated() * in.rot).Normalized();
+        if (dq.GetW() < 0.0f) dq = -dq;
+        Vec3 axis;
+        float angle;
+        dq.GetAxisAngle(axis, angle);
+        const Vec3 w = angle > 1e-6f ? axis * (angle / dt) : Vec3::sZero();   // local (de la moto)
+        const Vec3 wPrev = angVelF;
+        angVelF += (w - angVelF) * (1.0f - std::exp(-dt / tv));
+        angAccF += ((angVelF - wPrev) / dt - angAccF) * (1.0f - std::exp(-dt / ta));
+    }
+    prevAnchor = anchor;
+    prevRot = in.rot;
+    groundS += (in.ground - groundS) * (1.0f - std::exp(-dt / 0.08f));
+    const Quat inv = in.rot.Conjugated();
+    // Lo que siente el cuerpo respecto de la pose de siempre (parado en el piso, 1 g hacia abajo de la moto):
+    // - de costado, la aceleración "propia" (con la gravedad): en una curva bien inclinada da ~0, el piloto no
+    //   se va para afuera; sí cuando la moto se tumba o se endereza más rápido que la curva;
+    // - adelante, la aceleración de la moto a lo largo (sin la gravedad: en una subida no se tira atrás);
+    // - arriba, la propia menos 1 g (aterrizajes, pozos; en el aire, -1 g, que los músculos absorben enseguida).
+    // En el aire nada empuja al cuerpo de costado ni adelante (cae junto con la moto).
+    const Vec3 properL = inv * (accF + Vec3(0.0f, 9.81f, 0.0f));
+    Vec3 aL(properL.GetX() * groundS, properL.GetY() - 9.81f, (inv * accF).GetZ() * groundS);
+    if (aL.Length() > 60.0f) aL = aL.Normalized() * 60.0f;     // golpes: el cuerpo no se entera de más
+    Vec3 alphaL = angAccF;
+    if (alphaL.Length() > 80.0f) alphaL = alphaL.Normalized() * 80.0f;
+    accLocal = aL;
+    angAccLocal = alphaL;
+    const Vec3 up = Vec3::sAxisY();
+    const Vec3 fwdW = in.rot * Vec3::sAxisZ(), leftW = in.rot * Vec3::sAxisX();
+    const float bikePitch = std::asin(mu::Clamp(fwdW.GetY(), -1.0f, 1.0f));      // + trompa arriba
+    const float bikeRoll = std::asin(mu::Clamp(leftW.GetY(), -1.0f, 1.0f));      // + tumbada a la derecha
+    const float air = 1.0f - groundS;
+    const Vec3 flatV(velF.GetX(), 0.0f, velF.GetZ());
+    const float speed = flatV.Length();
+    const float yawRate = (in.rot * angVelF).GetY();                               // + doblando a la izquierda
+
+    // --- La pose pedida, suavizada: lo que cambia en rampa (cuerpo adelante/atrás, pata afuera) o de golpe
+    // (de pie sobre la cola) arranca y frena como un movimiento del cuerpo.
+    for (int k = 0; k < 3; ++k) {
+        hipsS[k].Step(base.hips[k], 0.0f, kBaseW, 1.0f, dt);
+        shouldersS[k].Step(base.shoulders[k], 0.0f, kBaseW, 1.0f, dt);
+    }
+    dof[Lean].Step(base.lean, 0.0f, kBaseW, 1.0f, dt);
+
+    // --- Cadera: se queda atrás al acelerar, se va adelante al frenar y se hunde al aterrizar. Lo vertical,
+    // sólo lo que cambia: una carga sostenida (o la caída libre en el aire) los músculos la sostienen.
+    vertSlow += (aL.GetY() - vertSlow) * (1.0f - std::exp(-dt / kVertAdapt));
+    const float vert = aL.GetY() - vertSlow;
+    const float hipForce[3] = {-kHipsGain[0] * aL.GetX(), -kHipsGain[1] * vert * (vert < 0.0f ? kVertLight : 1.0f), -kHipsGain[2] * aL.GetZ()};
+    for (int k = 0; k < 3; ++k) {
+        Spring& s = dof[HipsX + k];
+        s.Step(0.0f, hipForce[k], kHipsW[k], kHipsZeta[k], dt);
+        s.x = mu::Clamp(s.x, -2.0f * kHipsLimit[k], 2.0f * kHipsLimit[k]);
+    }
+    const float hipsDrop = std::max(0.0f, -dof[HipsY].x);
+
+    // --- Torso (péndulo sobre la cadera): la aceleración lo tira atrás o adelante; el giro de la moto no lo
+    // acompaña al instante (inercia); se dobla al absorber; hacia adentro en la curva; en el aire busca la
+    // vertical (con el whip la moto se acuesta y el cuerpo no).
+    const float centripetal = mu::Clamp(yawRate * speed / 9.81f, -1.2f, 1.2f);   // g de curva (+ izquierda)
+    const float pitchTarget = kFold * hipsDrop + kAirUpright * air * bikePitch;
+    const float rollTarget = kInward * centripetal * groundS + kAirUpright * air * bikeRoll;
+    // Agachado sobre el tanque (carreras, rápido) se sostiene con las rodillas: acelerando no se levanta.
+    const float tucked = style.tuck * mu::Smoothstep(8.0f, 25.0f, speed);
+    const float pitchAcc = -kPitchPerAcc * aL.GetZ() * (aL.GetZ() > 0.0f ? 1.0f - 0.7f * tucked : 1.0f);
+    dof[TorsoPitch].Step(pitchTarget, pitchAcc - kTorsoInertia * alphaL.GetX(), kTorsoW, kTorsoZeta, dt);
+    dof[TorsoRoll].Step(rollTarget, -kRollPerAcc * aL.GetX() + kTorsoInertia * alphaL.GetZ(), kTorsoW, kTorsoZeta, dt);
+    for (int d : {TorsoPitch, TorsoRoll}) dof[d].x = mu::Clamp(dof[d].x, -1.0f, 1.0f);
+
+    // --- Cola afuera: el ángulo entre la moto y la velocidad (sobre el piso). Con la cola de costado (freno
+    // de mano, derrape) saca la pierna de adentro, la de la punta de la moto.
+    const Vec3 vL = inv * velF;
+    drift = 0.0f;
+    float driftOut[2] = {0.0f, 0.0f};
+    if (speed > 1.0f && vL.GetZ() > 0.0f) {
+        drift = std::atan2(-vL.GetX(), vL.GetZ());                                  // + la trompa a la izquierda de la velocidad
+        const float amount = mu::Smoothstep(mu::Rad(12.0f), mu::Rad(24.0f), std::fabs(drift)) * mu::Smoothstep(2.5f, 4.5f, speed) *
+                             (1.0f - mu::Smoothstep(18.0f, 24.0f, speed)) * mu::Smoothstep(0.6f, 0.9f, groundS) * (style.hangOff > 0.0f ? 0.0f : 1.0f);
+        driftOut[drift > 0.0f ? 0 : 1] = amount;
+    }
+    float outT[2];
+    for (int i = 0; i < 2; ++i) {
+        outT[i] = std::max(base.legOut[i], driftOut[i]);
+        Spring& s = dof[OutL + i];
+        s.Step(outT[i], 0.0f, kOutW, 1.0f, dt);
+        s.x = mu::Clamp(s.x, 0.0f, 1.0f);
+    }
+
+    // --- Cabeza: mira hacia donde va (la velocidad, o adelante si va despacio o para atrás), adelantada a lo que
+    // gira la curva; abajo hacia la pista en el piso y hacia el aterrizaje en el aire; casi nivelada.
+    {
+        Vec3 dir = Vec3(fwdW.GetX(), 0.0f, fwdW.GetZ()).NormalizedOr(Vec3::sAxisZ());
+        if (speed > 1.0f && flatV.Dot(dir) > 0.3f * speed) {
+            // Con la cola afuera la velocidad apunta hacia afuera de la curva: ahí mira la trompa (la salida).
+            const float w = mu::Smoothstep(2.0f, 6.0f, speed) * (1.0f - mu::Smoothstep(mu::Rad(5.0f), mu::Rad(20.0f), std::fabs(drift)));
+            dir = (dir * (1.0f - w) + flatV.Normalized() * w).NormalizedOr(dir);
+        }
+        const float ahead = mu::Clamp(yawRate * kHeadLookAhead, -0.6f, 0.6f) * groundS;
+        dir = Quat::sRotation(up, ahead) * dir;
+        const float airPitch = mu::Clamp(std::atan2(velF.GetY(), std::max(speed, 3.0f)) * 0.6f, -0.7f, 0.15f);
+        const float lookPitch = -0.2f * groundS + (airPitch - 0.15f) * air;
+        const Vec3 lookW = dir * std::cos(lookPitch) + up * std::sin(lookPitch);
+        const Vec3 lookL = inv * lookW;
+        const float yawT = mu::Clamp(std::atan2(lookL.GetX(), lookL.GetZ()), -1.0f, 1.0f);
+        const float pitchT = mu::Clamp(std::asin(mu::Clamp(lookL.GetY(), -1.0f, 1.0f)), -0.9f, 0.35f);
+        const float rollT = mu::Clamp(-kHeadLevel * bikeRoll, -0.4f, 0.4f);   // + cabeza hacia la derecha (rotación sobre +Z)
+        dof[HeadYaw].Step(yawT, 0.0f, kHeadW, kHeadZeta, dt);
+        dof[HeadPitch].Step(pitchT, 0.0f, kHeadW, kHeadZeta, dt);
+        dof[HeadRoll].Step(rollT, 0.0f, kHeadW, kHeadZeta, dt);
+        const float yaw = dof[HeadYaw].x, pitch = dof[HeadPitch].x;
+        look = Vec3(std::sin(yaw) * std::cos(pitch), std::sin(pitch), std::cos(yaw) * std::cos(pitch));
+        lookUp = Quat::sRotation(look, dof[HeadRoll].x) * Vec3::sAxisY();
+    }
+
+    // --- La pose resultante.
+    RiderPose p = base;
+    p.lean = dof[Lean].x;
+    const Vec3 hipsBase(hipsS[0].x, hipsS[1].x, hipsS[2].x), shouldersBase(shouldersS[0].x, shouldersS[1].x, shouldersS[2].x);
+    const float hy = dof[HipsY].x;
+    const Vec3 hipsOff(SoftLimit(dof[HipsX].x, kHipsLimit[0]), hy < 0.0f ? SoftLimit(hy, kHipsLimit[1]) : SoftLimit(hy, kHipsUp),
+                       SoftLimit(dof[HipsZ].x, kHipsLimit[2]));
+    // La pata afuera por el derrape (lo que agrega a la de la pose): sentado adelante, como en la pose.
+    const float extraOut = std::max(0.0f, std::max(dof[OutL].x, dof[OutR].x) - std::max(base.legOut[0], base.legOut[1]));
+    const float outSide = dof[OutL].x >= dof[OutR].x ? 1.0f : -1.0f;              // +X = izquierda
+    p.hips = hipsBase + hipsOff + Vec3(-0.03f * outSide, -0.01f, 0.19f) * extraOut;
+    Vec3 torso = shouldersBase - hipsBase + Vec3(-0.04f * outSide, -0.01f, -0.11f) * extraOut;   // los hombros, como en la pose (-0.07, -0.02, 0.08)
+    const float tp = SoftLimit(dof[TorsoPitch].x, kPitchLimit), tr = SoftLimit(dof[TorsoRoll].x, kRollLimit);
+    torso = Quat::sRotation(Vec3::sAxisX(), tp) * torso;                          // + adelante
+    torso = Quat::sRotation(Vec3::sAxisZ(), -tr) * torso;                         // + los hombros a la izquierda
+    p.shoulders = p.hips + torso;
+    p.head = p.shoulders + (base.head - base.shoulders);
+    for (int i = 0; i < 2; ++i) {
+        const float side = i == 0 ? 1.0f : -1.0f;
+        p.hip[i] = p.hips + (base.hip[i] - base.hips);
+        p.shoulder[i] = p.shoulders + (base.shoulder[i] - base.shoulders);
+        p.elbow[i] = (p.shoulder[i] + p.grip[i]) * 0.5f + Vec3(0.12f * side, -0.05f, -0.06f);
+        // Pierna afuera (la de la pose o la del derrape), con la misma forma que RiderPoseLocal: sale por afuera
+        // de los plásticos en arco hasta el costado de la rueda delantera.
+        const float a = dof[OutL + i].x;
+        p.legOut[i] = a;
+        if (a > 1e-3f || base.legOut[i] > 0.0f) {
+            const Vec3 peg(style.peg.GetX() * side, style.peg.GetY(), style.peg.GetZ());
+            const Vec3 ankleOut(0.34f * side, -0.28f, 0.64f);
+            p.ankle[i] = peg + Vec3(0, 0.06f, 0);
+            p.ankle[i] = p.ankle[i] + (ankleOut - p.ankle[i]) * a + Vec3(0.07f * side, 0.04f, 0.0f) * std::sin(mu::kPi * a);
+            p.foot[i] = p.ankle[i] + Vec3(0.0f, -0.04f + 0.07f * a, 0.04f + 0.03f * a);
+            const Vec3 bent = (p.hip[i] + p.ankle[i]) * 0.5f + Vec3(0.05f * side, 0.07f, 0.02f);
+            p.knee[i] = base.knee[i] + (bent - base.knee[i]) * a;
+        }
+    }
+    return p;
+}
+
+// ---------------------------------------------------------------------------------------------- modelo
 
 int RiderModel::Bone(const char* name) const
 {
@@ -414,7 +670,8 @@ void RiderModel::PoseOnBike(const RiderPose& p)
     // al manubrio: tirado atrás queda la cola atrás y los brazos estirados, no acostado sobre el tanque.
     gripAmount = 1.0f;
     throttleS += (p.throttle - throttleS) * (1.0f - std::exp(-14.0f * GetFrameTime()));
-    if (SolveBody(p, 0.0f, 0.0f) <= kMaxReach) return;
+    lastExtraPitch = lastHipShift = 0.0f;
+    if ((lastReach = SolveBody(p, 0.0f, 0.0f)) <= kMaxReach) return;
     auto search = [&](float hiValue, auto solve) {          // el valor mínimo con el que las manos llegan
         float lo = 0.0f, hi = hiValue;
         for (int k = 0; k < 10; ++k) {
@@ -422,12 +679,43 @@ void RiderModel::PoseOnBike(const RiderPose& p)
             if (solve(mid) > kMaxReach) lo = mid;
             else hi = mid;
         }
-        solve(hi);
+        lastReach = solve(hi);
+        return hi;
     };
     if (SolveBody(p, kMaxExtraPitch, 0.0f) <= kMaxReach) {
-        search(kMaxExtraPitch, [&](float pitch) { return SolveBody(p, pitch, 0.0f); });
+        lastExtraPitch = search(kMaxExtraPitch, [&](float pitch) { return SolveBody(p, pitch, 0.0f); });
     } else {
-        search(kMaxHipShift, [&](float shift) { return SolveBody(p, kMaxExtraPitch, shift); });
+        lastExtraPitch = kMaxExtraPitch;
+        lastHipShift = search(kMaxHipShift, [&](float shift) { return SolveBody(p, kMaxExtraPitch, shift); });
+    }
+}
+
+void RiderModel::PoseOnBike(const RiderPose& base, const Bike& bike, JPH::Vec3 bikePos, JPH::Quat bikeRot, double time, float ground, float smooth)
+{
+    const auto t0 = std::chrono::steady_clock::now();
+    if (!motionShown || time < motionTime || time > motionTime + 0.5) motion.Reset();   // volvió a la moto, o el tiempo saltó
+    RiderMotion::Input in;
+    in.pos = bikePos;
+    in.rot = bikeRot;
+    in.dt = motionTime < 0.0 ? 0.0f : (float)std::max(0.0, time - motionTime);
+    motionTime = time;
+    in.ground = ground;
+    in.smooth = smooth;
+    const RiderPose p = motion.Apply(base, bike, in);
+    headFree = true;
+    PoseOnBike(p);
+    headFree = false;
+    motionShown = true;
+    if (PoseLog()) {
+        const RiderMotion& m = motion;
+        const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count();
+        std::printf("PILOTO %03d t=%.3f us=%.0f a=%.1f,%.1f,%.1f al=%.1f,%.1f,%.1f cadera=%.3f,%.3f,%.3f torso=%.1f,%.1f cabeza=%.0f,%.0f,%.0f afuera=%.2f,%.2f "
+                    "deriva=%.0f alcance=%.3f +torso=%.2f +cadera=%.3f\n",
+                    (int)(((uintptr_t)this >> 4) % 1000), time, us, m.accLocal.GetX(), m.accLocal.GetY(), m.accLocal.GetZ(), m.angAccLocal.GetX(), m.angAccLocal.GetY(),
+                    m.angAccLocal.GetZ(), m.dof[RiderMotion::HipsX].x, m.dof[RiderMotion::HipsY].x, m.dof[RiderMotion::HipsZ].x,
+                    mu::Deg(m.dof[RiderMotion::TorsoPitch].x), mu::Deg(m.dof[RiderMotion::TorsoRoll].x), mu::Deg(m.dof[RiderMotion::HeadYaw].x),
+                    mu::Deg(m.dof[RiderMotion::HeadPitch].x), mu::Deg(m.dof[RiderMotion::HeadRoll].x), m.dof[RiderMotion::OutL].x,
+                    m.dof[RiderMotion::OutR].x, mu::Deg(m.drift), lastReach, lastExtraPitch, lastHipShift);
     }
 }
 
@@ -471,10 +759,25 @@ float RiderModel::SolveBody(const RiderPose& p, float extraPitch, float hipShift
             delta[b] = pelvisTurn;
         } else if (b == spineChain[0] || b == spineChain[1] || b == spineChain[2]) {
             delta[b] = QuaternionMultiply(spineStep, delta[b]);
-        } else if (b == head) {
-            // Mirando la pista: la cara (+Z en reposo) hacia adelante y un poco abajo.
-            const Vector3 face = Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, delta[b]);
-            delta[b] = QuaternionMultiply(FromTo(face, {0.0f, -0.2f, 1.0f}), delta[b]);
+        } else if (b == head || (b == neck && headFree)) {
+            if (!headFree) {
+                // Mirando la pista: la cara (+Z en reposo) hacia adelante y un poco abajo.
+                const Vector3 face = Vector3RotateByQuaternion({0.0f, 0.0f, 1.0f}, delta[b]);
+                delta[b] = QuaternionMultiply(FromTo(face, {0.0f, -0.2f, 1.0f}), delta[b]);
+            } else {
+                // Con el cuerpo con masa: la cara hacia motion.look y el casco derecho según motion.lookUp (giro
+                // completo respecto del reposo, que mira a +Z con +Y arriba). El cuello toma la mitad: con el
+                // torso inclinado, girar sólo la cabeza estiraba la garganta (ver "El cuello del modelo 3").
+                const Vector3 lookV = Vector3Normalize(V(motion.look));
+                const Quaternion aimQ = FromTo({0.0f, 0.0f, 1.0f}, lookV);
+                Vector3 upNow = Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, aimQ);
+                Vector3 upWant = V(motion.lookUp);
+                upNow = Vector3Normalize(Vector3Subtract(upNow, Vector3Scale(lookV, Vector3DotProduct(upNow, lookV))));
+                upWant = Vector3Normalize(Vector3Subtract(upWant, Vector3Scale(lookV, Vector3DotProduct(upWant, lookV))));
+                const float roll = std::atan2(Vector3DotProduct(Vector3CrossProduct(upNow, upWant), lookV), Vector3DotProduct(upNow, upWant));
+                const Quaternion want = QuaternionMultiply(QuaternionFromAxisAngle(lookV, roll), aimQ);
+                delta[b] = b == head ? want : QuaternionSlerp(delta[b], want, 0.5f);
+            }
         }
         for (int i = 0; i < 2; ++i) {
             const float side = i == 0 ? 1.0f : -1.0f;               // +X = izquierda
@@ -534,16 +837,26 @@ void RiderModel::BindToRagdoll(const RiderPose& p, const RiderRagdoll& ragdoll)
 
 void RiderModel::BindToParts(const RiderPose& p, const JPH::Mat44* partLocal)
 {
-    PoseOnBike(p);
     const int n = (int)pos.size();
-    relPos.resize(n);
-    relDelta.resize(n);
-    for (int b = 0; b < n; ++b) {
-        const JPH::Mat44& part = partLocal[partOf[b]];
-        const Quaternion partRot = QuaternionInvert(Q(part.GetQuaternion()));
-        relPos[b] = Vector3RotateByQuaternion(Vector3Subtract(pos[b], V(part.GetTranslation())), partRot);
-        relDelta[b] = QuaternionMultiply(partRot, delta[b]);
-    }
+    auto bind = [&](std::vector<Vector3>& rp, std::vector<Quaternion>& rd) {
+        rp.resize(n);
+        rd.resize(n);
+        for (int b = 0; b < n; ++b) {
+            const JPH::Mat44& part = partLocal[partOf[b]];
+            const Quaternion partRot = QuaternionInvert(Q(part.GetQuaternion()));
+            rp[b] = Vector3RotateByQuaternion(Vector3Subtract(pos[b], V(part.GetTranslation())), partRot);
+            rd[b] = QuaternionMultiply(partRot, delta[b]);
+        }
+    };
+    // Lo que se veía (el cuerpo con masa, en espacio de la moto como las partes al aparecer): de ahí arranca.
+    const bool fromShown = motionShown;
+    if (fromShown) bind(relPosShown, relDeltaShown);
+    // El ragdoll se arma con la pose sin reacciones (es física: no cambia); el modelo va pasando a ella.
+    PoseOnBike(p);
+    bind(relPos, relDelta);
+    ragdollBlend = fromShown ? 0.0f : 1.0f;
+    motionShown = false;
+    motion.Reset();
 }
 
 void RiderModel::PoseFromRagdoll(const RiderRagdoll& ragdoll, float alpha)
@@ -556,11 +869,17 @@ void RiderModel::PoseFromRagdoll(const RiderRagdoll& ragdoll, float alpha)
 void RiderModel::PoseFromParts(const JPH::Mat44* partWorld)
 {
     if (relPos.size() != pos.size()) return;
+    // Recién caído: de la pose que se veía a la del ragdoll, suave (smoothstep) en kRagdollBlend s.
+    const bool blend = ragdollBlend < 1.0f && relPosShown.size() == relPos.size();
+    const float s = mu::Smoothstep(0.0f, 1.0f, ragdollBlend);
+    ragdollBlend = std::min(1.0f, ragdollBlend + GetFrameTime() / kRagdollBlend);
     for (int b = 0; b < realBones; ++b) {
         const JPH::Mat44& part = partWorld[partOf[b]];
         const Quaternion rot = Q(part.GetQuaternion());
-        pos[b] = Vector3Add(V(part.GetTranslation()), Vector3RotateByQuaternion(relPos[b], rot));
-        delta[b] = QuaternionMultiply(rot, relDelta[b]);
+        const Vector3 rp = blend ? Vector3Lerp(relPosShown[b], relPos[b], s) : relPos[b];
+        const Quaternion rd = blend ? QuaternionSlerp(relDeltaShown[b], relDelta[b], s) : relDelta[b];
+        pos[b] = Vector3Add(V(part.GetTranslation()), Vector3RotateByQuaternion(rp, rot));
+        delta[b] = QuaternionMultiply(rot, rd);
     }
     // Al salir despedido suelta el manubrio: los dedos se abren en un cuarto de segundo.
     gripAmount = std::max(0.0f, gripAmount - GetFrameTime() / 0.25f);

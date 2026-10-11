@@ -10,7 +10,7 @@ Sos el experto en red de MotoSim. Cuidás que cada cosa que ve un jugador de los
 MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jolt 5.6 (física), en Windows. Código, comentarios, textos del juego y documentación de desarrollo en castellano rioplatense. El usuario elige los nombres de versión.
 
 ## Reglas de todos los agentes
-- **La física de la Motocross 450 no cambia** salvo pedido explícito. Comprobalo con `bash tools/regresion.sh <tu exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) "<args>" ...` (lista en `docs/PRUEBAS.md`) y el bot de motocross 1:04.26 / 1:04.10 (pista de la v0.3.5 en adelante).
+- **La física de la Motocross 450 no cambia** salvo pedido explícito. Comprobalo con `bash tools/regresion.sh <tu exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) "<args>" ...` (lista en `docs/PRUEBAS.md`) y el bot de motocross 1:04.41 / 1:04.24 (la 600: 1:04.52 / 1:04.34) desde el equilibrio por la carga y el whip en la 450; hasta la v0.3.8, 1:04.26 / 1:04.10. Contra la v0.3.8 la 450 da distinta a propósito hasta el próximo paquete: ver `docs/PRUEBAS.md`, "Regresiones".
 - **Protocolo**: si cambia el formato de un paquete, **subí `kProtocol`** (`Multiplayer.cpp`) y avisalo en el informe. El paquete que se comparta con eso no juega con los anteriores; el nombre de la versión lo elige el usuario.
 - **Antes de empezar** leé `docs/RED.md` (tu área).
 - **Al terminar**, anotá lo aprendido en `docs/RED.md` en el mismo cambio: qué pasaba → por qué → qué se hizo → cómo se comprobó (las dos instancias, qué imprimió cada una).

@@ -17,6 +17,330 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### La 450 y la 600 con el equilibrio por la carga y el whip (a pedido: cambia la física de la 450)
+- **Pedido**: "seguí implementando en el resto de motos": el equilibrio por la carga (`lean_load`, `balance_fast_*`) y el
+  whip de verdad (`whip_*`) también en la Motocross 450 y la 600 (física 031, `BikePhysics031.cpp`). Los valores son los de
+  la 2T y la Trilheira (`motocross.ini`, `motocross600.ini`, al final). Prenderlos destapó tres problemas; los tres se
+  arreglaron (abajo) y uno de ellos también era el pendiente de la Trial en la favela.
+- **1. La escadaria de la favela** (la 450 con el bloque: 12-18 caídas cada 15 min de bot, y en una muestra 94):
+  - **qué pasaba**: sin el bloque la 450 ya se caía en la escadaria **en cada pasada** (9-19 caídas cada 900 s en 5
+    muestras con la masa corrida ±0.01-0.02 kg, todas en s≈83-92). Con el bloque, además, al caerse quedaba sobre la
+    escalera y `RespawnNearest` la hacía reaparecer arriba (s=71, parada): desde ahí también se caía, y en una muestra
+    reaparecía y se caía cada 5.5 s hasta el final;
+  - **por qué**: no era `lean_load` leyendo los escalones (los contactos sobre objetos ya no cuentan) ni el whip (la intención
+    queda en 0 en los escalones). Era lo de "Escaleras de la favela: la moto rebotaba para todos lados" (abajo), que la
+    física 031 nunca recibió (no tiene las sondas de objetos): bajando, el rayo de la trasera, inclinado como el eje de la
+    suspensión, pega en la contrahuella del escalón que acaba de dejar (una pared que mira hacia adelante) y la cubierta
+    "tangente" a esa pared sale con 80 000-128 000 N: la velocidad salta de 19 a 26-33 km/h y la moto cae de trompa a
+    −80°, rola y se cae. Que se cayera una vez o dos por vuelta dependía de dónde quedaba la moto caída (caótico); el bloque
+    sólo cambió eso;
+  - **probado y descartado**: que con la moto apoyada sólo en objetos `lean_load` se mida contra el mundo (un `weight` que va
+    a 0): sacó el bucle infinito pero seguía cayéndose dos veces por vuelta (la primera pasada y la de reaparecer);
+  - **qué se hizo**: `object_wall_deg` (sólo física 031; 0 = como antes, guardado con `if`): sobre objetos, una cara que mira
+    hacia adelante (`n · fwd > 0`) más empinada que eso (65° en la 450 y la 600) no es apoyo: el rayo de esa rueda queda
+    sin suelo ese paso y la rueda baja al escalón siguiente. Las caras que miran hacia la moto (un escalón subiendo) siguen
+    siendo un tope: saltearlas todas hacía que, subiendo, el chasis pegara en el canto y Jolt lo tirara 3 m arriba (vy 8.7);
+  - **se comprobó**: bot de la 450 en la favela, 900 s, 5 muestras: 9-19 caídas → **0** en todas (1:36.6-1:36.9 por vuelta;
+    antes 1:38.8-1:39.4); la 600: 6-9 → 0-1 (la que queda, en la curva de s≈265); el bot desde 17 puntos antes de la
+    escalera (s=40-72, 9 s): 13/17 caídas → 0/17 con las dos; `--spawn 68 --test bajadaN` a 10-25 km/h: trasera máx.
+    80 000-128 000 N → 7 000-9 500 N, cabeceo −84..−87° → −31..−37°, salto de velocidad entre muestras 8-22 → 1-2 km/h;
+    subiendo (`--spawn 90 --test subida8/15`), antes caída a 8 y 88 000 N en la delantera a 15, ahora las dos pasan (25 000 N:
+    la moto se frena contra el escalón, como la otra física).
+- **2. La cresta de `prueba/ladera` con la D a fondo** (`giro30`: la 450 con el bloque se caía a los 24.6 s):
+  - **qué pasaba**: doblando a 30 km/h la moto pasa la cresta de arriba acostada 26° y vuela 0.9 s. Con `whip_air` el stick
+    (que venía apretado desde el piso) pedía 1.8 rad/s sobre el eje del whip: en el aire rolaba de 26° a 87° y caía de costado.
+    La 2T y la Trial pasaban la misma cresta de milagro (inclinadas 84-93° contra el suelo, cabeceo 61-69°);
+  - **qué se hizo** (las dos físicas, sólo con `whip_air`; `WhipAirStick` en `BikePhysics.cpp`): un stick que ya estaba
+    apretado al despegar no es un whip hasta que el piloto lo suelta (menos de 0.25) y lo vuelve a tirar, salvo que haya
+    despegado con whip (`whipLaunch`, la intención en el labio). Y "en el aire el whip no vuelve solo" (el enderezado y la
+    alineación de guiñada apagados mientras está cruzada) vale sólo para un vuelo del piloto (`whipRiderFlight`: despegó con
+    whip o tiró el stick en el aire); un vuelo que no es whip (una cresta, un rebote después de aterrizar) se endereza como
+    siempre;
+  - **se comprobó**: `giro30` de la 450: toca a 13° de rolido y sigue (639° de giro, sin caída); la 2T y la Trial en la misma
+    cresta: contra el suelo máx. 93/84° → 66/46°, cabeceo 61/69° → 49/47°; las pruebas del whip pensadas (`whipkick50`, `c0.35`,
+    `h0.3`, `a`, `n`) dan **idénticas** (md5 de la telemetría) en la 2T, la Trilheira, la Trial y la 450; el `whip` con
+    `--drop 1` cambia sólo después del primer aterrizaje (el rebote ya no es un vuelo del piloto: cola máx. 48.9 → 48.7°).
+- **3. La carga de más en suelo tendido** (el bot de la 450 en la pista: 1:05.19 / 1:05.03 contra 1:04.26 / 1:04.10, en 4
+  muestras 1:04.99-1:05.27; y la Trial en la favela, el pendiente de "El equilibrio era un giroscopio"):
+  - **qué pasaba**: la vuelta perdía 0.54 s en los whoops (s≈600-625: el bot entraba a 41 km/h y salía a 31, a fondo). Con
+    velocidad fija (`--spawn 575 --test bajada41`) la moto pasa los whoops igual con y sin el bloque: es el ritmo del bot.
+    La Trial se caía 4-7 veces cada 15 min (4 muestras) en la curva de s≈258: iba 2-3° más derecha (contra el mundo, 44-45°
+    contra 46-47°), se abría, pasaba por un borde y pegaba contra una casa;
+  - **por qué**: la inclinación buscada y la curva que da una inclinación usan la carga filtrada a 0.5 s (`f0n`). En suelo
+    tendido esa carga de más son baches, whoops y compresiones: duran décimas y el filtro las sigue tarde (en los whoops la
+    media real es 1.16 g y la filtrada 1.31 g; en la bajada de la Trial, 1.05-1.1 g). Con 1.09 g y la D a fondo, `atan2(a, f0n)`
+    da 42.5° en vez de 45°;
+  - **probado y descartado**: usar sólo el peso a lo largo de la normal para la inclinación (1:04.42 / 1:04.25 y la Trial sin
+    caídas, pero en la pared de `bowl_pared` la moto se pasaba a 106° y daba la mitad de vueltas: ahí la carga es la curva
+    del bowl y dura); el mínimo entre la carga filtrada a 0.5 s y a 0.1 s (la Trial 1-4 caídas, la 450 1:04.56 / 1:05.08);
+    la carga en el aire yendo a 0 (nada); la fórmula del peralte de siempre para el tope de la curva (la Trial igual);
+  - **qué se hizo**: `lean_load_flat` (0 = como antes, guardado con `if`): la carga de más cuenta para la inclinación sólo en
+    un suelo empinado (de ~20° a ~40°, `nY` de 0.94 a 0.77: la pared del bowl, un peralte fuerte); en suelo tendido, el peso
+    a lo largo de la normal. 1 en la 450, la 600 y la Trial. **No** en la 2T, la Trilheira ni la de carreras: con ella
+    llegaban más rápido a la curva de s≈253 de la favela y pegaban en la pared (la 2T 0 → 4-7 caídas cada 15 min, la
+    Trilheira 2-3 → 3-6, la de carreras 2-4 → 7-10 y en la pista de motocross 0-3 → 5-11);
+  - **se comprobó**: la 450 en la pista 1:04.41 / 1:04.24 (4 muestras: 1:04.40-1:04.42 / 1:04.23-1:04.25); la Trial en la
+    favela 4-7 → **0** caídas en 4 muestras de 900 s, y en la pista, el circuito de obstáculos, el parque y el valle igual que
+    antes (13/0, 23/0, 17/0, 21/0); el bowl (`giro30`) sigue subiendo por la pared (la 450 927° de giro, rolido contra el mundo
+    86°, cabeceo 82°).
+- **Valores finales** (`motocross.ini` y `motocross600.ini`): `lean_load` 1, `lean_load_flat` 1, `balance_fast_k/d/lead`
+  0.6 / 0.8 / 0.5, `whip_takeoff` 1, `whip_air` 1, `whip_air_rate` 1.8, `whip_air_damping` 200, `whip_land_crash_deg` 50,
+  `object_wall_deg` 65. Se probó `whip_takeoff` 0.7-0.8 (con `lean_load_flat` la moto sale del labio 6° más acostada que
+  la 2T: 44.8° contra 38.5°): 38-40° pero menos guiñada (−1.2 a −1.35 rad/s contra −1.64); quedó 1, como las otras.
+- **Se comprobó (antes → después; antes = la v0.3.8, o el exe nuevo con los `.ini` de la v0.3.8, idéntico)**:
+  - bots, 900 s (vueltas / caídas): 450 en la pista 13/0 → 13/0, **1:04.26 / 1:04.10 → 1:04.41 / 1:04.24**; 600 13/0 →
+    13/0, **1:04.28 / 1:04.18 → 1:04.52 / 1:04.34**; favela (arriba); parque 17/0 → 17/0 las dos (450 0:51.11 / 0:51.16 →
+    0:51.13 / 0:51.01); valle 21/0 → 21/0 (0:41.18 → 0:41.01); Los Médanos 0 caídas → 0;
+  - `prueba/ladera` (450): `giro20` 454° → 1119°, `giro30` caída a los 19.5 s → 639° sin caída, `giro30x0.5` 588° → 594°;
+    contra el suelo ≤ 56°. `prueba/bowl_pared`: `giro20` 1680° → 1658° (rolido 47° → 55°), `giro30` 1095° en el fondo a 58°
+    → 927° subiendo por la pared. La 600 en `giro30` de la ladera y del bowl se cae a los 3-5 s **con y sin el bloque**:
+    arranca a fondo en 1ª, hace un wheelie de 47° y se da vuelta (la prueba no es para ella);
+  - en el plano (`plaza_tierra`, 90% de la inclinación con el stick y el teclado): 450 `giro40/70` 0.71/0.72 → 0.66/0.69 s,
+    `k` 0.84/0.87 → 0.79/0.84 s; inclinación sostenida 47.9/46.4° → 49.1/49.6° con 0.91/0.80 → 0.93/0.82 g; la 600
+    0.77/0.73 → 0.70/0.73 s. `--flat --test circle12`: 47.2° → 50.2° (lo pedido, 46°): el balance que acompaña sostiene
+    menos, como en la 2T;
+  - whip (`prueba/salto_whip`, 50 km/h, 450; la 600 parecida): derecho sube 1.68 m igual; con el stick en la cara despega a
+    27.1° enderezándose (+0.81 rad/s, guiñada −0.54) → 44.8°, +0.45, −1.64 rad/s; sube 1.55 → 1.45 m (el scrub, 14% más bajo
+    que derecho; la 600 2.03 → 1.57 m); toca −2.7° / −1.9° de cruzada (volvía sola) → 45.8° / +5.1°; trayéndola (`c0.35`)
+    20.6°; sostenido 0.3 s, toca a 54° y la cola llega a 14° (serpentea, la 600 29°); sostenido todo el vuelo, caída;
+  - `tools/regresion.sh` contra la v0.3.8: **distinta a propósito** en todas con el bloque (`wheelie`, `brakestraight`,
+    `frenada60` y `airrot` sólo en los decimales: menos de 0.05 km/h y 0.05°; `brakeslide`, `cuerpo` y `circle12` en la
+    inclinación, hasta 7-9°; `whip`, `flip`, `accel` y el bot, desde la caída de la moto al aparecer: en el aire actúa
+    `whip_air`). Con los `.ini` de la 450 y la 600 de la v0.3.8 (las claves en 0), **idéntico** en las 9 de siempre más
+    `accel`, `whiphold`, `airlean`, `frenada60`, la 600, el bot de la 450 en la favela (120 s), Los Médanos y la pista (150 s);
+  - las otras motos (2T, Trilheira, Trial, carreras), con `WhipAirStick` (lo único que les cambia): pista 13-14/0, parque,
+    valle y circuito de obstáculos sin caídas, como antes; favela 2T 0 en 4 muestras (antes 0), Trilheira 0-1 (antes 2-3), la
+    de carreras idéntica (no tiene `whip_air`).
+- **Pendientes**: la 600 en las pruebas `giroN` de la ladera y el bowl (wheelie al arrancar a fondo, de antes); reaparecer
+  arriba de la escadaria, parada, sigue siendo un mal lugar para el bot con cualquier moto (`RespawnNearest`, Game.cpp; ya no
+  se cae ahí, pero la regla es de la interfaz); la 2T, la Trilheira y la de carreras siguen pegando a veces en la pared de
+  s≈253 de la favela (el plan del bot, ver MAPAS.md).
+- **Lecciones**:
+  - **Lo que una clave nueva "empeora" puede ser un bug viejo que cambió de lugar**: la 450 se caía en la escadaria en cada
+    pasada desde siempre; el bloque sólo cambió dónde quedaba caída y con eso dónde reaparecía. Contar las caídas por pasada
+    (y no por vuelta), con varias muestras, y mirar el primer golpe raro de la telemetría (100 000 N en una rueda) antes de
+    culpar a lo nuevo.
+  - **Una pared que no es apoyo depende de hacia dónde mira**: la contrahuella que la rueda deja atrás (mira hacia adelante)
+    es un artefacto del rayo inclinado; la que tiene adelante (mira hacia la moto) es un tope de verdad. Sacar las dos dejaba
+    al chasis pegando en el canto, y Jolt resuelve eso tirando la moto por el aire.
+  - **Un stick que ya estaba apretado no es una orden nueva**: la intención del piloto en el aire es lo que hace en el aire;
+    lo que traía del piso (doblando) no puede convertirse en un whip al despegar sin querer. Lo mismo para las ayudas: un
+    vuelo que el piloto no armó se endereza como siempre.
+  - **Una carga filtrada sólo vale para lo que dura**: la de la pared de un bowl dura segundos y decide el equilibrio; la de
+    un bache dura décimas y el filtro la entrega cuando ya pasó. Separarlas por la pendiente del suelo (no por el valor)
+    deja las dos cosas bien.
+  - **Una mejora de una moto puede empeorar otra por el bot**: con la carga en suelo tendido, la 2T y la Trilheira iban más
+    lentas por la favela y por eso no pegaban en la pared de s≈253. Medir cada moto donde corre antes de hacer común un
+    arreglo, y dejarlo detrás de una clave si no le sirve a todas.
+
+### El equilibrio era un giroscopio (a pedido; las motos de `BikePhysics.cpp`; la 450 y la 600, después: ver arriba)
+- **Pedido**: "el equilibrio automático es buena asistencia pero cuando manejas en slopes inclinados se siente como un
+  giroscopio, te intenta inclinar la moto y no permite hacer giros continuos [...]". El usuario quiere que todo se sienta
+  "smooth y físico, no scripteado".
+- **Cómo se midió**: mapas de prueba nuevos en `pruebas/mods/prueba/maps/`: `ladera` (un plano de tierra de 22°, 200 m, se
+  larga en la mitad, de costado a la pendiente) y `bowl_pared` (un bowl de 25 m de radio con paredes que se empinan hasta
+  ~70°). En los dos, `--test giro20 | giro30 | giro30x0.5` (velocidad fija y la dirección a fondo o a medias, 25 s) y un
+  resumen de cuánto giró en total, cuánto se apartó la inclinación de la pedida (`|leanT − roll|`), el rolido máximo contra
+  el mundo y contra el suelo (`psi`, línea `suelo` de la telemetría, abajo), el cabeceo máximo (cuánto sube por la pared) y si
+  se cayó. En el plano, `giroN[k]` y `tools/giro.py` (lo que tarda en tirarse a la curva). Bots de 15-30 min antes y después,
+  con la masa corrida ±0.01 kg donde había dudas (las caídas de los bots son caóticas: ver más abajo).
+- **Qué pasaba** (v0.3.8):
+  - el balance es un PD fuerte hacia `leanTarget`, y `leanTarget = atan(v²·k/g)` es la inclinación **contra la vertical del
+    mundo**, con el tope `max_lean_deg` también contra el mundo, y el rolido que mide (`roll`) también. En plano está bien; en
+    una ladera, doblando a 25 km/h con la dirección a fondo, la inclinación pedida saltaba de 25° a 55° (el tope) en cada
+    vuelta, según para dónde apuntaba la moto: el peralte que calcula `bank_turn_gain` (la normal bajo el centro de masa,
+    hasta ±30°) la hacía pedir de más subiendo y de menos bajando;
+  - en la pared de un bowl la moto andando de costado a la pared necesita 60-90° contra el mundo (perpendicular a la pared):
+    el balance la enderezaba "contra el mundo" y no subía; daba vueltas en el fondo a 47°;
+  - en las laderas se caían: `giro20`/`giro30` con la 2T, la Trilheira, la Trial y la 450: 1 a 4 caídas de 12 corridas.
+- **Por qué**: lo que hace que una moto quede "derecha" no es la vertical del mundo sino la suma del peso y lo que la empuja el
+  suelo: la moto está en equilibrio cuando esa suma cae en su plano. En plano es la vertical más la fuerza de la curva
+  (`atan(a/g)`, lo de siempre); en una ladera de costado, también la vertical (la moto queda inclinada respecto del suelo);
+  en la pared de un bowl, el suelo la aprieta (la curva del bowl) y "derecha" es casi perpendicular a la pared.
+- **Qué se hizo** (claves nuevas; en `tuning.ini` valen lo de antes y se guardan con `if`; `UpdateLoadFrame` en
+  `BikePhysics.cpp`, lo usan las dos físicas):
+  - **`lean_load`** (0..1): el marco del suelo que pisan las ruedas: la normal de los contactos (filtrada ~0.07 s) y la carga
+    por kg a lo largo de ella (la fuerza que las ruedas le pasan al chasis, filtrada ~0.5 s y entre 0.9 × el peso a lo largo
+    de la normal y 1.8 g). La inclinación se mide contra esa normal (`psi`). Lo que pide el manubrio en el plano
+    (`leanTarget` de siempre, con todos sus retoques) se toma como una aceleración de costado `g·tan`, se le suma el peso a lo
+    largo del costado del suelo (`f0r`) y la moto busca el plano de esa suma con la carga (`atan2(f0r + a, f0n)`), con el tope
+    `max_lean_deg` **contra el suelo**. Lo mismo para el manubrio a velocidad (la curva que da esa inclinación con esa carga,
+    `(f0n·tan psi − f0r)/v²`), para el tope de la curva pedida (`μ·g·nY − f0r` hacia el lado que dobla: doblar hacia arriba
+    en una ladera cuesta más, hacia el fondo de un peralte menos) y para la caída por inclinación (`up · n` en vez de `up.y`).
+    En plano da casi lo mismo que antes (en el plano de tierra, `giro40/70` igual al décimo de grado);
+  - **`balance_fast_k` / `balance_fast_d` / `balance_fast_speed` / `balance_fast_lead`**: a más de ~20 km/h (desde la mitad de
+    `balance_fast_speed` 5.5 m/s) K y D del balance se multiplican por esto (0.6 y 0.8), y la parte D amortigua el rolido
+    respecto de una inclinación de referencia que sigue a la pedida a lo sumo a `balance_fast_lead` rad/s (0.5), no todo el
+    rolido. La ayuda acompaña: la moto sigue más lo que le hacen el suelo y las cubiertas, y lo que pide el piloto la acuesta
+    igual. Sólo **asentada** (las dos ruedas apoyadas hace 0.3 s), **cerca de lo pedido** (si se aparta más de 5-12°, la ayuda
+    entera la ataja) y **sin el suelo empujando fuerte** (más de 1.2-1.5 g: la cara de un salto, un aterrizaje, una
+    compresión; salvo que el piloto esté tirando la moto de costado, whip o scrub);
+  - **`lean_load_world_deg`**: tope de la inclinación contra el mundo con `lean_load` (0 = sin tope);
+  - los valores: `lean_load` 1 en la 2T, la Trilheira, la Trial y la de carreras; `balance_fast_*` en la 2T, la Trilheira y la de
+    carreras (no en la Trial, abajo); `lean_load_world_deg` 62 en la de carreras. En `motocross.ini` y `motocross600.ini` el
+    bloque estaba **comentado** (la física de la 450 no cambia sin pedido); después se prendió a pedido (ver "La 450 y la
+    600 con el equilibrio por la carga y el whip").
+- **Los casos que hubo que cuidar** (cada uno salió de una caída de bot y su telemetría):
+  - **paredes**: una rueda que roza el costado de una casa en la favela da una normal casi horizontal (Y 0.09) y la moto, que
+    sigue "a ese suelo", se acostaba contra la pared. Los contactos de más de 65° (normal Y < 0.42) no cuentan;
+  - **objetos**: sobre cajas, troncos y escalones la normal es la del canto por el que rueda la cubierta, no un suelo para
+    inclinarse; tampoco cuentan (en el aire o sin contactos que valgan, la normal vuelve a la del terreno bajo la moto a 2/s);
+  - **de punta**: cayendo de trompa por una escalera (−70°) el costado del suelo sale de la trompa proyectada, casi nada; con la
+    moto a más de ~30-50° del suelo (`|fwd · n|` de 0.5 a 0.75) se vuelve a medir contra el mundo;
+  - **la carga para doblar**: el tope de la curva pedida usaba la carga; en la cara de un salto (2-4 g) el mismo stick del bot
+    pedía 25% más manubrio y la Trial caía de los cajones del circuito de obstáculos 6° más de trompa (−37° de media contra −30°)
+    y se iba por encima del manubrio. Ahora cuenta el peso a lo largo de la normal (lo del peralte ya está en `f0r`);
+  - **la carga en los rollers**: filtrada a ~0.12 s iba de 0.9 a 2.2 g y con ella el manubrio (la de carreras se caía el doble en
+    la pista de motocross); filtrada a ~0.5 s, no;
+  - **la pared del peralte**: la de carreras, con lisas en la tierra (desliza siempre), subía por la cara de afuera del último
+    peralte de la pista de motocross (44°) acostada 90° contra el mundo y al salir al plano se caía (900 s de bot: 19-21 caídas
+    contra 9). Con `lean_load_world_deg` 62 (su `max_lean_deg`): 4;
+  - **la Trial y `balance_fast`**: liviana (inercia de rolido 19), con el balance que acompaña despegaba del doble de la pista de
+    motocross con 2° de rolido y el aterrizaje en stoppie, que ya era justo, terminaba en caída (1 a 13 cada 15 min, contra 0).
+    Se queda sin `balance_fast` (con `lean_load` y el whip: 0 en 4 muestras de 15 min).
+- **Probado y descartado**:
+  - bajar K y D a velocidad sin más (0.5 / 0.7): se tiraba a la curva el doble de lento (90%: 0.71 → 1.16-1.73 s) y quedaba
+    2-6° más acostada que lo pedido (las cubiertas devuelven sólo la mitad del rolido, `tire_roll_coupling` 0.5: con menos K
+    sostiene menos). Con la D respecto de la inclinación pedida misma (la derivada del objetivo, con tope 3 rad/s): con el
+    teclado, que sube en rampa, se tiraba en 0.34 s (antes 0.84) y con el stick, de golpe, igual que antes: distinto según el
+    control. La referencia con velocidad máxima arregla eso; con 1.2-2.5 rad/s se tiraba en 0.3-0.45 s (más rápido que antes);
+    0.5 deja lo de antes;
+  - la ayuda reducida también en una rueda (stoppie al caer de un salto): la Trial rolaba hasta caerse (de ahí "asentada");
+  - el tope de la curva con toda la carga (hasta 1.25 g): la Trial de los cajones (arriba);
+  - en la Trial, la ayuda entera con el suelo empujando (para el doble): siguió cayéndose; lo que lo arregló fue sacarle
+    `balance_fast`. Se quedó, sin efecto en la Trial, para las otras.
+- **Se comprobó**:
+  - `ladera` (25 s, giro total y caídas; antes → después): 2T `giro20` caída a los 19 s → 2271° sin caída, `giro30` 961° → 839°;
+    Trilheira `giro30` y `giro30x0.5` caídas → 1147° y 586° sin caída; Trial `giro30` caída → 992° sin caída; la 450 con el
+    bloque prendido `giro20` 550° → 1901°. La inclinación contra el suelo queda en ≤ 55-58° (el tope) mientras contra el mundo
+    va de ~25° a ~77° según hacia dónde apunta, y la diferencia con lo pedido, 1-6° de media. La caída que queda (`giro30` de
+    la 450 con el bloque; la 2T, en una versión intermedia) es en la cresta de arriba de la ladera: sale volando con la D a
+    fondo, que en el aire ahora es un whip (abajo);
+  - `bowl_pared`, `giro30`: sube por la pared tallando (cabeceo máx. 16-20° → 22-30°, rolido contra el mundo 57-61° → 76-91°,
+    contra la pared ≤ 45-50°), sin caídas; antes daba vueltas en el fondo a 47°;
+  - en plano (`plaza_tierra`, `giro40/70`, stick y teclado, 90%): 2T 0.71/0.73/0.84/0.86 s → 0.66/0.71/0.79/0.83 s, Trilheira
+    0.72/0.74/0.87/0.89 → 0.69/0.71/0.82/0.86, carreras 0.67/0.67/0.79/0.79 → 0.62/0.62/0.74/0.74; la inclinación sostenida
+    1-3° más (2T 47.9/46.4° → 49.0/49.4°) con la misma g lateral (0.90/0.78 → 0.92/0.79);
+  - bots (antes → después; vueltas y caídas): 2T en la pista de motocross 900 s 14/0 → 13/0, parque 17/0 → 17/0, valle 14/0 →
+    14/0, favela 900 s 8/11 → 8/0; Trilheira en la pista 13/0 → 13/0, en la favela 1800 s 18/3 → 17/5 (en la curva de s≈253: la
+    misma de siempre, ver "La Trilheira: frenando fuerte hacía un trompo"; 3-9 caídas en 45 min sin cambios); Trial en la pista
+    13/0 → 13/0, circuito de obstáculos 23/0 → 23/0 (y 0 en 4 muestras con la masa corrida), parque 11/0 → 11/0, valle 14/0 →
+    14/0; carreras en el circuito 6/0 → 6/0, en la pista de motocross 11/9 → 10/4, en la favela 8/7 → 8/5. La 450 y la 600 con el
+    bloque prendido: pista de motocross 900 s 13/0, igual que sin él;
+  - **pendientes** (resueltos en "La 450 y la 600 con el equilibrio por la carga y el whip": `lean_load_flat` y
+    `object_wall_deg`): la Trial en la favela (no es su mapa) se cae 2-6 veces cada 15 min en la curva de s≈258 contra 0 (3
+    muestras de cada una): con `lean_load` pasa la curva de s≈253 sin pegar en la pared y más rápido, y se va contra una casa
+    más abajo. La 450 con el bloque prendido en la favela se cae en la escadaria cada vez que pasa (la física 031 no tiene las
+    sondas de objetos y ya se cae ahí una vez por vuelta sin él): para probarla, en la pista, Los Médanos o `prueba/ladera`;
+  - la 450 y la 600 (claves apagadas): `tools/regresion.sh` idéntico contra la v0.3.8 (abajo, en "Un whip de verdad").
+- **Lecciones**:
+  - **"Derecha" es la suma del peso y el suelo, no la vertical**: un balance contra el mundo se siente un giroscopio en cuanto el
+    suelo no es plano. Medir la inclinación contra la normal del suelo que se pisa y buscar el plano de peso + carga + la
+    curva pedida da lo mismo en plano y lo que corresponde en laderas, peraltes y paredes.
+  - **Todo lo que se mide del suelo necesita sus filtros de sentido común**: paredes (normal casi horizontal), cantos de
+    objetos, la moto de punta, picos de carga. Cada uno apareció como una caída de bot distinta; buscar en la telemetría qué
+    "suelo" estaba viendo la moto (la línea `suelo`: `psi`, `psiT`, `carga`, `nY`).
+  - **La carga no es agarre para doblar**: el pico de la cara de un salto o de un aterrizaje dura décimas; usarla para cuánto
+    se puede doblar cambia lo que hace el mismo stick en el peor momento.
+  - **Bajar una ganancia no es "acompañar"**: menos K tira a la curva más lento y deja la moto más lejos de lo pedido; lo que
+    se buscaba es que la ayuda no frene lo que el piloto pide (la D respecto de una referencia con velocidad máxima) y que
+    ataje con todo cuando la moto se va (cerca de lo pedido, reducida; lejos, entera).
+  - **Las caídas de bot en los lugares límite son caóticas**: un cambio en cualquier lado cambia por dónde llega. Antes de
+    decidir, varias muestras con la masa corrida ±0.01 kg (mismas caídas en el mismo `s` en varias muestras = sistemático); y
+    medir lo que se repite (la Trial: el cabeceo al caer del cajón en cada vuelta, −37° contra −30°).
+
+### Un whip de verdad (a pedido; las de tierra de `BikePhysics.cpp`; la 450 y la 600, después: ver arriba)
+- **Pedido** (plan aprobado): el whip se arma en el labio; en el aire el piloto lo dosifica con el cuerpo y lo tiene que traer
+  antes de caer; aterrizar cruzado poco serpentea y mucho es caída; un scrub vuela más bajo; y el estado (ángulo de whip,
+  despegue con whip) expuesto para el piloto animado y un sistema de trucos.
+- **Cómo se midió**: `tools/whip.py` (nuevo: corre la prueba y resume cada vuelo: al despegar el rolido, su velocidad `wr`, la
+  guiñada `wy` y cuánto sube con su velocidad vertical; en el aire el rolido y la cruzada (`beta`, la trompa contra hacia
+  dónde vuela) máximos; al tocar, rolido y cruzada; y en el segundo siguiente la cola máxima: el serpenteo); la prueba nueva
+  `whipkickN[L][n][a][hT][cT][sS]` en el mapa nuevo `prueba/salto_whip` (un doble: cara de ~28° hasta 2.2 m, pozo y bajada):
+  llega a N km/h, tira el stick en la cara y en el aire lo suelta (o lo sostiene `hT`, lo tira al otro lado `cT`, sin nada en
+  la cara `a`, a medias `sS`); y las de siempre `whip`, `whipL`, `whiphold` con `--drop 1`. Capturas con ventana
+  (`--noprefs --size 1280 720 --screenshot T --shots-every 0.1`, de atrás y con `--side`).
+- **Qué pasaba** (v0.3.8, 2T, 50 km/h):
+  - con el stick en la cara la moto salía acostada 28° pero **enderezándose** (rolido +0.74 rad/s, guiñada −0.61) y en el aire
+    volvía sola: tocaba a −2° y −1° de cruzada. Con el stick sólo en el aire (`whip`), 28° de rolido y 7° de cruzada, y al soltar
+    volvía a 4°/−3°: una animación de ida y vuelta;
+  - **por qué**: en el aire el stick corre el cuerpo (un resorte) y la moto recibe la reacción −I·α: gira mientras el cuerpo se
+    mueve y vuelve cuando el cuerpo vuelve (momento angular conservado); encima el enderezado (`air_roll_assist`) y la
+    alineación de guiñada (`air_yaw_align`) la traen. Nada en el labio le daba giro propio, y el scrub volaba igual (1.57 m con
+    el stick en la cara contra 1.73 derecho, sólo por el camino que tuerce).
+- **Qué se hizo** (claves nuevas, 0 = como antes, guardadas con `if`; las dos físicas):
+  - **`whip_takeoff`**: en la cara de un salto (apoyada atrás, la trompa a más de 5°, subiendo a más de 1 m/s, más de ~22 km/h y
+    **el labio empujando**: más de 1.4-1.8 g en las ruedas) el stick al costado (más de 0.2) es la intención de whip
+    (`whipIntent`: sube en 0.15 s, se sostiene 0.25 s después del empujón, hasta despegar). El piloto patea la cola: el suelo
+    empuja la trasera de costado con `whip_takeoff` × su carga × `v/12` (hasta lo que agarra la cubierta), una fuerza en el
+    contacto, abajo y atrás del centro de masa, que gira la trompa y acuesta la moto hacia el lado del whip. Va aparte de la
+    cubierta: en el labio la trasera, descargada y con gas, patina y su roce cinético la anulaba (se probó sumándola a la
+    fuerza lateral de la cubierta: no cambiaba nada). Con la moto cargada en la cara las cubiertas la aguantan; cuenta sobre
+    todo en el último instante, cuando se descarga;
+  - **`whip_air`** (0..1): en el aire el whip no vuelve solo. El enderezado y la alineación de guiñada se apagan mientras la moto
+    está cruzada (de 4° a 12° de guiñada contra el vuelo o de rolido); el cuerpo ya no empuja por reacción (se dibuja más
+    derecho que la moto); el stick es una velocidad de giro sobre el **eje del whip** (adelante y abajo de la moto: rolido y
+    guiñada para el mismo lado) que el torque persigue (`whip_air_rate` 1.8 rad/s, `whip_air_gain` 300, `whip_air_torque` 350
+    Nm): para el mismo lado lo acentúa, para el otro lo frena y lo trae; suelto, `whip_air_damping` (200) lo frena sin traerlo.
+    El giro de rolido y guiñada que no es del whip (el que mete el efecto giroscópico de las ruedas: la guiñada del whip las
+    hace rolar para el otro lado y la moto se daba vuelta) se frena siempre con lo mismo. El stick entra entre 0.1 y 0.25 s de
+    vuelo: un saltito doblando con la D apretada no es un whip;
+  - **`whip_land_crash_deg`** (50): aterrizar con la moto cruzada más que eso (en el suelo que pisa, hacia dónde apunta contra
+    hacia dónde va) es caída. Sin la regla, a 56-90° la moto no se caía: daba un trompo de 100-165° y seguía;
+  - el estado, en todas las motos (aunque las claves estén en 0): `whipIntent`, `whipLaunch` (con cuánto despegó, hasta el
+    próximo despegue), `whipYaw` (la trompa contra el vuelo, + a la derecha), `whipPeakYaw`/`whipPeakRoll` (lo máximo del
+    vuelo) y `whipCrossedLanding`; en la telemetría, la línea `whip` (`wyaw wint wlaunch wpeak wpeakroll wcross`);
+  - valores: 1 / 1 / 1.8 / 200 / 50 en la 2T, la Trilheira y la Trial; en la 450 y la 600, comentados (después, prendidos:
+    ver "La 450 y la 600 con el equilibrio por la carga y el whip").
+- **Probado y descartado**:
+  - el stick en el aire como velocidad de giro con el suelto conservando todo: la moto seguía girando de guiñada hasta 120-160°;
+    frenando sólo el eje del whip, el efecto giroscópico la daba vuelta (rolido −107°). `whip_air_damping` 80: el whip del labio
+    abría más (−20° de cruzada) pero sostener el stick 0.3 s ya llegaba a 55°; 150-200 deja 20-25°;
+  - `whip_air_rate` 2.5: con el `whip` de siempre (0.6 s de stick) se cruzaba 60-93°;
+  - `whip_land_crash_deg` 45: un aterrizaje a 44° que la moto salvaba (la cola a 66° y vuelve) era caída;
+  - la intención de whip sin mirar la carga: el bot de la Trilheira, doblando en las subidas de la favela (trompa arriba,
+    subiendo), pateaba la cola y se iba contra las paredes: 24 caídas en 20 min contra 3. Una subida carga ~1 g; la cara de un
+    salto a 45 km/h, 3-4 g.
+- **Se comprobó** (`prueba/salto_whip`, 50 km/h; antes → después; ver la tabla de `tools/whip.py`):
+
+  | 2T | despega: rolido, `wr`, guiñada `wy` | sube | en el aire: rolido / cruzada máx. | toca: rolido / cruzada | 1 s después: cola máx. |
+  |---|---|---|---|---|---|
+  | derecho (`n`) | 0° | 1.73 → 1.74 m | 0° / 0° | 0 / 0 | 0 |
+  | stick en la cara y suelto (`whipkick50`) | 28°, +0.74, −0.61 → 38.5°, +0.03, −1.87 rad/s | 1.57 → 1.47 m | 31 / −2 → 39 / −23 | −2 / −1 → 36 / −5 | 0.6 → 13° |
+  | ... y lo trae (`c0.35`) | igual | igual | 31 / −4 → 39 / −23 | −6 / −2 → 12 / +10 | 1.2 → 7° |
+  | ... y lo sostiene 0.3 s (`h0.3`) | igual | igual | 57 / −7 → 46 / −27 | 1 / −5 → 44 / −11 | 4 → 18° |
+  | sólo en el aire (`a`) | 0° | 1.73 → 1.74 m | 26 / −3 → 23 / −21 | 4 / 0 → 22 / −16 | 0 → 10° |
+  | `whip` (`--drop 1`, 0.6 s de stick) | — | — | 28 / −7 → 35 / −37 | 4 / −3 → 35 / −27 | 5 → 49° (sin caída) |
+  | `whiphold` | — | — | 28 / −7 → 50 / −47 | 17 / −6 → 49 / −53 | caída (más de 50° cruzada) |
+
+  - la Trilheira, la Trial y la 450 con el bloque prendido, parecido: despegan con 31-39° y −1.2 a −1.7 rad/s de guiñada (antes
+    27-29° y −0.5 a −1.5, enderezándose a +0.7-0.8 rad/s), el whip queda (toca a 31-39° sin traerlo, antes −1 a −3°), con el
+    stick al otro lado 0.35 s lo traen (4-13° de rolido; la prueba lo tira un tiempo fijo y queda cruzada 12-25° para el otro
+    lado) y suben 1.46-1.52 m contra 1.66-1.81 derecho (el scrub vuela 8-17% más bajo; antes, con el stick en la cara,
+    1.53-1.57 m, porque el camino torcía; la Trial casi igual que antes: 1.53 → 1.52);
+  - la Trial con el `whip` de 0.6 s de stick cae sobre la delantera a −50° de cabeceo cruzada 26° y acostada 42° (la prueba no
+    maneja el cabeceo) y se cae; la 2T, la Trilheira y la 450 lo salvan (la cola a 49-53° y vuelve);
+  - las capturas (de atrás y de costado) muestran la moto saliendo del labio acostada, cruzada en el aire con el piloto más
+    derecho que ella, y traída antes de tocar;
+  - bots: ver arriba ("El equilibrio era un giroscopio"); el bot no tira el stick en el aire y la intención no se dispara
+    doblando en subidas (sólo con el labio empujando);
+  - la 450 y la 600, con las claves en 0 (`tuning.ini`, `motocross.ini`, `motocross600.ini`): `tools/regresion.sh` contra la
+    v0.3.8 idéntico en las 9 de siempre más `accel`, `whipL`, `whiphold`, `airlean`, `frenada60`, la 600 (bot, `whip`,
+    `circle12`) y el bot de la 450 en la favela y en Los Médanos; el bot de la 450 en la pista, 1:04.26 / 1:04.10, y la 600
+    1:04.28 / 1:04.18 (igual que el paquete).
+- **Lecciones**:
+  - **Una fuerza interna no cambia el giro**: el cuerpo moviéndose respecto de la moto sólo la rota mientras se mueve y la
+    devuelve al volver (por eso el whip de antes era una animación). El giro propio sale del suelo: en el labio, una fuerza
+    en el contacto. En el aire, "dosificar" es un torque que persigue una velocidad (como el cabeceo con el stick).
+  - **En el labio la trasera patina**: descargada y con gas, el roce cinético reemplaza la fuerza lateral de la cubierta;
+    algo que el piloto hace "con la cubierta" ahí hay que aplicarlo como fuerza aparte, con el tope de agarre.
+  - **El efecto giroscópico convierte guiñada en rolido**: con las ayudas apagadas, un whip con guiñada termina con la moto
+    dada vuelta si nadie frena el giro que no es del whip.
+  - **Toda intención que se dispara por una condición geométrica la va a encontrar el bot en otro lado**: "trompa arriba y
+    subiendo" es también una subida de la favela. Agregar la física del caso (el labio empuja 3-4 g) separa las dos.
+  - **Una regla de caída necesita su umbral medido**: sin la regla, un aterrizaje cruzado de 60° era un trompo con el piloto
+    arriba; con 45°, una salvada de 44° pasaba a caída. Barrer cuánto tiempo se sostiene el stick (`hT`) da la curva.
+
 ### La Trial salía despedida al caer alto (a pedido; sólo la Trial)
 - **Pedido**: "la suspensión de la trial 300 me encanta [...] pero tiene un bug a veces cuando caes alto y en ciertas
   posiciones que la moto sale despedida para arriba". Después: "que amortigüe tanto como lo hace, que es perfecto, pero

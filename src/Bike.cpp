@@ -186,6 +186,21 @@ void BikeParams::Register(Tuning& t)
     t.Add("crash_angle_deg", &crashAngleDeg);
     t.Add("crash_impact_speed", &crashImpactSpeed);
     t.Add("crash_impact_vertical", &crashImpactVertical);
+    t.Add("lean_load", &leanLoad);
+    t.Add("lean_load_world_deg", &leanLoadWorldDeg);
+    t.Add("lean_load_flat", &leanLoadFlat);
+    t.Add("balance_fast_k", &balanceFastK);
+    t.Add("balance_fast_d", &balanceFastD);
+    t.Add("balance_fast_speed", &balanceFastSpeed);
+    t.Add("balance_fast_lead", &balanceFastLead);
+    t.Add("whip_takeoff", &whipTakeoff);
+    t.Add("whip_air", &whipAir);
+    t.Add("whip_air_rate", &whipAirRate);
+    t.Add("whip_air_torque", &whipAirTorque);
+    t.Add("whip_air_gain", &whipAirGain);
+    t.Add("whip_air_damping", &whipAirDamping);
+    t.Add("whip_land_crash_deg", &whipLandCrashDeg);
+    t.Add("object_wall_deg", &objectWallDeg);
 
     t.Add("engine_idle_rpm", &engine.idleRPM);
     t.Add("engine_clutch_rpm", &engine.clutchRPM);
@@ -331,6 +346,15 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     handbrake = handbrakeTorque = hbSlide = hbRate = hbWant = hbCatch = hbLean = hbCatching = hbUp = hbIn = hbW = hbAim = hbCatchWant = 0.0f;
     hbValid = false;
     leanGrip = 1.0f;
+    loadNormal = Vec3::sAxisY();
+    loadAccel = 9.81f;
+    leanSurface = leanTargetPrev = leanTargetRate = 0.0f;
+    leanTargetValid = false;
+    balanceSettle = 0.0f;
+    whipIntent = whipPushTime = whipYaw = whipPeakYaw = whipPeakRoll = whipLaunch = 0.0f;
+    whipCrossedLanding = false;
+    whipArmed = true;
+    whipRiderFlight = false;
     reverseHold = 0.0f;
     prevPos = currPos = position;
     prevRot = currRot = q;
