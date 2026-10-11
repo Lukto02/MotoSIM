@@ -13,6 +13,12 @@ class Terrain;
 class Tuning;
 struct Renderer;
 
+// Trucos en el aire (con el botón de trucos; ver docs/PILOTO.md, "Trucos"). El piloto mueve el cuerpo: la moto
+// recibe la reacción (Bike::UpdateTrick) y si toca el piso sin haber vuelto, se cae.
+namespace Trick {
+enum : int { None, Superman, HeelClicker, NoHander, NacNac, CanCan, Count };
+}
+
 struct BikeInput {
     float throttle = 0.0f;     // 0..1
     float frontBrake = 0.0f;   // 0..1
@@ -20,6 +26,7 @@ struct BikeInput {
     float steer = 0.0f;        // -1..1 (+ = derecha)
     float lean = 0.0f;         // -1..1 (+ = piloto adelante)
     float side = 0.0f;         // -1..1: el cuerpo del piloto a la izquierda / derecha (+ = derecha)
+    int trick = Trick::None;   // el truco que pide el jugador (botón de trucos apretado); en el piso no hace nada
     bool shiftUp = false;
     bool shiftDown = false;
 };
@@ -240,12 +247,26 @@ struct BikeParams {
     float whipAirTorque = 350.0f;    // Nm máximos
     float whipAirGain = 300.0f;      // Nm por rad/s de diferencia
     float whipAirDamping = 200.0f;   // Nm por rad/s con el stick suelto: el piloto frena el whip con el cuerpo (no lo trae)
+    // whip_air_return: el stick al otro lado del whip lo trae derecho (rolido contra la vertical y trompa hacia donde vuela,
+    // cada uno con su torque) en vez de girar al revés sobre el eje del whip. Es la velocidad de vuelta por radián de
+    // cruzada (1/s, con el tope whip_air_rate × el stick); whip_air_return_torque, los Nm máximos de rolido y de guiñada.
+    // 0 = como antes. Ver FISICA.md, "Salir del whip".
+    float whipAirReturn = 0.0f;
+    float whipAirReturnTorque = 350.0f;
     // Aterrizar cruzado: más de esto (grados entre hacia dónde apunta y hacia dónde va, en el suelo) es caída. 0 = nunca.
     float whipLandCrashDeg = 0.0f;
     // Física 031 (la 450 y la 600; la otra física tantea los cantos con sondas): sobre objetos, una cara que mira hacia
     // adelante más empinada que esto (grados; la contrahuella del escalón que la rueda deja bajando) no es apoyo para el
     // rayo de la rueda. 0 = como antes. Ver FISICA.md, "La 450 y la 600 con el equilibrio por la carga y el whip".
     float objectWallDeg = 0.0f;
+    // Trucos (sólo con el botón de trucos; sin él no actúan). trick_speed: qué tan rápido mueve el cuerpo el piloto (1/s,
+    // resorte crítico: ~4.7/trick_speed s en llegar, lo mismo en volver). trick_reaction: fracción de la reacción del cuerpo
+    // sobre la moto (1 = la física: se conserva el momento angular). Tocar el piso con el truco a más de trick_crash
+    // (0..1) es caída; a más de trick_hit, un golpe: el piloto no controla bien la moto un momento.
+    float trickSpeed = 9.0f;
+    float trickReaction = 1.0f;
+    float trickCrash = 0.4f;
+    float trickHit = 0.12f;
 
     EngineParams engine;
 
@@ -293,6 +314,13 @@ struct RiderPose {
     float lean = 0.0f;                              // -1 tirado atrás .. +1 adelante
     float throttle = 0.0f;                          // puño del acelerador (gira la mano derecha)
     float legOut[2] = {0.0f, 0.0f};                 // pierna estirada afuera en la curva (0..1)
+    // Trucos (Bike::ApplyTrickPose): cuánto está en un truco (0..1) y lo que el truco corrió la cadera y los hombros (ya
+    // sumado a hips / shoulders: RiderMotion suaviza el resto y esto lo suma aparte, porque ya viene suave).
+    float trick = 0.0f;
+    JPH::Vec3 trickHips = JPH::Vec3::sZero(), trickShoulders = JPH::Vec3::sZero();
+    float legFree[2] = {0.0f, 0.0f};                // 0..1: el pie dejó la estribera (la rodilla dobla hacia `knee`)
+    JPH::Vec3 toe[2] = {JPH::Vec3::sAxisZ(), JPH::Vec3::sAxisZ()};   // con el pie suelto, hacia dónde apunta la punta
+    float handFree[2] = {0.0f, 0.0f};               // 0..1: la mano soltó el manubrio (grip = dónde va la muñeca)
 };
 
 class Bike {
@@ -332,6 +360,7 @@ public:
     float WhipAmount() const;
     float WhipAirStick(float steer, bool takeoff, float airTimeNow);   // whip_air: el stick que cuenta como whip en este vuelo
     void UpdateWhipState(bool grounded, bool wasInAir, float airTimeBefore, JPH::Vec3 fwd, JPH::Vec3 linVel, JPH::Vec3 fwdFlat);
+    bool WhipAirReturn(float airSteer, float stick, JPH::Vec3 fwd, JPH::Vec3 up, JPH::Vec3 angVel, JPH::Vec3& torque);
     void UpdateHandbrake(const BikeInput& in, JPH::Vec3 linVel, JPH::Vec3 fwdFlat, float lowSlide, float dt);   // freno de mano (handbrake_yaw)
     float HandbrakeLean(float leanTarget) const;
     float HandbrakeSteer(float steerTarget, JPH::Vec3 linVel, float yawRate, JPH::Vec3 frontOffset, JPH::Vec3 fwdFlat, float maxSteerRad) const;
@@ -343,6 +372,15 @@ public:
 
     RiderPose RiderPoseLocal() const;
     RiderPose RiderPoseLocal031() const;
+    // Trucos (Bike.cpp): lleva la pose al truco `t` (Trick::...) con `amount` 0..1 (la pose de la moto, o la neutra para
+    // la física). TrickBody: los centros de masa de las partes del cuerpo (RiderPart, kg en kTrickMass) con la pose neutra
+    // del estilo y el truco: de ahí sale la reacción sobre la moto (BikePhysics.cpp, UpdateTrick).
+    void ApplyTrickPose(RiderPose& p, int t, float amount) const;
+    void TrickBody(int t, float amount, JPH::Vec3* centers) const;
+    // Trucos (BikePhysics.cpp): el truco pedido, el cuerpo que va y viene (resorte), la reacción y el centro de masa; y al
+    // tocar el piso (o algo) sin haber vuelto, la caída o el golpe.
+    void UpdateTrick(int request, bool flying, JPH::Vec3 angVelLocal, float dt);
+    void TrickTouch(bool touching, float dt);
     // Caída: el piloto sale como ragdoll; la moto pierde su caja de colisión y su masa. Reset lo repone.
     void DetachRider(PhysicsWorld& world);
     bool RiderOnBike() const { return riderOnBike; }
@@ -373,15 +411,24 @@ public:
     // Whip (para el piloto animado y los trucos): se leen en cualquier moto; con whip_takeoff / whip_air en 0 igual se calculan.
     float whipIntent = 0.0f;                 // -1..1: el piloto tira la moto de costado en la cara del salto (+ a la derecha)
     float whipPushTime = 0.0f;               // s desde que el labio dejó de empujar (cargas de más de ~1.6 g)
-    float whipYaw = 0.0f;                    // rad: la trompa respecto de hacia dónde vuela, en el plano (+ a la derecha)
+    float whipYaw = 0.0f;                    // rad: la trompa respecto de hacia dónde vuela, en el plano (+ a la izquierda)
     float whipPeakYaw = 0.0f, whipPeakRoll = 0.0f;   // lo máximo de este vuelo (rad, con signo)
     float whipLaunch = 0.0f;                 // -1..1: con cuánto whip despegó (la intención en el labio); hasta el próximo despegue
     bool whipCrossedLanding = false;         // el último aterrizaje fue cruzado de más (whip_land_crash_deg): caída
     // whip_air: el stick que venía apretado desde el piso (doblando al pasar una cresta) no es un whip hasta que se suelta;
     // y un vuelo es "del piloto" si despegó con whip o tiró el stick en el aire (si no, el enderezado de siempre).
     bool whipArmed = true, whipRiderFlight = false;
+    float whipReturn = 0.0f;                 // whip_air_return: el lado del stick que está trayendo la moto (0 = no la trae)
     float bodyTiltRate = 0.0f;
-    float slideAngle = 0.0f;                 // telemetría: cola afuera en la dirección de la curva (rad)
+    // Trucos: cuál (Trick::...), cuánto está hecho (0 en la moto .. 1 del todo) y con qué velocidad; trickTorque y trickCom
+    // (espacio de la moto): la reacción del cuerpo y cuánto corre el centro de masa de todo; trickHitAmount: golpe al tocar
+    // el piso a medio volver (0..1, se va en 0.6 s); trickLanded: con cuánto truco tocó (telemetría; -1 = todavía no).
+    int trick = Trick::None;
+    float trickAmt = 0.0f, trickRate = 0.0f;
+    JPH::Vec3 trickTorque = JPH::Vec3::sZero(), trickCom = JPH::Vec3::sZero();
+    JPH::Mat44 trickScale = JPH::Mat44::sIdentity();   // I0·(I0 + ΔI)⁻¹: el cuerpo estirado pesa para todos los torques
+    float trickHitAmount = 0.0f, trickLanded = -1.0f;
+    float slideAngle = 0.0f;                // telemetría: cola afuera en la dirección de la curva (rad)
     float rearBrakeUsed = 0.0f;              // freno trasero que queda después de que el piloto lo module
     float slideRate = 0.0f;                  // rad/s con que se abre la cola (suavizado)
     float slideWant = 0.0f, slideTurn = 1.0f;    // ángulo de derrape que busca el piloto y hacia qué lado

@@ -9,7 +9,7 @@ import os
 import sys
 
 BIKES = ['motocross', 'carrera', 'trial', 'trilheira', 'dostiempos']
-GROUPS = ['suelo', 'pata afuera', 'aire', 'cola', 'aterrizaje', 'rapido']
+GROUPS = ['suelo', 'pata afuera', 'aire', 'cola', 'aterrizaje', 'trucos', 'rapido']
 ZONES = [('casco', ['casco']), ('torso', ['torso']), ('cadera', ['cadera']), ('brazo', ['brazoI', 'brazoD']),
          ('antebrazo', ['antebrI', 'antebrD']), ('mano', ['manoI', 'manoD']), ('muslo', ['musloI', 'musloD']),
          ('canilla', ['canillaI', 'canillaD']), ('bota', ['botaI', 'botaD'])]

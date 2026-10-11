@@ -72,6 +72,7 @@ struct GameOptions {
     std::string gfx;                 // --gfx bajo|medio|alto|ultra: ese preset de calidad (después de leer preferencias.ini; no guarda nada)
     bool noPrefs = false;            // --noprefs: no lee ni escribe preferencias.ini (las capturas no dependen de la PC)
     std::string pad;                 // --pad "T:RX,RY[,CRUZ];...": joystick simulado (stick derecho y cruz) para probar la cámara
+    std::string botTrick;            // --trucos NOMBRE: el bot hace ese truco en cada salto (pruebas de red; ver Game::BotTrick)
     std::string stickMode;           // --stick camara|cuerpo: el ajuste "Stick derecho" por esa vez (no se guarda)
     std::string miniMap;             // --minimapa norte|gira|no: el minimapa por esa vez (no se guarda; se ve también con el bot)
     std::string brakeLine;           // --linea si|no: la línea de frenada por esa vez (no se guarda; se ve también con el bot)
@@ -315,11 +316,24 @@ private:
     // Las teclas de manejo apretadas en este cuadro. KeyboardInput les pone las rampas (el jugador y la prueba teclas:).
     struct KeysDown {
         bool w = false, s = false, space = false, a = false, d = false, up = false, down = false, left = false, right = false;
+        bool trick = false;          // botón de trucos (Shift o Ctrl; en teclas:, '!')
     };
     BikeInput KeyboardInput(const KeysDown& k, float dt);
+    // Botón de trucos (ver docs/PILOTO.md, "Trucos"): apretado en el aire, la dirección del stick (o A D ↑ ↓) en los
+    // primeros kTrickChoose s elige el truco (nada: superman) y el stick deja de tirar whip y mortal; al soltar, el stick
+    // no vuelve a contar hasta que pasa por el centro (o se toca el piso). dirX / dirY: la dirección cruda (+ derecha, + arriba).
+    void TrickButton(BikeInput& in, bool held, float dirX, float dirY, float dt);
+    void BotTrick(BikeInput& in);                  // --trucos: el bot aprieta el botón en cada salto
+    bool trickHeld = false, trickStickLock = false;
+    float trickHeldTime = 0.0f;
+    int trickChosen = 0;
+    float trickHitShown = 0.0f;                    // el golpe de truco del paso anterior (sacudón de cámara)
+    int telTrick = 0;                              // telemetría de trucos (líneas TRUCO)
+    float telTrickPeak = 0.0f, telTrickT0 = 0.0f, telTrickPitch = 0.0f, telTrickRoll = 0.0f;
+    bool telTrickTouch = false;
 
     // Prueba teclas:GUION (sin ventana, como con el teclado): pasos separados por comas, cada uno con las teclas
-    // apretadas (W A S D, _ = Espacio, ^ v = flechas arriba y abajo, < > = izquierda y derecha; nada = suelta todo)
+    // apretadas (W A S D, _ = Espacio, ^ v = flechas arriba y abajo, < > = izquierda y derecha, ! = trucos; nada = suelta todo)
     // y hasta cuándo: N (segundos), +N (hasta N km/h) o -N (hasta bajar a N km/h). P. ej. "W+150,D1.5,S-1".
     struct TeclasStep {
         KeysDown keys;

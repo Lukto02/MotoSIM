@@ -60,7 +60,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.3.8, `dist/v0.3.8/MotoSim-v0.3.8.zip`; en prueba, la beta v0.3.9-beta, que se publica en
+**Versión para compartir** (la v0.3.9, `dist/v0.3.9/MotoSim-v0.3.9.zip`, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
 cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
 release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
@@ -88,6 +88,7 @@ el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de 
 | Dirección / inclinación | Stick izq. X | A / D |
 | Piloto adelante / atrás | Stick izq. Y | ↑ / ↓ |
 | Cuerpo a los costados (sólo la Carrera 1000) | Stick der. X (con el ajuste en Cámara, la cruz ← / →) | ← / → |
+| Trucos en el aire (solo: superman; + ↑ heel clicker, ↓ no-hander, ← nac-nac, → can-can; soltá antes de tocar el piso) | B | Shift o Ctrl (+ A D ↑ ↓); con el foco en el juego, Windows no abre las Teclas especiales con Shift |
 | Bajar / subir marcha | LB / RB | Q / E |
 | Reaparecer (caído no reaparece solo; en la pista, en la pista; en un mapa libre, donde quedaste, mirando para donde ibas) | Y | R |
 | Volver a empezar (a la largada, y los objetos sueltos a su lugar) | Back | Retroceso |
@@ -410,12 +411,13 @@ Todo es generado por código, salvo el modelo opcional del piloto (glTF con su t
 - **Pasto 3D**: miles de matas instanciadas delante de la cámara, con viento, sombras y aplastadas
   donde pasó una rueda.
 - **Piloto con modelo** (`Low_Poly_Motorcyclist_2_lowpoly.gltf` en la raíz, el modelo 2 con menos triángulos
-  hecho con `tools/reducir_piloto.py`, o si no está `Low_Poly_Motorcyclist_2_rigged.gltf`; el 3 queda de respaldo; F9 alterna con el
+  hecho con `tools/reducir_piloto.py` y con los brazos alargados por `tools/proporciones_piloto.py`, o si no está
+  `Low_Poly_Motorcyclist_2_rigged.gltf`; el 3 queda de respaldo; F9 alterna con el
   generado): glTF con esqueleto estilo Mixamo, posado por código. El 3 es un personaje de Tripo sin
   esqueleto riggeado con `tools/riggear_piloto.py` (Blender sin ventana: mide las articulaciones de la
   malla, dedos incluidos, y pone los pesos; ver `docs/PILOTO.md`). Sobre la moto la cadera va en su lugar, el torso se inclina y piernas y
   brazos llegan a estriberas y manubrio con cinemática inversa de dos huesos. Las manos nunca sueltan
-  el manubrio: si el brazo no llega, primero se inclina más el torso (hasta ~25°) y después la
+  el manubrio: si el brazo no llega, primero adelanta el hombro (la clavícula), después se inclina más el torso (hasta ~25°) y después la
   cadera se corre hacia adelante; tirado adelante el pecho baja sobre el manubrio. **Dedos**: el
   modelo 3 trae los dedos (tres falanges y la punta de cada uno); al cargarlo se mide la mano con sus
   articulaciones y cada falange gira lo justo para envolver el puño, y el pulgar lo rodea del otro
@@ -548,6 +550,8 @@ motocross.exe --headless --test accel --telemetry          :: tests: idle, accel
 motocross.exe --headless --test idle --drop 2.5 --telemetry :: aterrizaje desde 2.5 m a 12 m/s
 motocross.exe --headless --flat --test flip --drop 5        :: mortal atrás (frontflip: adelante); imprime el giro y si hubo caída
 motocross.exe --headless --flat --test launch --telemetry  :: terreno plano; launch / launchfwd / launchlate
+motocross.exe --headless --flat --drop 3 --test trucosuperman --telemetry :: trucos: superman, heel, nohander, nacnac, cancan
+                                                           :: (pP aprieta a los P s, sS suelta a los S, x no suelta); líneas TRUCO
 motocross.exe --bot --debug --side --screenshot 5 shot.png :: con ventana, vectores + cámara lateral, captura
 ```
 
@@ -565,6 +569,7 @@ ragdoll remoto desde el invitado, que queda quieto). Sin ventana, en red, la sim
 `netchoque-TIPO-KMH[-KMH]` (con `--flat`, sin `--bot`): el invitado embiste al anfitrión (`lado`, `atras`,
 `frente`, `roce` o `angN`) y cada uno imprime si se cayó; `python tools/netchoque.py <exe> <exe> caso...`
 hace el par. `--net-lag MS` y `--net-jitter MS` demoran lo que llega (como una partida por internet).
+`--trucos NOMBRE` (con `--bot`): el bot aprieta el botón de trucos en cada salto (para ver el truco desde el otro).
 
 Otras opciones: `--spawn <metros de pista>`, `--telemetry-dt <s>`, `--ruts`, `--size <w> <h>`,
 `--bot-lat <m/s²>` (qué tan fuerte encara las curvas el bot, 6 por defecto). El test `circleN`
@@ -650,6 +655,7 @@ src/
   Net.cpp/.h             socket UDP, direcciones IPv4 y código de invitación
   Multiplayer.cpp/.h     partida LAN: anfitrión/cliente, paquetes, motos remotas (predicción, cuerpo cinemático, piloto)
   Version.h              versión del juego
+  SystemKeys.cpp/.h      Windows: apaga los atajos de accesibilidad (Shift cinco veces...) mientras el juego tiene el foco
   Tuning.cpp/.h          lector de tuning.ini
 ```
 

@@ -60,4 +60,4 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
 - Mapas: `mods/<mod>/maps/*.json`; los de prueba en `pruebas/mods/prueba/` (no se empaquetan).
 - Herramientas: `tools/` (compilar, regresión, grilla de capturas, análisis de telemetría, sonido,
   frenadas y frenar doblando, escaleras, saltos, par en red y choques en red, el generador de Los Médanos y
-  `riggear_piloto.py` para riggear un piloto nuevo con Blender).
+  `riggear_piloto.py` para riggear un piloto nuevo con Blender; `proporciones_piloto.py` mide y estira los huesos del modelo).

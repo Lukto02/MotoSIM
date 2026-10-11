@@ -17,6 +17,75 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### Salir del whip (a pedido: "cuesta salir del whip, inicia bien pero al intentar salir la moto no se endereza del todo")
+- **Cómo se midió**: `whipkickN...rT` (nuevo en `Game.cpp`): el whip armado en el labio, suelto en el aire y desde los T s de
+  vuelo el stick al otro lado **hasta tocar** (el `cT` de antes lo tira 0.35 s fijos). En `prueba/salto_whip` (50 km/h, ~1.05-1.12
+  s de vuelo) temprano / mitad / tarde = `r0.2` / `r0.45` / `r0.7`; en la pista de motocross, el doble de s≈425 (`--spawn 360
+  --test whipkick52rT`, ~1.1-1.3 s de vuelo) con `r0.25` / `r0.65` / `r0.9`. Por cada vuelo: rolido y `whipYaw` al tirar,
+  cuánto se pasa al otro lado, cuándo entra en menos de 5° de los dos, con cuánto toca y la cola/rolido del segundo siguiente.
+- **Qué pasaba** (v0.3.9-beta, `salto_whip`, toca: rolido / guiñada contra el vuelo):
+
+  | moto | sin traerla | desde 0.2 s | desde la mitad (0.45 s) | desde 0.7 s |
+  |---|---|---|---|---|
+  | 2T | 36 / −21° | −15 / +30° | 1 / +13° | 16 / −4° |
+  | Trilheira | 39 / −15° | −16 / +32° | 2 / +17° | 18 / +1° |
+  | Trial | 41 / +3° | −17 / +54° (caída) | 0 / +38° | 19 / +21° |
+  | 450 | 46 / −11° | −7 / +34° | 11 / +19° | 27 / +2° |
+  | 600 | 48 / −11° | −12 / +39° | 7 / +22° | 24 / +7° |
+
+  O sea: el rolido tardaba y la guiñada se pasaba al otro lado. Con el `c0.35` de siempre la 450 tocaba a 21° / +14°.
+- **Por qué**: el contra-stick era la misma velocidad de giro que el whip pero al revés, **sobre el eje del whip** (adelante y
+  abajo: rolido y guiñada por partes iguales). Un whip no es rolido y guiñada iguales: sale del labio con ~45° de rolido y
+  12-25° de guiñada (en la Trial, el efecto giroscópico se come casi toda la guiñada: 2-5°). Girando sobre ese eje, para
+  sacar los 45° de rolido mete 45° de guiñada: la guiñada pasa por cero y sigue al otro lado mientras al rolido todavía le
+  falta. No era el tope de torque (350 Nm llegan) ni la amortiguación: era que un eje solo no corrige dos ángulos distintos.
+  Y como el stick pedía una velocidad (no "derecha"), sostenerlo la pasaba al otro lado; soltarlo a tiempo era adivinar.
+- **Qué se hizo** (`whip_air_return`, 0 = como antes, guardado con `if`; `WhipAirReturn` en `BikePhysics.cpp`, lo usan las
+  dos físicas): con el stick al otro lado de para donde está cruzada (rolido − `whipYaw`, más de 6°), el piloto la trae
+  derecha: busca una velocidad de rolido hacia la vertical y una de guiñada hacia donde vuela, cada una proporcional a lo
+  que falta (`whip_air_return` 8 rad/s por rad, con el tope `whip_air_rate` × el stick: 1.8 rad/s a fondo) y la persigue
+  con su propio torque (tope `whip_air_return_torque` 350 Nm en cada eje; la ganancia, la inercia de la moto sobre 0.05 s).
+  Llega frenando, sin pasarse. Es un torque con tope, no se fija la velocidad: el giroscópico y lo que traiga siguen
+  actuando. El estado (`whipReturn`, el lado del stick) queda hasta soltar el stick (menos de 0.25) o tocar el piso:
+  sostenido la deja derecha; para un whip al otro lado, soltar y volver a tirar. Con el stick para el mismo lado, suelto, o
+  con la moto derecha, todo como antes (la entrada y el "no vuelve solo" no cambian). Entre los 0.1 y 0.25 s de vuelo entra
+  de a poco como el resto del `whip_air`. Valor: 8 en la 2T, la Trilheira, la Trial, la 450 y la 600.
+- **Probado y descartado**: `whip_air_return` 6: la 450 desde la mitad tocaba a 2.8° (justo) y en 0.54 s; 10: se pasa 3° de
+  guiñada en la 2T. 8: se pasa a lo sumo 1.3° en `salto_whip` y 2.6° de guiñada en la pista.
+- **Se comprobó** (exe nuevo; toca: rolido / guiñada; entre paréntesis, cuánto tarda en quedar a menos de 5° de los dos):
+
+  | `salto_whip` | desde 0.2 s | desde la mitad (0.45 s) | desde 0.7 s | `c0.35` (antes → después) |
+  |---|---|---|---|---|
+  | 2T | −0.3 / 0.0° (0.42 s) | 0.0 / +0.5° (0.42 s) | 6 / −1° | 12 / +5 → 2 / +4° |
+  | Trilheira | −0.3 / 0.0° (0.45 s) | −0.3 / −0.1° (0.44 s) | 8 / −1° | 13 / +9 → 2 / +3° |
+  | Trial | −0.5 / 0.0° (0.42 s) | −0.4 / −0.2° (0.42 s) | 11 / −1° | 14 / +28 → 3 / +1° |
+  | 450 | −0.4 / 0.0° (0.52 s) | 1.3 / −0.1° (0.50 s) | 18 / −1° | 21 / +14 → 7 / +4° |
+  | 600 | −0.1 / 0.0° (0.52 s) | −0.1 / −0.1° (0.52 s) | 12 / 0° | 21 / +14 → 8 / +6° |
+
+  - lo que se pasa al otro lado: 0-1.3°, en la pista hasta 2.6° (antes 6-54° de guiñada); al otro lado
+    (`whipkick50Lr0.45`) igual, simétrico; la cola en el segundo siguiente 1-3° (antes 13-38°);
+  - la pista de motocross (doble de s≈425, mitad = `r0.65`): 2T 0.4 / +0.8° (antes 0.1 / +7.2°), Trilheira 2.8 / +1.7° (antes
+    15 / +0.5°), Trial 4.0 / −0.3° (antes 12 / +11°; vuela 1.08 s), 450 0.0 / 0.0° (antes −15 / +22°: la 450 ahí sale con
+    menos whip, 19°, y se pasaba). La 600 en ese salto no arma el whip (no sube la cara igual), sin cambios;
+  - tarde (a 0.35-0.4 s de tocar) no alcanza: llega a 6-24° según la moto (el tope de 1.8 rad/s). Es a propósito: traerla
+    lleva ~0.4-0.5 s;
+  - la entrada, idéntica (md5 de la telemetría): `whipkick50`, `L`, `h`, `h0.3`, `a` y `n` en las 5 motos;
+  - `tools/regresion.sh` contra la v0.3.9-beta, **idéntico** (con la clave prendida en la 450 y la 600) en las 9 de siempre
+    más `whipL`, `whiphold`, `airlean`, `accel`, la 600 (bot y `whip`) y el `whip`/`whiphold` de la 2T, la Trial y la
+    Trilheira; `prueba/ladera` y `prueba/bowl_pared` (`giro20`, `giro30`, `giro30x0.5`; 450, 2T y Trial) idénticos; bots de
+    900 s idénticos a la v0.3.9-beta con las 5 motos en la pista (450 1:04.41 / 1:04.24, 600 1:04.52 / 1:04.34), la favela,
+    el parque, el valle, Los Médanos y el circuito (el bot no tira el stick al otro lado en el aire).
+- **Lecciones**:
+  - **Un eje no corrige dos ángulos**: traer algo que tiene dos errores distintos (rolido 45°, guiñada 12-25°) girando sobre un
+    eje fijo deja uno corto y pasa el otro. Cada ángulo con su objetivo y su torque.
+  - **"Traerla" es un objetivo de ángulo, no una velocidad**: si el stick pide una velocidad, sostenerlo la pasa al otro lado
+    y soltarlo a tiempo es adivinar. Una velocidad proporcional a lo que falta, con tope, llega frenando sola.
+  - **El signo de `whipYaw` es + a la izquierda** (el comentario decía a la derecha): un whip a la derecha da rolido + y
+    `whipYaw` −. Medirlo en la telemetría (`roll`, `wyaw`, `beta`) antes de combinar ángulos: con la suma al revés, el
+    `whiphold` (rolido +41°, `whipYaw` −45°) se leía como contra-stick.
+  - **Medir con el stick sostenido hasta tocar**: con un tiempo fijo (`c0.35`) el resultado depende de cuándo lo suelta la
+    prueba y esconde si se pasa.
+
 ### La 450 y la 600 con el equilibrio por la carga y el whip (a pedido: cambia la física de la 450)
 - **Pedido**: "seguí implementando en el resto de motos": el equilibrio por la carga (`lean_load`, `balance_fast_*`) y el
   whip de verdad (`whip_*`) también en la Motocross 450 y la 600 (física 031, `BikePhysics031.cpp`). Los valores son los de
@@ -288,7 +357,7 @@ su propio documento: [PILOTO.md](PILOTO.md).
   - **`whip_land_crash_deg`** (50): aterrizar con la moto cruzada más que eso (en el suelo que pisa, hacia dónde apunta contra
     hacia dónde va) es caída. Sin la regla, a 56-90° la moto no se caía: daba un trompo de 100-165° y seguía;
   - el estado, en todas las motos (aunque las claves estén en 0): `whipIntent`, `whipLaunch` (con cuánto despegó, hasta el
-    próximo despegue), `whipYaw` (la trompa contra el vuelo, + a la derecha), `whipPeakYaw`/`whipPeakRoll` (lo máximo del
+    próximo despegue), `whipYaw` (la trompa contra el vuelo, + a la izquierda: un whip a la derecha da rolido + y `whipYaw` −), `whipPeakYaw`/`whipPeakRoll` (lo máximo del
     vuelo) y `whipCrossedLanding`; en la telemetría, la línea `whip` (`wyaw wint wlaunch wpeak wpeakroll wcross`);
   - valores: 1 / 1 / 1.8 / 200 / 50 en la 2T, la Trilheira y la Trial; en la 450 y la 600, comentados (después, prendidos:
     ver "La 450 y la 600 con el equilibrio por la carga y el whip").
@@ -1225,6 +1294,30 @@ física en sí:
 - **Se comprobó**: en un círculo sobre tierra la deriva pasa de 2.5° a 6.9° y la vuelta a la pista de
   motocross de 1:04.7 a 1:07.3 (con 0.45; después se bajó a 0.35); en el asfalto del circuito el
   pavimento vale 1 en toda la calzada (`--test profile` lo imprime).
+
+### Trucos: el cuerpo mueve la moto (octubre de 2026)
+- **Pedido**: superman y los demás trucos con un botón, "físico, no scripteado" (botón, poses y pruebas en
+  [PILOTO.md](PILOTO.md), "Trucos en el aire").
+- **Qué se hizo** (`Bike::UpdateTrick` en BikePhysics.cpp, en las dos físicas): el piloto son 11 masas (las del ragdoll,
+  75.6 kg) en la pose neutra del estilo con el truco a `x` (0..1, un resorte crítico de `trick_speed`; `Bike::TrickBody`); la
+  moto sola es el resto de la masa, puesta donde el centro de masa de todo con la pose neutra es el del cuerpo de Jolt.
+  Lo que el cuerpo suma al momento angular (marco de la moto, respecto del centro de masa de todo, que se corre `c(x)`):
+  `H = ΔI(x)·ω + G(x)·x'` (G: el momento del movimiento del cuerpo por unidad de x'). Torque sobre la moto:
+  `-(dΔI/dx·x'·ω + dG/dx·x'² + G·x'' + ω × H)` (`trickTorque`), con las derivadas en x por diferencias. Además:
+  - **La inercia del cuerpo estirado vale para todo**: `(I0 + ΔI)·ω' = torques`; el cuerpo de Jolt tiene I0, así que todo el
+    torque del paso se multiplica por `I0·(I0 + ΔI)⁻¹` (`trickScale`) mientras dura el truco. Sin esto, el empuje de la rueda
+    frenándose en el aire (la que gira la trompa abajo en todo vuelo) giraba la moto estirada como si no lo estuviera y, al
+    volver, seguía girando un 35% más rápido que sin el truco (medido con superman: la diferencia de cabeceo crecía 1°
+    cada 0.1 s después de terminar; con esto queda fija en +3°).
+  - **El centro de masa de todo se corre** (`trickCom`, sumado a `comShiftWorld`): las fuerzas del suelo al tocar
+    giran respecto de él.
+  - En el truco el piloto casi no endereza la moto en el aire (el `hold` del enderezado y la guiñada, × (1 - 0.5·x)).
+  - Tocar el piso a medio volver (`TrickTouch`): más de `trick_crash` (0.4) es caída; más de `trick_hit` (0.12),
+    `trickHitAmount` afloja el balance en el piso (K -70%, D -50%) y se va en 0.6 s.
+- **Se comprobó**: con el truco y sin él (el mismo lanzamiento, `--flat --drop 3 --test trucosuperman` contra
+  `trucosupermanp9`), cabeceo y rolido cada 0.1 s: superman, la trompa +4.5° al estirarse y +3° al terminar; heel
+  clicker +3.4 / +0.4; no-hander -2.1 / +1.4; nac-nac rolido +2.1° al salir y -3.0° al volver; can-can -2.0° / +3.0°.
+  Nada corre sin el botón (todo detrás de `trickAmt > 0` o `in.trick`): regresión idéntica y bots iguales (PILOTO.md).
 
 ### Ragdoll que se doblaba para cualquier lado
 - Ver [PILOTO.md](PILOTO.md): los ejes del swing-twist estaban cruzados, y después los límites no

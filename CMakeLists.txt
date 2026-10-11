@@ -87,6 +87,7 @@ add_executable(motocross
     src/Particles.cpp
     src/Rider.cpp
     src/RiderModel.cpp
+    src/SystemKeys.cpp
     src/Net.cpp
     src/Multiplayer.cpp
     src/Json.cpp

@@ -93,6 +93,11 @@
   las tablas pasan por delante de la moto del fondo. Oscurecer toda la pantalla apagaba también el título.
 - Es la referencia completa: la ayuda del HUD es sólo lo justo para manejar y dice "todas las teclas: Esc,
   Controles".
+- **Trucos** (octubre de 2026): fila "Trucos en el aire (+ dirección) · Shift / Ctrl · B" en PILOTO y un párrafo TRUCOS
+  arriba de PARA PROBAR con qué hace cada dirección ("solo, superman · ↑ heel clicker · ↓ no-hander · ← nac-nac · → can-can ·
+  soltalo antes de tocar el piso"). Entra a 1280×720 (captura `--menu controles`). En la ayuda del HUD, "Shift / B · trucos en
+  el aire (+ dirección)" (columna derecha con 6 filas). Por qué esos botones: [PILOTO.md](PILOTO.md), "Trucos en el aire".
+  Sin puntaje ni cartel de trucos (a pedido: el usuario no quiere puntajes).
 
 ## HUD
 

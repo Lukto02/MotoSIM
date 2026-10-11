@@ -140,7 +140,7 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | reaparecer donde quedó (mapas libres) | `--map sandbox/medanos --test crashloop --respawn-here --telemetry`: cada `REAPARECE` dice dónde, a cuántos m de donde quedó el piloto, con qué pendiente y a cuánto de la guía |
 | la pista al revés desde S | `--spawn S --test subidaN` (N km/h, recto: p. ej. subir la escadaria con `--spawn 90`) |
 | cuerpo en el aire | `--flat --drop 3 --test airrot` (atrás a fondo) o `airlean` (adelante y atrás cada 0.6 s) |
-| whip en un salto de verdad | desde `pruebas/`: `--map prueba/salto_whip --test whipkickN[L][n][a][hT][cT][sS]` (un doble con cara de ~28°): llega a N km/h y en la cara, desde que sube con las dos ruedas hasta despegar, tira el stick a la derecha (`L` izquierda, `sS` con S, `n` nada); en el aire lo suelta, `h` lo sostiene (`hT` los primeros T s), `cT` lo tira al otro lado 0.35 s desde los T s (traerla), `a` sin nada en la cara y el stick en el aire de 0.1 a 0.5 s; el cabeceo en el aire como el bot. `python ../tools/whip.py <exe> --map prueba/salto_whip --bike ... --test whipkick50 --time 11` resume cada vuelo: al despegar rolido, `wr`, guiñada `wy` y cuánto sube; en el aire rolido y cruzada (`beta`) máximos; al tocar; la cola máxima del segundo siguiente (serpenteo) y si hubo caída. Sirve para las de siempre (`--flat --drop 1 --test whip`). Ver [FISICA.md](FISICA.md), "Un whip de verdad" |
+| whip en un salto de verdad | desde `pruebas/`: `--map prueba/salto_whip --test whipkickN[L][n][a][hT][cT][sS]` (un doble con cara de ~28°): llega a N km/h y en la cara, desde que sube con las dos ruedas hasta despegar, tira el stick a la derecha (`L` izquierda, `sS` con S, `n` nada); en el aire lo suelta, `h` lo sostiene (`hT` los primeros T s), `cT` lo tira al otro lado 0.35 s desde los T s (traerla), `rT` lo tira al otro lado desde los T s hasta tocar (salir del whip; en la pista de motocross, `--spawn 360 --test whipkick52rT`: el doble de s≈425), `a` sin nada en la cara y el stick en el aire de 0.1 a 0.5 s; el cabeceo en el aire como el bot. `python ../tools/whip.py <exe> --map prueba/salto_whip --bike ... --test whipkick50 --time 11` resume cada vuelo: al despegar rolido, `wr`, guiñada `wy` y cuánto sube; en el aire rolido y cruzada (`beta`) máximos; al tocar; la cola máxima del segundo siguiente (serpenteo) y si hubo caída. Sirve para las de siempre (`--flat --drop 1 --test whip`). Ver [FISICA.md](FISICA.md), "Un whip de verdad" |
 | laderas, peraltes y paredes | desde `pruebas/`: `--map prueba/ladera` (un plano de 22°, se larga de costado a la pendiente) o `prueba/bowl_pared` (paredes hasta ~70°) con `--test giroN[xS]` (velocidad fija y dirección a fondo o S): con `lean_load`, la línea `   suelo psi= psiT= carga= nY=` de la telemetría (la inclinación contra el suelo que pisan las ruedas, la que busca, la carga en g y la normal); `tools/telemetria.py` la suma a la fila. Ver [FISICA.md](FISICA.md), "El equilibrio era un giroscopio" |
 | el estado del whip | con `whip_takeoff` o `whip_air`, la línea `   whip wyaw= wint= wlaunch= wpeak= wpeakroll= wcross=` (la trompa contra el vuelo, la intención en la cara, con cuánto despegó, lo máximo del vuelo y si aterrizó cruzado de más); `tools/telemetria.py` también la suma |
 | caer de cola o de trompa desde H m | `--flat --drop H --test teclas:v0.1,4` (la flecha abajo 0.1 s en el aire: toca a ~25-35° de cola; `v0.05` ~10°, `v0.2` ~53°, `^0.1` de trompa ~-30°), con `--telemetry --telemetry-dt 0.001`: `vy`, `h`, `gnd`, `fN`/`rN` después de tocar (ver [FISICA.md](FISICA.md), "La Trial salía despedida al caer alto") |
@@ -306,6 +306,16 @@ una rama sin mergear. Para que no vuelva a pasar:
 - El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.3.9 (11/10/2026): trucos en el aire, salir del whip y brazos más largos
+
+`dist/v0.3.9/MotoSim-v0.3.9.zip` (27 archivos, 10.0 MB). Protocolo 7 (los trucos van en dos bytes al final del paquete de
+estado; las versiones anteriores los ignoran): juega con la v0.3.4 a la v0.3.9-beta y la v0.2.5 a la v0.2.8. Estable: la
+release sale como "Latest". MSVC con runtime estático (sólo DLLs de Windows). Verificado desde la carpeta del paquete:
+`bikestats` sin errores, el modelo del piloto del paquete es el de brazos largos (mismo md5 que `modelos/`), bots idénticos
+a la beta (motocross 450 1:04.41 / 1:04.24, favela con la 450 1:36.78, circuito 2:10.86, park 0:50.87 / 0:50.90, valle
+0:41.01 / 0:40.99: el bot no hace trucos ni contra-stick), en red nueva contra nueva, contra la v0.3.9-beta y contra la
+v0.3.8. Detalle en PILOTO.md ("Trucos en el aire", "Brazos más largos"), FISICA.md ("Salir del whip"), MENU.md y RED.md.
 
 ### v0.3.9-beta (11/10/2026): equilibrio por la carga, whip de verdad y piloto con peso (beta)
 

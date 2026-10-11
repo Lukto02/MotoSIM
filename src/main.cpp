@@ -40,6 +40,7 @@ int main(int argc, char** argv)
         else if (!std::strcmp(argv[i], "--gfx")) opt.gfx = next();                  // pruebas: preset de calidad bajo|medio|alto|ultra (no guarda)
         else if (!std::strcmp(argv[i], "--noprefs")) opt.noPrefs = true;            // pruebas: sin leer ni escribir preferencias.ini
         else if (!std::strcmp(argv[i], "--pad")) opt.pad = next();                  // pruebas: joystick simulado (ver Game.h)
+        else if (!std::strcmp(argv[i], "--trucos")) opt.botTrick = next();         // pruebas: el bot hace ese truco en cada salto
         else if (!std::strcmp(argv[i], "--stick")) opt.stickMode = next();          // pruebas: stick derecho camara|cuerpo (no guarda)
         else if (!std::strcmp(argv[i], "--minimapa")) opt.miniMap = next();         // pruebas: norte|gira|no (no guarda; también con el bot)
         else if (!std::strcmp(argv[i], "--linea")) opt.brakeLine = next();          // pruebas: línea de frenada si|no (no guarda; también con el bot)
