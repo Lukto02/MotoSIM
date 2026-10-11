@@ -60,7 +60,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.3.6, `dist/v0.3.6/MotoSim-v0.3.6.zip`, que se publica en
+**Versión para compartir** (la v0.3.8, `dist/v0.3.8/MotoSim-v0.3.8.zip`; en prueba, la beta v0.3.9-beta, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
 cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
 release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
@@ -141,7 +141,9 @@ Consejos: el piloto adelante (↑ / stick arriba) mantiene la rueda delantera ab
 fuerte; atrás ayuda en los aterrizajes y en los wheelies. En el aire, adelante/atrás gira la moto
 un poco; acelerar levanta la nariz y el freno trasero la baja. Al costado (A / D) en el aire la tirás
 de costado (whip); si ya doblás subiendo la cara del salto sale acostada (scrub). Soltá antes de caer
-para que vuelva derecha: aterrizar cruzado se paga.
+para que vuelva derecha: aterrizar cruzado se paga. En la 2T, la Trilheira y la Trial el whip se arma en el
+labio (doblando en la cara sale girando de costado y vuela más bajo) y en el aire **no vuelve solo**: el stick
+para el mismo lado lo acentúa y para el otro lo trae; aterrizar cruzado más de 50° es caída.
 
 ## Multijugador LAN
 
@@ -486,6 +488,15 @@ Todo es generado por código, salvo el modelo opcional del piloto (glTF con su t
   hacia ese lado, que es lo que le da la forma de whip. Si sale rolando muy rápido (más de 1.8 rad/s)
   el piloto frena el giro con el cuerpo. Medido saltando a 14 m/s: la moto se acuesta ~26° y la nariz
   dobla ~12°; con la cara del salto, 30–45°.
+  **Whip de verdad** (`whip_takeoff`, `whip_air`; la 2T, la Trilheira y la Trial): en la cara del salto, con el
+  labio empujando, el stick al costado patea la cola (el suelo empuja la trasera de costado) y la moto sale
+  girando de costado y de guiñada; en el aire el stick es una velocidad de giro sobre el eje del whip que un
+  torque persigue (suelto, el piloto lo frena pero no lo trae) y el enderezado se apaga mientras está cruzada.
+  Ver docs/FISICA.md, "Un whip de verdad".
+- **Equilibrio por la carga** (`lean_load`; las mismas y la de carreras): la inclinación que busca el balance se
+  mide y se limita contra el suelo que pisan las ruedas, con el peso y la carga, no contra la vertical del mundo:
+  en laderas, peraltes y la pared de un bowl la moto no se endereza "contra el mundo". Ver docs/FISICA.md,
+  "El equilibrio era un giroscopio".
 - **Derrape con el freno trasero** (Espacio / A sin el de adelante, como se "cuadra" una horquilla en
   motocross: se entra frenando, se suelta el delantero y con la trasera trabada la cola da la vuelta
   alrededor de la delantera; alineado, se suelta y se sale acelerando). Una cubierta que patina o está
@@ -570,6 +581,9 @@ maniobras de siempre (frenar derecho, doblar y clavar, clavar y doblar, soltar l
 Whip: `--flat --drop 1 --test whip` sale como de un salto y tira la moto a la derecha 0.6 s (`whipL`
 a la izquierda, `whiphold` la mantiene hasta el suelo); `--bot --test scrub` da vueltas tirando scrubs
 en todos los saltos (un poco de dirección en la cara y whip en el aire; `whipair` sólo en el aire).
+Whip en el labio, desde `pruebas/`: `--map prueba/salto_whip --test whipkickN` (un doble; llega a N km/h, tira el stick
+en la cara y lo suelta en el aire; `hT`, `cT`, `a`, `sS`, `L` en docs/PRUEBAS.md) y `python ../tools/whip.py <exe> ...`
+resume cada vuelo. Laderas y paredes: `--map prueba/ladera` o `prueba/bowl_pared` con `--test giroN`.
 Para mirar de cerca: `--view <yaw> <pitch> <zoom>` fija la cámara (grados; zoom 1 = distancia
 normal) y `--norider` dibuja la moto sola; p. ej. `--test pose --flat --side --norider --view 0 0 0.3`.
 Menú: `--menu join|name|lobby|maps|bikes|ajustes|controles|principal` abre esa pantalla al arrancar (con `--host`

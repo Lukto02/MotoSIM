@@ -13,10 +13,20 @@ for key in ('--s', '--t'):
 cols = args
 pat = re.compile(r'(\w+)=\s*(-?[\d.]+)')
 print('  '.join(f'{c:>8}' for c in cols))
-for line in sys.stdin:
-    if not line.startswith('t='):
-        continue
-    vals = dict(pat.findall(line))
-    if any(k in vals and not (lo <= float(vals[k]) <= hi) for k, (lo, hi) in rng.items()):
-        continue
+# Las líneas de detalle que siguen a una de telemetría ("   suelo psi=...", "   whip ...") se suman a esa fila.
+row = None
+
+
+def emit(vals):
+    if vals is None or any(k in vals and not (lo <= float(vals[k]) <= hi) for k, (lo, hi) in rng.items()):
+        return
     print('  '.join(f'{vals.get(c, "-"):>8}' for c in cols))
+
+
+for line in sys.stdin:
+    if line.startswith('t='):
+        emit(row)
+        row = dict(pat.findall(line))
+    elif row is not None and line.startswith(('   suelo ', '   whip ')):
+        row.update(pat.findall(line))
+emit(row)

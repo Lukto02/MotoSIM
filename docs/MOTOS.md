@@ -29,7 +29,7 @@ recalculan con F5):
 
 | Moto | Estilo | hp | kg | km/h | 0-100 | g lat. | susp. | giro | Notas |
 |---|---|---|---|---|---|---|---|---|---|
-| `base/motocross` Motocross 450 | `mx` | 47 | 105 | 133 | 4.5 s | 0.97 | 310 mm | 1.8 m | la referencia: `tuning.ini`, más `motocross.ini` (la frenada con la S y la suspensión más viva al aterrizar) |
+| `base/motocross` Motocross 450 | `mx` | 47 | 105 | 133 | 4.5 s | 0.97 | 310 mm | 1.8 m | la referencia: `tuning.ini`, más `motocross.ini` (la frenada con la S, la suspensión más viva al aterrizar y el equilibrio por la carga y el whip, ver FISICA.md) |
 | `base/motocross600` Motocross 600 | `mx600` | 58 | 110 | 133 | 4.3 s | 0.97 | 310 mm | 1.8 m | geometria y estilo de la 450, motor con mas fuerza |
 | `base/carrera` Carrera 1000 | `race` | 245 | 160 | 329 | 3.7 s* | 1.33 | 125 mm | 2.8 m | 4 cilindros, rodilla al piso |
 | `base/trilheira` Trilheira 450 | `trail` | 64 | 120 | 121 | 4.3 s | 1.02 | 310 mm | 1.5 m | grau (ver README, Morro do Grau), escape aberto |

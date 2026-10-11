@@ -1,5 +1,19 @@
-﻿MotoSim v0.3.8 - motos para jugar solo o con amigos en la red local
-===================================================================
+﻿MotoSim v0.3.9-beta - motos para jugar solo o con amigos en la red local
+========================================================================
+
+NOVEDADES DE LA v0.3.9-beta
+Versión BETA para probar: cambia cómo se siente la moto (también la Motocross 450). Contanos qué tal.
+- EQUILIBRIO QUE NO ES UN GIROSCOPIO: la moto se inclina según la carga que siente (el peso más la curva),
+  no contra la vertical. En laderas, peraltes y paredes se puede girar sin parar; en un bowl sube por la
+  pared. A velocidad la ayuda acompaña en vez de enderezarte.
+- WHIP DE VERDAD: se arma en el labio del salto (doblá y cargá el cuerpo al despegar) y la moto sale
+  acostada y cruzada. En el aire no vuelve sola: la traés con el stick al otro lado antes de caer. Caer un
+  poco cruzado serpentea y se corrige; muy cruzado (más de 50°), te caés.
+- SCRUB: tirando la moto acostada al subir el salto, vuela más bajo y plano.
+- PILOTO CON PESO: el cuerpo sigue a la moto con inercia: absorbe los aterrizajes con las piernas, se va
+  atrás al acelerar y adelante al frenar, mira la salida de la curva, saca la pierna en el derrape y pasa
+  suave de una pose a otra (también al caerse).
+- FAVELA: la Motocross 450 y la 600 ya no se caen en la escalera.
 
 NOVEDADES DE LA v0.3.8
 - MINIMAPA arriba a la derecha: el relieve, la pista, tu moto y las de los demás en red. Norte arriba o
@@ -260,7 +274,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.9-beta, la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.

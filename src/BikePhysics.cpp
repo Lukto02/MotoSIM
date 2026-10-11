@@ -164,6 +164,159 @@ float Bike::HandbrakeLean(float leanTarget) const
     return lean;
 }
 
+// lean_load (ver FISICA.md, "El equilibrio era un giroscopio"): el suelo que pisan las ruedas (la normal de los contactos
+// del paso anterior, filtrada ~0.07 s) y la carga por kg a lo largo de ella (la fuerza que las ruedas le pasan al chasis,
+// filtrada ~0.5 s: con menos, en los rollers la carga iba de 0.9 a 2.2 g y con ella el manubrio). En el aire la normal
+// vuelve de a poco a la del terreno bajo la moto. Devuelve el marco con el que se calcula la inclinación: psi (respecto
+// de la normal), la carga y el peso a lo largo del costado del suelo. La inclinación
+// "derecha" de una moto es la que deja el peso más la fuerza que hace doblar (la curva) en su plano: en el plano es la
+// vertical; en una ladera, de costado a la pendiente, también (la moto queda inclinada respecto del suelo); en la pared de
+// un bowl, casi perpendicular a la pared (la carga, la curva del bowl, la aprieta contra ella).
+Bike::LoadFrame Bike::UpdateLoadFrame(Vec3 fwd, Vec3 up, float mass, Vec3 fallbackNormal, float dt)
+{
+    Vec3 nSum = Vec3::sZero();
+    float load = 0.0f;
+    int count = 0;
+    // Más empinado que 65° no es un suelo para andar sino una pared (una rueda que roza el costado de una casa o un
+    // cordón en la favela): la moto se acostaba contra ella. Esos contactos no cuentan. Tampoco los objetos (cajas,
+    // troncos, escalones): su normal es la del canto por el que rueda la cubierta, no un suelo para inclinarse (en el
+    // circuito de obstáculos la Trial, bajando de un cajón apoyada adelante, se iba por encima del manubrio).
+    for (const Wheel& w : wheels)
+        if (w.grounded && w.onTerrain && w.contactNormal.GetY() > 0.42f) {
+            nSum += w.contactNormal;
+            load += w.suspForce.Dot(w.contactNormal);
+            ++count;
+        }
+    if (count > 0) {
+        const Vec3 n = nSum.NormalizedOr(Vec3::sAxisY());
+        loadNormal = (loadNormal + (n - loadNormal) * std::min(1.0f, dt * 15.0f)).NormalizedOr(n);
+        loadAccel += (load / mass - loadAccel) * std::min(1.0f, dt * 2.0f);
+    } else {
+        loadNormal = (loadNormal + (fallbackNormal - loadNormal) * std::min(1.0f, dt * 2.0f)).NormalizedOr(fallbackNormal);
+        loadAccel += (kG * std::max(loadNormal.GetY(), 0.0f) - loadAccel) * std::min(1.0f, dt * 2.0f);
+    }
+    LoadFrame f;
+    const Vec3 n = loadNormal;
+    const Vec3 t = (fwd - n * fwd.Dot(n)).NormalizedOr(fwd);
+    const Vec3 side = t.Cross(n);                                           // a la derecha, en el plano del suelo
+    f.psi = std::atan2(up.Dot(side), up.Dot(n));
+    // Con tope: nunca menos que el 90% del peso a lo largo de la normal (apoyada en una sola rueda en un stoppie, saliendo de
+    // un salto o en una cresta la carga cae a 0.4 g un instante y la moto, que doblaba con eso, dejaba de doblar debajo de
+    // sí misma y se caía para adentro), ni más de 1.8 g (aterrizando: 4 g un instante).
+    f.f0n = mu::Clamp(loadAccel, 0.9f * kG * std::max(n.GetY(), 0.4f), 1.8f * kG);
+    f.f0r = kG * side.GetY();
+    // Para cuánto se puede doblar (abajo, el tope de la curva pedida) cuenta el peso a lo largo de la normal, no la carga: el
+    // pico de un aterrizaje o de la cara de un salto no es agarre para doblar más (con la carga, el mismo stick pedía 25%
+    // más manubrio en la cara y la Trial caía de trompa de los cajones). Lo que da el peralte o la ladera ya está en f0r.
+    f.f0nTurn = std::min(f.f0n, kG * std::max(n.GetY(), 0.4f));
+    // lean_load_flat: para la inclinación, la carga de más (sobre el peso a lo largo de la normal) cuenta sólo en un suelo
+    // empinado (de ~20° a ~40°: la pared de un bowl, un peralte fuerte), donde es la curva del suelo que aprieta la moto y
+    // dura. En un suelo más tendido son baches, whoops o una compresión: duran décimas y con el filtro de 0.5 s la moto se
+    // seguía inclinando de menos (2-3°) cuando ya habían pasado; se abría en las curvas (la Trial contra la casa de s≈258 en
+    // la favela) y el bot de la 450 perdía el ritmo en los whoops de la pista (0.9 s por vuelta). Ver FISICA.md, "La 450 y
+    // la 600 con el equilibrio por la carga y el whip".
+    if (P->leanLoadFlat > 0.0f)
+        f.f0n = mu::Lerp(f.f0n, mu::Lerp(f.f0nTurn, f.f0n, mu::Smoothstep(0.94f, 0.77f, n.GetY())), P->leanLoadFlat);
+    // Con la moto muy de punta respecto del suelo (cayendo de trompa por una escalera, un wheelie pasado) la inclinación
+    // contra él deja de tener sentido (el costado del suelo sale de la trompa proyectada, casi nada): se vuelve a medir
+    // contra el mundo. Sin esto, en la escadaria la moto que caía apoyada sólo adelante a -70° rolaba hasta caerse.
+    f.weight = P->leanLoad * (1.0f - mu::Smoothstep(0.5f, 0.75f, std::fabs(fwd.Dot(n))));
+    leanSurface = f.psi;
+    return f;
+}
+
+// balance_fast_lead: con qué rapidez cambia la inclinación de referencia (rad/s, filtrada ~0.05 s). El balance a velocidad
+// amortigua el rolido respecto de eso, no todo el rolido.
+void Bike::TrackLeanTarget(bool valid, float dt)
+{
+    // La referencia sigue a la inclinación buscada a lo sumo a balance_fast_lead rad/s (lo que un piloto acuesta la moto):
+    // con el stick la buscada salta de golpe y con el teclado sube en rampa; así las dos dan la misma ayuda (con la derivada
+    // de la buscada misma, con el teclado se tiraba a la curva en 0.34 s y con el stick igual que antes).
+    const float ref = leanTargetValid ? mu::MoveTowards(leanTargetPrev, leanTarget, P->balanceFastLead * dt) : leanTarget;
+    const float rate = leanTargetValid ? (ref - leanTargetPrev) / dt : 0.0f;
+    leanTargetRate += (rate - leanTargetRate) * std::min(1.0f, dt * 20.0f);
+    leanTargetPrev = ref;
+    leanTargetValid = valid;
+}
+
+// Whip (ver FISICA.md, "Un whip de verdad"). En la cara de un salto (apoyada atrás, la trompa arriba y subiendo, a más de
+// ~22 km/h, y el labio empujando) el stick al costado (más de 0.2) es la intención de whip: sube en 0.15 s (lo que cuenta es
+// lo de los últimos instantes antes del labio) y en el piso baja en 0.1 s. En el aire queda (es con cuánto despegó). Se
+// calcula en todas las motos (lo leen el piloto y los trucos); sólo empuja con whip_takeoff.
+void Bike::UpdateWhipIntent(float steer, Vec3 linVel, float v, float mass, bool wasInAir, float dt)
+{
+    if (wasInAir) return;
+    // La cara de un salto: la trompa arriba, subiendo y el labio empujando (la carga de las ruedas pasa de ~1.6 g: en la
+    // transición de una cara a 45 km/h llega a 3-4 g). Una subida, aunque sea empinada y doblando, carga ~1 g: sin esto,
+    // el bot de la Trilheira, doblando en las subidas de la favela, pateaba la cola y se iba contra las paredes. Después
+    // del empujón el labio descarga las ruedas: la intención se sostiene 0.25 s (hasta que despega) y después se va.
+    const bool onFace = riderOnBike && !crashed && wheels[REAR].grounded && pitch > mu::Rad(5.0f) && linVel.GetY() > 1.0f && v > 6.0f;
+    const float load = (wheels[FRONT].normalForce + wheels[REAR].normalForce) / (mass * kG);
+    const float push = onFace ? mu::Smoothstep(1.4f, 1.8f, load) : 0.0f;
+    whipPushTime = push > 0.5f ? 0.0f : whipPushTime + dt;
+    const float want = mu::Sign(steer) * mu::Smoothstep(0.2f, 0.6f, std::fabs(steer)) * push;
+    if (push > 0.0f && std::fabs(want) > std::fabs(whipIntent)) whipIntent = mu::MoveTowards(whipIntent, want, dt / 0.15f);
+    else if (!onFace || whipPushTime > 0.25f || whipIntent * steer <= 0.0f) whipIntent = mu::MoveTowards(whipIntent, 0.0f, dt / 0.1f);
+}
+
+// whip_takeoff: la fuerza de costado (N, + = hacia la izquierda de la moto, el sentido de la fuerza lateral de la cubierta)
+// con que el suelo empuja la trasera: una fracción de su carga (cuánto empuja el labio) que crece con la velocidad, con el
+// tope de lo que agarra (grip: suelo × cubierta, de costado).
+float Bike::WhipKickForce(float rearLoad, float grip, float v) const
+{
+    return whipIntent * std::min(P->whipTakeoff * mu::Clamp(v / 12.0f, 0.0f, 1.5f), grip) * rearLoad;
+}
+
+// Cuánto está cruzada la moto en el aire (0..1, de 4° a 12° de guiñada respecto de hacia dónde vuela o de rolido).
+float Bike::WhipAmount() const
+{
+    return mu::Smoothstep(mu::Rad(4.0f), mu::Rad(12.0f), std::max(std::fabs(whipYaw), std::fabs(roll)));
+}
+
+// whip_air: el stick que cuenta como whip en el aire. Un stick que venía apretado desde el piso (doblando con la D a fondo
+// al pasar una cresta o una loma) no es un whip hasta que el piloto lo suelta y lo vuelve a tirar: sin esto, en la cresta
+// de prueba/ladera la moto, que salía acostada 26° doblando, rolaba hasta 87° en el aire y caía de costado. Despegando con
+// whip (whipLaunch) el stick sigue valiendo. Un vuelo es del piloto (whipRiderFlight: no vuelve solo) si despegó con whip
+// o tiró el stick en el aire; si no, el enderezado y la alineación de siempre traen la moto.
+float Bike::WhipAirStick(float steer, bool takeoff, float airTimeNow)
+{
+    if (takeoff) {
+        whipRiderFlight = std::fabs(whipLaunch) > 0.1f;
+        whipArmed = whipRiderFlight || std::fabs(steer) < 0.25f;
+    }
+    if (std::fabs(steer) < 0.25f) whipArmed = true;
+    if (!whipArmed) return 0.0f;
+    if (std::fabs(steer) > 0.25f && airTimeNow > 0.1f) whipRiderFlight = true;
+    return steer;
+}
+
+// Estado del whip (para el piloto y los trucos) y el aterrizaje cruzado (whip_land_crash_deg).
+void Bike::UpdateWhipState(bool grounded, bool wasInAir, float airTimeBefore, Vec3 fwd, Vec3 linVel, Vec3 fwdFlat)
+{
+    const Vec3 flatVel(linVel.GetX(), 0.0f, linVel.GetZ());
+    whipYaw = flatVel.Length() > 3.0f ? -std::atan2(fwdFlat.Cross(flatVel).GetY(), fwdFlat.Dot(flatVel)) : 0.0f;   // + = trompa a la derecha
+    if (!grounded && !wasInAir) {                                       // despegó
+        whipLaunch = whipIntent;
+        whipPeakYaw = whipPeakRoll = 0.0f;
+    }
+    if (!grounded) {
+        if (std::fabs(whipYaw) > std::fabs(whipPeakYaw)) whipPeakYaw = whipYaw;
+        if (std::fabs(roll) > std::fabs(whipPeakRoll)) whipPeakRoll = roll;
+    }
+    // Aterrizar cruzado de más: la cubierta que toca de costado se clava y el piloto sale despedido. Se mide en el suelo que
+    // pisa: el ángulo entre hacia dónde apunta la moto y hacia dónde va.
+    if (P->whipLandCrashDeg > 0.0f && grounded && wasInAir && airTimeBefore > 0.25f && riderOnBike && !crashed) {
+        Vec3 n = Vec3::sZero();
+        for (const Wheel& w : wheels)
+            if (w.grounded) n += w.contactNormal;
+        n = n.NormalizedOr(Vec3::sAxisY());
+        const Vec3 a = (fwd - n * fwd.Dot(n)).NormalizedOr(fwdFlat), b = (linVel - n * linVel.Dot(n));
+        const float crossed = b.Length() > 3.0f ? std::acos(mu::Clamp(a.Dot(b.Normalized()), -1.0f, 1.0f)) : 0.0f;
+        whipCrossedLanding = crossed > mu::Rad(P->whipLandCrashDeg);
+        if (whipCrossedLanding) crashed = true;
+    }
+}
+
 void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, const Terrain& terrain)
 {
     // Golpes secos contra el piso (hard_landing_spin, ver PhysicsWorld): con el piloto arriba; sin él, la moto es rígida.
@@ -219,11 +372,16 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     const bool onTail = fwd.GetY() > std::sin(mu::Rad(60.0f)) && up.GetY() > -0.25f && std::fabs(right.GetY()) < 0.5f;
     tailStill = onTail && (!wasInAir || world.AnyContact()) && speed < 1.5f ? tailStill + dt : 0.0f;
     const bool standing = onTail && tailStill < 3.0f;
-    const bool tipped = up.GetY() < std::cos(mu::Rad(P->crashAngleDeg)) && !standing;
+    // Con lean_load la moto acostada se mide contra el suelo que pisa (andando en la pared de un bowl no está "volcada").
+    const bool loadLean = P->leanLoad > 0.0f;
+    LoadFrame lf;
+    if (loadLean) lf = UpdateLoadFrame(fwd, up, 1.0f / invMass, terrain.BankNormal(com.GetX(), com.GetZ()), dt);
+    const float upY = loadLean && lf.weight > 0.5f * P->leanLoad ? up.Dot(loadNormal) : up.GetY();
+    const bool tipped = upY < std::cos(mu::Rad(P->crashAngleDeg)) && !standing;
     if (tipped && (!wasInAir || world.AnyContact())) crashTimer += dt;
     else if (!tipped && !wasInAir) crashTimer = std::max(0.0f, crashTimer - dt);
     // De cabeza contra el suelo es caída en el acto.
-    if (crashTimer > 0.4f || (up.GetY() < 0.0f && !standing && world.AnyContact())) crashed = true;
+    if (crashTimer > 0.4f || (upY < 0.0f && !standing && world.AnyContact())) crashed = true;
     if (crashed) crashedTime += dt;
 
     BikeInput in = rawInput;
@@ -475,14 +633,21 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
         if (onGround > 0.0f) leanGrip += (std::min(1.0f, grip / onGround / (P->maxLateralAccel / kG)) - leanGrip) * std::min(1.0f, 4.0f * dt);   // ~0.25 s
         muLat *= 1.0f - P->leanSurfaceGrip * (1.0f - leanGrip);
     }
-    const float maxAccel = kG * (sinBank + muLat * cosBank) / std::max(cosBank - muLat * sinBank, 0.3f);
+    float maxAccel = kG * (sinBank + muLat * cosBank) / std::max(cosBank - muLat * sinBank, 0.3f);
+    // lean_load: lo que aguantan las cubiertas de costado con la carga real, menos (o más) el peso a lo largo del costado del
+    // suelo hacia el lado que dobla: doblar hacia arriba en una ladera cuesta más, hacia el fondo de un peralte menos.
+    if (loadLean) {
+        const float turnSide = in.steer >= 0.0f ? 1.0f : -1.0f;
+        maxAccel = mu::Lerp(maxAccel, std::max(muLat * lf.f0nTurn - turnSide * lf.f0r, 0.2f * kG), lf.weight);
+    }
     const float kMax = std::min(1.0f / P->minTurnRadius, maxAccel / std::max(v2, 0.01f));
     // Sin tocar el manubrio, el cuerpo de costado dobla (más despacio): la moto sigue al peso. Con el
     // manubrio doblando manda el manubrio y el cuerpo sólo cambia cuánto se acuesta la moto (abajo).
     const float bodySteer = P->riderSideSteer * riderSide * (1.0f - mu::Smoothstep(0.1f, 0.3f, std::fabs(in.steer)));
     const float kCmd = mu::Clamp(in.steer + bodySteer, -1.0f, 1.0f) * kMax;
     const float maxLean = mu::Rad(P->maxLeanDeg);
-    leanTarget = mu::Clamp(std::atan(v2 * kCmd / kG), -maxLean, maxLean);
+    // Con lean_load el tope va contra el suelo (abajo): acá todavía es la inclinación "en el plano" de la curva pedida.
+    leanTarget = loadLean ? std::atan(v2 * kCmd / kG) : mu::Clamp(std::atan(v2 * kCmd / kG), -maxLean, maxLean);
     // Lo que se inclina es el conjunto moto + piloto: con el cuerpo hacia adentro de la curva la moto va
     // más derecha para la misma curva; con el cuerpo afuera (el peso en la estribera de afuera), más
     // acostada. Derecho y con el cuerpo de un lado, la moto se inclina un poco para el otro (equilibrio).
@@ -499,8 +664,28 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     // Freno de mano con handbrake_lean: el piloto sostiene la moto inclinada hacia la curva mientras colea (nunca
     // más derecha que sin la clave).
     if (P->handbrakeLean > 0.0f && (hbW > 0.0f || hbCatching > 0.0f)) leanTarget = HandbrakeLean(leanTarget);
+    // lean_load: la inclinación pedida en el plano es una aceleración de costado (g · tan) que se suma al peso y a la carga
+    // del suelo que se pisa; la moto busca quedar en el plano de esa suma, medido contra la normal del suelo y con el tope
+    // ahí. En el plano da lo mismo que antes; en una ladera, un peralte o una pared, lo que corresponde a esa superficie.
+    // leanTarget queda en el marco de siempre (roll + lo que falta) para la telemetría y lo que lo compara con roll.
+    float leanErr = leanTarget - roll;
+    if (loadLean) {
+        const float aCmd = kG * std::tan(mu::Clamp(leanTarget, -1.45f, 1.45f));
+        const float psiTarget = mu::Clamp(std::atan2(lf.f0r + aCmd, lf.f0n), -maxLean, maxLean);
+        leanErr = mu::Lerp(mu::Clamp(leanTarget, -maxLean, maxLean) - roll, psiTarget - lf.psi, lf.weight);
+        if (P->leanLoadWorldDeg > 0.0f) {                    // lean_load_world_deg: tope contra el mundo
+            const float worldMax = mu::Rad(P->leanLoadWorldDeg);
+            leanErr = mu::Clamp(roll + leanErr, -worldMax, worldMax) - roll;
+        }
+        leanTarget = roll + leanErr;
+    }
+    if (P->balanceFastLead > 0.0f) TrackLeanTarget(!wasInAir, dt);   // balance_fast_lead
     // La curva la da la inclinación del conjunto (moto + piloto), no la de la moto sola.
-    const float kLean = kG * std::tan(mu::Clamp(roll + riderSide * sideLean, -1.2f, 1.2f)) / std::max(v2, 1.0f);
+    float kLean = kG * std::tan(mu::Clamp(roll + riderSide * sideLean, -1.2f, 1.2f)) / std::max(v2, 1.0f);
+    // lean_load: la curva que da esa inclinación respecto del suelo con la carga que tiene (en una ladera, derecha respecto
+    // del mundo no dobla; en la pared de un bowl, casi perpendicular a ella tampoco).
+    if (loadLean)
+        kLean = mu::Lerp(kLean, (lf.f0n * std::tan(mu::Clamp(lf.psi + riderSide * sideLean, -1.2f, 1.2f)) - lf.f0r) / std::max(v2, 1.0f), lf.weight);
     const float kSteer = mu::Lerp(kCmd, kLean, mu::Smoothstep(P->leanSteerSpeedLow, P->leanSteerSpeedHigh, v));
     const float wheelbase = (wheels[FRONT].AxleLocal() - wheels[REAR].AxleLocal()).Length();
     const float maxSteer = mu::Lerp(mu::Rad(P->maxSteerDeg), mu::Rad(P->maxSteerHighSpeedDeg), mu::Smoothstep(3.0f, 20.0f, v));
@@ -561,6 +746,8 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     steerCaster = mu::MoveTowards(steerCaster, casterTarget, 10.0f * dt);
     const float steerStop = mu::Rad(std::max(35.0f, P->maxSteerDeg));   // topes de dirección
     steerAngle = mu::Clamp(steerBase + steerCaster, -steerStop, steerStop);
+
+    UpdateWhipIntent(in.steer, linVel, v, 1.0f / invMass, wasInAir, dt);         // whip en el labio (whip_takeoff, abajo en la trasera)
 
     // ------------------------------------------------------------------ motor
     float reflectedInertia = 0.0f;
@@ -984,6 +1171,16 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             w.suspForce = suspF;
             w.tireForce = tireF;
             applyAt(suspF + tireF, contactPoint);
+            // Whip en el labio (whip_takeoff): el piloto patea la cola para el otro lado del whip cargando la estribera y el
+            // suelo empuja la trasera de costado (hasta lo que agarra la cubierta con la carga que tiene: cuánto empuja el
+            // labio). Esa fuerza, abajo y atrás del centro de masa, gira la trompa y acuesta la moto hacia el lado del whip.
+            // Va aparte de la cubierta: en el labio la trasera, descargada y con gas, patina y su roce no la dejaría. Con la
+            // moto cargada en la cara las cubiertas la aguantan; cuenta sobre todo cuando se descarga, al despegar.
+            if (i == REAR && whipIntent != 0.0f && P->whipTakeoff > 0.0f) {
+                const Vec3 kick = latG * WhipKickForce(suspensionForce, ti.surfaceGrip * tp.latGrip, v);
+                totalForce += kick;
+                totalTorque += (contactPoint - forceCenter).Cross(kick);
+            }
             // Wheelie con gas (wheelie_keep_throttle): la tracción de la trasera, debajo del centro de masa,
             // levanta la trompa. Dentro de la zona del limitador se anula esa parte (lo que el piloto hace con
             // el cuerpo y el freno trasero): la moto sigue acelerando y la rueda no sube más.
@@ -1017,7 +1214,9 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
 
     // ------------------------------------------------------------------ balance / aire
     const bool grounded = wheels[FRONT].grounded || wheels[REAR].grounded;
+    const float airTimeBefore = airTime;
     airTime = grounded ? 0.0f : airTime + dt;
+    UpdateWhipState(grounded, wasInAir, airTimeBefore, fwd, linVel, fwdFlat);
 
     // Cuerpo del piloto (whip): con el stick al costado en el aire corre el cuerpo para el otro lado,
     // como un resorte críticamente amortiguado (sus músculos). La moto recibe la reacción, -I·alfa:
@@ -1026,7 +1225,9 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     {
         const bool flying = !grounded && !crashed && riderOnBike;
         const float maxTilt = mu::Rad(P->airBodyTiltDeg);
-        const float target = flying ? -mu::Clamp(in.steer + in.side, -1.0f, 1.0f) * maxTilt : 0.0f;   // A/D o el cuerpo (flechas)
+        float target = flying ? -mu::Clamp(in.steer + in.side, -1.0f, 1.0f) * maxTilt : 0.0f;   // A/D o el cuerpo (flechas)
+        // whip_air: el whip lo maneja el torque de abajo (y no vuelve solo); el cuerpo sólo se ve, más derecho que la moto.
+        if (P->whipAir > 0.0f && flying) target = -mu::Clamp(roll, -maxTilt, maxTilt);
         const float w0 = P->airBodyRate;
         const float prevRate = bodyTiltRate;
         bodyTiltRate += ((target - bodyTilt) * w0 * w0 - bodyTiltRate * 2.0f * w0) * dt;
@@ -1035,7 +1236,7 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             bodyTilt = mu::Sign(bodyTilt) * maxTilt;
             bodyTiltRate = 0.0f;
         }
-        if (flying) totalTorque -= fwd * (P->airBodyInertia * (bodyTiltRate - prevRate) / dt);
+        if (flying && P->whipAir <= 0.0f) totalTorque -= fwd * (P->airBodyInertia * (bodyTiltRate - prevRate) / dt);
     }
     // Doblando en wheelie (cualquier moto sin grau_turn): la trasera empuja hacia adentro y curva la
     // trayectoria, pero nada orienta la moto, que se quedaba apuntando 20-25° para afuera de adonde iba.
@@ -1056,9 +1257,29 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
             // Balance automático: mucho a baja velocidad, menos a alta. Es un torque, no se fija
             // la rotación: la moto puede desestabilizarse y caerse.
             const float s = mu::Smoothstep(0.0f, P->balanceSpeed, v);
-            const float K = mu::Lerp(P->balanceKLow, P->balanceKHigh, s);
-            const float D = mu::Lerp(P->balanceDLow, P->balanceDHigh, s);
-            const float t = (leanTarget - roll) * K - rollRate * D;
+            float K = mu::Lerp(P->balanceKLow, P->balanceKHigh, s);
+            float D = mu::Lerp(P->balanceDLow, P->balanceDHigh, s);
+            // balance_fast_k/d: a velocidad la ayuda acompaña en vez de imponer (la moto sigue más lo que le hacen el suelo
+            // y las cubiertas; lo que pide el manubrio la acuesta igual, ver balance_fast_lead).
+            float dampRate = rollRate;
+            if (P->balanceFastK != 1.0f || P->balanceFastD != 1.0f) {
+                // Sólo asentada: con las dos ruedas apoyadas hace 0.3 s (en una sola, un stoppie al caer de un salto o un wheelie, y
+                // al aterrizar, la ayuda entera) y cerca de lo que busca: si se aparta más de 5-12° (un rebote, una
+                // caída que empieza) el piloto la ataja con todo, como antes.
+                balanceSettle = (wheels[FRONT].grounded && wheels[REAR].grounded && !wasInAir) ? std::min(1.0f, balanceSettle + dt / 0.3f) : 0.0f;
+                // Y no cuando el suelo empuja fuerte (la cara de un salto, un aterrizaje, una compresión: más de 1.2-1.5 g en
+                // las ruedas): ahí el piloto se afirma, salvo que esté tirando la moto de costado (whip, scrub).
+                const float pushLoad = (wheels[FRONT].normalForce + wheels[REAR].normalForce) * invMass / kG;
+                const float fast = mu::Smoothstep(0.5f * P->balanceFastSpeed, P->balanceFastSpeed, v) * balanceSettle *
+                                   (1.0f - mu::Smoothstep(mu::Rad(5.0f), mu::Rad(12.0f), std::fabs(loadLean ? leanErr : leanTarget - roll))) *
+                                   (1.0f - mu::Smoothstep(1.2f, 1.5f, pushLoad) * (1.0f - std::fabs(whipIntent)));
+                K *= mu::Lerp(1.0f, P->balanceFastK, fast);
+                D *= mu::Lerp(1.0f, P->balanceFastD, fast);
+                // Y amortigua lo que la moto se aparta de lo pedido, no todo el rolido: acompaña cuando el piloto la
+                // acuesta (con menos K, si no, se tiraba a la curva el doble de lento).
+                dampRate = rollRate - leanTargetRate * fast;
+            }
+            const float t = (loadLean ? leanErr : leanTarget - roll) * K - dampRate * D;
             // En una rueda (grau) la moto se inclina alrededor de la línea del piso por donde va, no de su
             // eje levantado: si no, sostener la inclinación mete guiñada y la deja apuntando para afuera.
             const bool oneWheelGrau = P->grauTurn > 0.0f && wheels[REAR].grounded && !wheels[FRONT].grounded;
@@ -1144,12 +1365,32 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
 
             // El piloto endereza la moto (rolido hacia derecha y guiñada hacia donde vuela) salvo
             // mientras la tira de costado: ahí la deja seguir con lo que trae.
-            const float hold = 1.0f - P->airWhipAssistFade * std::min(1.0f, std::fabs(in.steer));
+            // whip_air: el stick que venía apretado desde el piso no cuenta hasta que se suelta (WhipAirStick).
+            const float airSteer = P->whipAir > 0.0f ? WhipAirStick(in.steer, !wasInAir, airTime) : in.steer;
+            float hold = 1.0f - P->airWhipAssistFade * std::min(1.0f, std::fabs(airSteer));
+            if (P->whipAir > 0.0f && whipRiderFlight) hold *= 1.0f - P->whipAir * WhipAmount(); // whip_air: cruzada no vuelve sola
             // El rolido sólo se corrige un poco, y nunca con la moto casi vertical o invertida (ahí
             // el ángulo de rolido deja de tener sentido).
             if (up.GetY() > 0.5f) {
                 const float a = P->airRollAssist * hold;
                 totalTorque += fwd * (-roll * P->balanceKHigh * a - rollRate * P->balanceDHigh * a);
+            }
+            // whip_air: el stick al costado es la velocidad de giro que el piloto busca sobre el eje del whip (adelante y
+            // abajo de la moto: rolido + guiñada, la trompa y la moto hacia el mismo lado); el torque la persigue con tope. Para
+            // el mismo lado lo acentúa, para el otro lo frena y lo trae; suelto, el piloto lo frena de a poco con el cuerpo
+            // (whip_air_damping) pero no lo trae: lo que trae del labio la deja cruzada hasta que la traiga.
+            if (P->whipAir > 0.0f) {
+                const Vec3 axis = (fwd - up).Normalized();
+                const float rate = angVel.Dot(axis);
+                // El giro de rolido y guiñada que no es del whip (el que mete el efecto giroscópico de las ruedas: la guiñada
+                // del whip las hace rolar para el otro lado) el piloto lo frena siempre; suelto, también el del whip.
+                const Vec3 other = (fwd + up).Normalized();
+                totalTorque -= other * (angVel.Dot(other) * P->whipAirDamping);
+                // El stick entra entre los 0.1 y 0.25 s de vuelo: un saltito doblando con la D apretada no es un whip.
+                const float stick = std::fabs(airSteer) > 0.05f ? mu::Smoothstep(0.1f, 0.25f, airTime) : 0.0f;
+                const float tq = mu::Lerp(-rate * P->whipAirDamping,                 // suelto: lo frena, no lo trae
+                                          mu::Clamp((airSteer * P->whipAirRate - rate) * P->whipAirGain, -P->whipAirTorque, P->whipAirTorque), stick);
+                totalTorque += axis * tq;
             }
 
             // Tope de rolido (como el de cabeceo): una moto que sale girando de costado muy rápido, el

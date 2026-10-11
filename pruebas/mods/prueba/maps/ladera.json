@@ -1,0 +1,23 @@
+// Prueba (no se entrega): giros en una ladera (equilibrio con lean_load; ver FISICA.md, "El equilibrio era un giroscopio").
+// Un plano de tierra inclinado 22° que sube hacia el este, de 200 m (norte-sur) por 100 m, centrado en (50, 0). Se larga en
+// la mitad de la ladera (8 m de alto) mirando al norte, de costado a la pendiente (sube a la derecha). Probar con
+// teclas: (p. ej. "teclas:W+30,WD12": vueltas en la ladera, subiendo, de costado y bajando).
+{
+  "name": "Ladera (pruebas)",
+  "kind": "prueba · ladera de 22°",
+  "bike": "base/motocross",
+  "markers": false,
+  "terrain": {
+    "type": "flat", "size": 512, "resolution": 0.5, "edge": 10,
+    "shapes": [
+      {"shape": "line", "at": [0, 0], "yaw": 90, "width": 200, "edge": 10, "mode": "level", "base": 0, "smooth": 3, "dirt": true,
+       "profile": [[-30, 0], [0, 0], [100, 40.4], [110, 40.4]]}
+    ]
+  },
+  "start": [50, -60],
+  "track": {
+    "style": "guide", "width": 10,
+    "points": [[50, -90], [50, -60], [50, 0], [50, 60], [50, 90], [60, 100], [70, 90], [70, -90], [60, -100]]
+  },
+  "look": {"preset": "day"}
+}

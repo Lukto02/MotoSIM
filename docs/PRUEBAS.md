@@ -95,6 +95,16 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   "--flat --test wheelie --time 8" "--bot --time 40" "--test accel --time 12"
 ```
 
+- **Desde el equilibrio por la carga y el whip en la 450 y la 600** (a pedido, después de la v0.3.8; ver
+  [FISICA.md](FISICA.md), "La 450 y la 600 con el equilibrio por la carga y el whip"): el bot en la pista de motocross
+  da **1:04.41 / 1:04.24** con la 450 y **1:04.52 / 1:04.34** con la 600 (hasta la v0.3.8, 1:04.26 / 1:04.10 y
+  1:04.28 / 1:04.18). Contra la v0.3.8 la regresión de la 450 y la 600 da **distinta a propósito** en todas (en
+  `wheelie`, `brakestraight`, `frenada60` y `airrot` sólo en los decimales; en las que doblan, la inclinación; en las de
+  aire, el whip) hasta que salga el próximo paquete, que pasa a ser la referencia. Mientras tanto, lo que no tiene que
+  cambiar se comprueba con las claves en 0: el exe nuevo con los `.ini` de la 450 y la 600 de la v0.3.8
+  (`git show v0.3.8:mods/base/bikes/motocross.ini` o los de `dist/v0.3.8/.../mods`) en su carpeta da idéntico en todas.
+- **Trampa: `--map favela --bot` sin `--bike` no es la 450**: el mapa trae la Trilheira (`"bike"` en `favela.json`). Para
+  la 450, `--bike base/motocross`.
 - Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:04.92 y 1:04.77** con la 450 y
   **1:04.27 / 1:04.22** con la 600 (`--bike base/motocross600`), desde los peraltes más empinados y `bot_lateral` 9
   de octubre de 2026 (medido con el exe de la v0.3.4; ver [MAPAS.md](MAPAS.md), "Pista de motocross"). Antes, con
@@ -130,6 +140,9 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | reaparecer donde quedó (mapas libres) | `--map sandbox/medanos --test crashloop --respawn-here --telemetry`: cada `REAPARECE` dice dónde, a cuántos m de donde quedó el piloto, con qué pendiente y a cuánto de la guía |
 | la pista al revés desde S | `--spawn S --test subidaN` (N km/h, recto: p. ej. subir la escadaria con `--spawn 90`) |
 | cuerpo en el aire | `--flat --drop 3 --test airrot` (atrás a fondo) o `airlean` (adelante y atrás cada 0.6 s) |
+| whip en un salto de verdad | desde `pruebas/`: `--map prueba/salto_whip --test whipkickN[L][n][a][hT][cT][sS]` (un doble con cara de ~28°): llega a N km/h y en la cara, desde que sube con las dos ruedas hasta despegar, tira el stick a la derecha (`L` izquierda, `sS` con S, `n` nada); en el aire lo suelta, `h` lo sostiene (`hT` los primeros T s), `cT` lo tira al otro lado 0.35 s desde los T s (traerla), `a` sin nada en la cara y el stick en el aire de 0.1 a 0.5 s; el cabeceo en el aire como el bot. `python ../tools/whip.py <exe> --map prueba/salto_whip --bike ... --test whipkick50 --time 11` resume cada vuelo: al despegar rolido, `wr`, guiñada `wy` y cuánto sube; en el aire rolido y cruzada (`beta`) máximos; al tocar; la cola máxima del segundo siguiente (serpenteo) y si hubo caída. Sirve para las de siempre (`--flat --drop 1 --test whip`). Ver [FISICA.md](FISICA.md), "Un whip de verdad" |
+| laderas, peraltes y paredes | desde `pruebas/`: `--map prueba/ladera` (un plano de 22°, se larga de costado a la pendiente) o `prueba/bowl_pared` (paredes hasta ~70°) con `--test giroN[xS]` (velocidad fija y dirección a fondo o S): con `lean_load`, la línea `   suelo psi= psiT= carga= nY=` de la telemetría (la inclinación contra el suelo que pisan las ruedas, la que busca, la carga en g y la normal); `tools/telemetria.py` la suma a la fila. Ver [FISICA.md](FISICA.md), "El equilibrio era un giroscopio" |
+| el estado del whip | con `whip_takeoff` o `whip_air`, la línea `   whip wyaw= wint= wlaunch= wpeak= wpeakroll= wcross=` (la trompa contra el vuelo, la intención en la cara, con cuánto despegó, lo máximo del vuelo y si aterrizó cruzado de más); `tools/telemetria.py` también la suma |
 | caer de cola o de trompa desde H m | `--flat --drop H --test teclas:v0.1,4` (la flecha abajo 0.1 s en el aire: toca a ~25-35° de cola; `v0.05` ~10°, `v0.2` ~53°, `^0.1` de trompa ~-30°), con `--telemetry --telemetry-dt 0.001`: `vy`, `h`, `gnd`, `fN`/`rN` después de tocar (ver [FISICA.md](FISICA.md), "La Trial salía despedida al caer alto") |
 | frenada a fondo desde N km/h | `--map base/circuito --bike base/carrera --test frenadaN` y `python tools/frenada.py` |
 | frenar y doblar a la vez desde N km/h | desde `pruebas/`: `--map prueba/plaza_asfalto --bike base/carrera --test frenacurvaN[xS][dD][aA][n]` (S: cuánto manubrio, 1 = la D, < 0 la A; dD: la dirección empieza D s después de frenar, D < 0 antes, viniendo inclinada; aA: la suelta a los A s; n: sin freno; fF: frena con F en vez de a fondo, `x0f0.3` es una frenada suave derecha) y `python ../tools/frenacurva.py`. Como con teclado: `frenacurva150x0.6d-1.5a1.5` viene doblando y suelta para frenar, `frenacurva150x1d0.3a0.15` toca la D frenando |
@@ -293,6 +306,17 @@ una rama sin mergear. Para que no vuelva a pasar:
 - El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.3.9-beta (11/10/2026): equilibrio por la carga, whip de verdad y piloto con peso (beta)
+
+`dist/v0.3.9-beta/MotoSim-v0.3.9-beta.zip` (27 archivos, 10.0 MB). Protocolo 7: juega con la v0.3.4 a la v0.3.8 y la v0.2.5 a la
+v0.2.8. Primera **beta**: el nombre lleva `-beta` y `release.yml` la publica como pre-release (`--prerelease --latest=false`,
+cualquier versión con un guion), así "Latest" sigue siendo la última estable. Cambia a propósito la física de la 450 y la 600
+(a pedido; ver "Regresiones" arriba y FISICA.md). MSVC con runtime estático (sólo DLLs de Windows). Verificado desde la carpeta
+del paquete: `bikestats` sin errores, bots (motocross 450 1:04.41 / 1:04.24, favela con la 450 1:36.78, circuito con la de
+carreras 2:10.86, park 0:50.87 / 0:50.90, valle 0:41.01 / 0:40.99), en red nueva contra nueva y contra la v0.3.8 en los dos
+sentidos. Ojo: el mapa del parque es `sandbox/park` (con `--map sandbox/parque`, que no existe, corre la pista de motocross).
+Detalle en FISICA.md (equilibrio por la carga, whip, la 450 y la 600) y PILOTO.md ("Cuerpo con masa").
 
 ### v0.3.8 (04/10/2026): minimapa, línea ideal, HUD nuevo, derrape inclinado y la Trial sin rebote
 

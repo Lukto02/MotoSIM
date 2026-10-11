@@ -1,0 +1,22 @@
+// Prueba (no se entrega): un solo salto de tierra para medir el whip y el scrub (prueba whipkickN de Game.cpp y
+// tools/whip.py). Plano; se larga 60 m antes, hacia el norte. Un doble: cara con transición que termina recta a 28°
+// hasta 2.2 m (labio a 6 m), un pozo y el aterrizaje (mesa de 1 m a 2 m y bajada de 8.5°): a 45-50 km/h vuela ~1.3 s y cae en la bajada.
+{
+  "name": "Salto para whips (pruebas)",
+  "kind": "prueba · un salto",
+  "bike": "base/motocross",
+  "markers": false,
+  "terrain": {
+    "type": "flat", "size": 512, "resolution": 0.5, "edge": 10,
+    "shapes": [
+      {"shape": "line", "at": [0, 0], "yaw": 0, "width": 14, "edge": 6, "mode": "level", "base": 0, "smooth": 0.4, "dirt": true,
+       "profile": [[-80, 0], [0, 0], [1, 0.06], [2, 0.25], [3, 0.6], [4, 1.1], [5, 1.63], [6, 2.16], [6.3, 2.2], [7.5, 1.5], [8.5, 0], [16, 0], [18.5, 2.0], [19.5, 2.0], [33, 0], [80, 0]]}
+    ]
+  },
+  "start": [0, -60],
+  "track": {
+    "style": "guide", "width": 14,
+    "points": [[0, -120], [0, -60], [0, 0], [0, 60], [0, 120], [60, 160], [120, 120], [120, -120], [60, -160]]
+  },
+  "look": {"preset": "day"}
+}

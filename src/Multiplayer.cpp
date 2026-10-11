@@ -701,7 +701,8 @@ void Multiplayer::UpdateVisuals(float frameDt)
         }
         if (r.rider) {
             if (riderOn) {
-                r.rider->PoseOnBike(r.lastPose);
+                // Con el cuerpo con masa: lo que mide de la moto sale de cómo se dibuja (igual que la propia).
+                r.rider->PoseOnBike(r.lastPose, r.bike, r.DisplayPos(), r.DisplayRot(), GetTime(), onGround ? 1.0f : 0.0f, 2.5f);
             } else {
                 if (!r.riderBound) {
                     Mat44 locals[RiderPart::Count];

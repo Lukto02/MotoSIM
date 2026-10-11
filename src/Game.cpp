@@ -1513,6 +1513,44 @@ BikeInput Game::TestInput()
         // soltar para aterrizar derecho; whiphold lo mantiene hasta el suelo.
         const float dir = opt.test == "whipL" ? -1.0f : 1.0f;
         if (t > 0.15f && (t < 0.75f || opt.test == "whiphold") && bike.airTime > 0.0f) in.steer = dir;
+    } else if (opt.test.rfind("whipkick", 0) == 0) {
+        // whipkickN[L][n][a][h[T]][cT][sS] (física; mapa prueba/salto_whip, tools/whip.py): llega derecho a N km/h (caja
+        // automática) y en la cara del salto (desde que sube con las dos ruedas hasta despegar) tira el stick a la derecha
+        // (L: izquierda; sS: con S en vez de a fondo; n: no). En el aire lo suelta; h: lo sostiene todo el vuelo (hT: los
+        // primeros T s); cT: desde los T s de vuelo lo tira al otro lado 0.35 s (trae la moto); a: sin nada en la cara, el
+        // stick en el aire de 0.1 a 0.5 s (el whip de siempre). En el aire el cabeceo como el bot. Al volver al piso, derecho.
+        bike.engine.autoShift = true;
+        const char* arg = opt.test.c_str() + 8;
+        const float vt = (float)std::atof(arg) / 3.6f;
+        const float dir = std::strchr(arg, 'L') ? -1.0f : 1.0f;
+        const char* sArg = std::strchr(arg, 's');
+        const float kick = std::strchr(arg, 'n') || std::strchr(arg, 'a') ? 0.0f : (sArg ? (float)std::atof(sArg + 1) : 1.0f);
+        const char* cArg = std::strchr(arg, 'c');
+        const bool grounded = bike.wheels[Bike::FRONT].grounded || bike.wheels[Bike::REAR].grounded;
+        if (grounded) {
+            in.throttle = mu::Clamp((vt - bike.forwardSpeed) * 0.5f + 0.3f, 0.0f, 1.0f);
+            // En la cara: desde que las dos ruedas suben por ella (no un wheelie al arrancar) hasta despegar.
+            if (!testBraking && t > 1.0f && bike.pitch > mu::Rad(8.0f) && bike.Velocity().GetY() > 1.0f &&
+                (bike.wheels[Bike::FRONT].grounded || testSteer != 0.0f))
+                testSteer = in.steer = dir * kick;
+            if (testBraking) in.steer = 0.0f;
+        } else if (!bike.crashed && bike.airTime > 0.02f && t > 1.0f) {   // (no la caída de cuando aparece)
+            testBraking = true;                                  // ya despegó: lo que sigue es el vuelo y el aterrizaje
+            const float a = bike.airTime;
+            // El cabeceo, como el bot: busca caer un poco de trompa (si no, la cara la hace girar de nariz).
+            const Vec3 fwdA = bike.Rotation() * Vec3::sAxisZ();
+            const float pitchRate = bike.AngularVelocity().Dot(fwdA.Cross(bike.Rotation() * Vec3::sAxisY()));
+            in.lean = mu::Clamp((bike.pitch - mu::Rad(-8.0f)) * 3.0f + pitchRate * 1.2f, -1.0f, 1.0f);
+            if (const char* h = std::strchr(arg, 'h')) {         // hT: sólo los primeros T s de vuelo
+                const float hold = std::isdigit((unsigned char)h[1]) ? (float)std::atof(h + 1) : 1e9f;
+                if (a < hold) in.steer = dir;
+            }
+            if (std::strchr(arg, 'a') && a > 0.1f && a < 0.5f) in.steer = dir;
+            if (cArg) {
+                const float tc = (float)std::atof(cArg + 1);
+                if (a > tc && a < tc + 0.35f) in.steer = -dir;
+            }
+        }
     } else if (opt.test.rfind("frenacurva", 0) == 0) {
         // frenacurvaN[xS][dD][aA][n][fF]: como frenadaN, pero doblando como con la D (la rampa del teclado, hasta S;
         // sin xS, a fondo; S < 0, a la izquierda). Por defecto dobla desde que empieza a frenar y no suelta. dD:
@@ -2238,6 +2276,15 @@ void Game::PrintTelemetry() const
                 mu::Deg(beta), bike.Position().GetY() - terrain.Height(bike.Position().GetX(), bike.Position().GetZ()),
                 f.susp.velocity, r.susp.velocity, vel.GetY(), mu::Deg(bike.steerBase), mu::Deg(bike.steerCaster), bike.legOut, mu::Deg(bike.bodyTilt), bike.riderSide, mu::Deg(bike.grauToBalance),
                 physics->LastScrape().active ? physics->LastScrape().speed : -1.0f);
+    // lean_load (física): la inclinación respecto del suelo que pisan las ruedas, la que busca y la carga en g. Línea aparte
+    // (no cambia la de siempre, que compara tools/regresion.sh).
+    if (bike.Params() && bike.Params()->leanLoad > 0.0f)
+        std::printf("   suelo psi=%6.1f psiT=%6.1f carga=%4.2f nY=%5.2f\n", mu::Deg(bike.leanSurface),
+                    mu::Deg(bike.leanSurface + bike.leanTarget - bike.roll), bike.loadAccel / 9.81f, bike.loadNormal.GetY());
+    // whip_takeoff / whip_air (física): el estado del whip (lo que leen el piloto y los trucos).
+    if (bike.Params() && (bike.Params()->whipTakeoff > 0.0f || bike.Params()->whipAir > 0.0f))
+        std::printf("   whip wyaw=%6.1f wint=%5.2f wlaunch=%5.2f wpeak=%6.1f wpeakroll=%6.1f wcross=%d\n", mu::Deg(bike.whipYaw), bike.whipIntent,
+                    bike.whipLaunch, mu::Deg(bike.whipPeakYaw), mu::Deg(bike.whipPeakRoll), bike.whipCrossedLanding ? 1 : 0);
     if (ragdoll.Active()) {                          // piloto suelto: altura de la pelvis sobre el suelo y velocidad
         const Vec3 p = ragdoll.Position(1.0f);
         std::printf("   ragdoll h=%5.2f v=%5.2f conMoto=%d\n", p.GetY() - terrain.Height(p.GetX(), p.GetZ()), ragdoll.Velocity().Length(),
@@ -2698,7 +2745,10 @@ void Game::Draw()
     drawRiderModel = riderModel.Loaded() && useRiderModel;
     if (drawRiderModel) {
         if (bike.RiderOnBike()) {
-            riderModel.PoseOnBike(bike.RiderPoseLocal());
+            // Con el cuerpo con masa (RiderMotion): sigue a la moto como se dibuja, en tiempo de simulación.
+            const float ground = bike.wheels[Bike::FRONT].grounded || bike.wheels[Bike::REAR].grounded ? 1.0f : 0.0f;
+            riderModel.PoseOnBike(bike.RiderPoseLocal(), bike, bike.RenderPosition(alpha), bike.RenderRotation(alpha),
+                                  (double)simTime + (double)(alpha * kDt), ground);
             riderWorld = ToRl(Mat44::sRotationTranslation(bike.RenderRotation(alpha), bike.RenderPosition(alpha)));
         } else if (ragdoll.Active()) {
             riderModel.PoseFromRagdoll(ragdoll, alpha);

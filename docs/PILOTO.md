@@ -38,6 +38,9 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
   arman falanges virtuales (`BuildGrip`). La derecha rueda sobre el puño con el acelerador.
 - Cabeza: mira adelante y 22° abajo (la pera hacia el pecho) y **la mitad del giro la toma el cuello**
   (ver "El cuello del modelo 3").
+- **Cuerpo con masa** (`RiderMotion`): la pose de arriba no se dibuja tal cual: la siguen resortes con la inercia
+  de la moto (aterrizajes, acelerar y frenar, curva, whip, derrape) y la cabeza mira hacia donde va. Ver "Cuerpo con
+  masa".
 
 ### En el aire, tirado atrás, el torso atravesaba el manubrio
 - **Pasaba**: tirándose adelante o atrás con las flechas en un salto, a veces el torso se iba para
@@ -171,6 +174,86 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
   hombros (articulaciones) a 0.36-0.38 m entre sí; caderas a 0.18-0.20 m; muslos no muy gruesos (la
   entrepierna es lo que queda contra el asiento). El ajuste (asiento, rodillas, tobillos) se acomoda solo a
   otras medidas; el ragdoll se arma con sus articulaciones (`JointPose`) y en red cada PC usa las del suyo.
+
+### Cuerpo con masa (RiderMotion, octubre de 2026)
+- **Pedido**: "pulir las animaciones, que todo se sienta smooth y físico y no scripteado". Antes el piloto pasaba de
+  una pose a otra: `RiderPoseLocal` + IK, sin inercia. `riderLean` y `legOut` van en rampa (velocidad constante:
+  arranca y frena en seco), la pose de pie sobre la cola entra por el cabeceo, la cabeza miraba siempre al frente de
+  la moto (en la curva y en el whip, torcida con ella), al aterrizar o frenar el cuerpo no se enteraba y al caerse el
+  modelo saltaba a la pose sin reacciones.
+- **Qué se hizo**: `RiderMotion` (en `RiderModel.*`), entre `RiderPoseLocal` y la IK. **Es sólo dibujo**: el ragdoll
+  sigue apareciendo con la pose de siempre y sin ventana no corre (la telemetría da idéntica). Cada grado de
+  libertad es un resorte amortiguado `x'' = w²(objetivo - x) - 2·zeta·w·x' + fuerza` (pasos de 1/240 s: estable con
+  cualquier cuadro), y las fuerzas son lo que siente el cuerpo:
+  - **Lo que mide**: la transformación de la moto **como se dibuja** (interpolada), cuadro a cuadro, en tiempo de
+    simulación (en pausa no se mueve; en cámara lenta va lento). Velocidad y aceleración de un punto en la cadera
+    (con el giro de la moto) y velocidad y aceleración angular, filtradas (35 y 40 ms). Lo mismo para la moto propia
+    y la de otro jugador (para ésa, filtros 2.5 veces más largos: trae las correcciones de la red). No hace falta
+    ningún dato nuevo de la moto ni cambiar el protocolo; `ground` (alguna rueda apoyada) sale de las ruedas o, en
+    red, de las banderas `kFrontGround`/`kRearGround`.
+  - **Qué aceleración**: de costado la "propia" (con la gravedad: en una curva bien inclinada da ~0, el piloto no se
+    va para afuera; con la cinemática daba 5.7 m/s² hacia adentro y el cuerpo se iba 2.5 cm afuera en toda la curva);
+    adelante la de la moto a lo largo, sin la gravedad (en una subida no se tira atrás); arriba la propia menos 1 g,
+    pasada por un filtro pasa-altos de 0.6 s (una carga sostenida la sostienen los músculos; en el aire es -1 g y se
+    absorbe), y lo que alivia cuenta la mitad (estira menos de lo que se hunde). En el aire, ni de costado ni
+    adelante (cae junto con la moto).
+  - **Cadera** (`HipsX/Y/Z`): w 9 / 12 / 8, zeta 0.8 / 0.7 / 0.75, ganancia 0.35 / 1 / 0.5, saturación suave (tanh)
+    a 4 / 5.5 / 5 cm (arriba, 3). Aterrizando de 3 m se hunde 5.5 cm; acelerando a fondo va 5-6 cm atrás; frenando,
+    5-6 adelante. Con 7.5 cm de hundimiento la cola entraba en el asiento; se bajó a 5.5 y el resto lo absorbe el torso.
+  - **Torso** (`TorsoPitch/Roll`, giro de hombros alrededor de la cadera): w 7.5, zeta 0.65. Péndulo: 1.5 rad/s² por
+    m/s² adelante (acelerando ~10° atrás, frenando ~10-15° adelante); el 60% de la aceleración angular de la moto no
+    la acompaña al instante (la moto cabecea o se tumba y el torso se queda); se dobla 3 rad por m que se hunde la
+    cadera (absorbe con todo el cuerpo: codos doblados, casco adelante); 0.12 rad hacia adentro por g de curva; en el
+    aire busca la vertical con el 25% del cabeceo y el tumbado de la moto (whip: la moto se acuesta, él no tanto).
+    Satura a 18° / 16°. Agachado (carreras, rápido) la aceleración casi no lo levanta (30%): se sostiene con las rodillas.
+  - **Cabeza** (`HeadYaw/Pitch/Roll`): w 10, zeta 0.85. Mira hacia donde va: la velocidad sobre el piso (adelante si
+    va despacio, para atrás o con la cola afuera, que ahí la velocidad apunta afuera de la curva), girada lo que gira
+    la curva en 0.45 s; 11° abajo en el piso y hacia el aterrizaje en el aire; endereza el 45% del tumbado (horizonte).
+    Topes: ±57° de costado, -52°..+20° arriba/abajo, ±23° de giro. El cuello toma la mitad (con el giro completo, no
+    sólo la cara: `SolveBody`, `headFree`).
+  - **Piernas**: `legOut` de la pose pasa por un resorte crítico (w 7) y la pata sale también **con la cola afuera**:
+    12°-24° entre la moto y la velocidad, de 2.5 a 24 m/s, apoyada, la pierna de la punta de la moto (no en la de
+    carreras, que se cuelga). Misma forma que `RiderPoseLocal` (sentado adelante, arco por afuera de los plásticos).
+  - **La pose pedida, suavizada**: cadera, hombros y `lean` siguen a `RiderPoseLocal` con un resorte crítico (w 13,
+    ~0.25 s): las rampas y los saltos de la pose (de pie sobre la cola, `supported`) arrancan y frenan suave.
+  - **Al caerse**: `BindToParts` guarda los huesos como se veían respecto de cada parte y en 0.35 s (smoothstep) pasa a
+    los de la pose con que se armó el ragdoll. Sin salto en el primer cuadro y el ragdoll igual que antes.
+  - **Arranque**: al aparecer (o reaparecer, o si salta más de 1 m o 0.6 rad en un cuadro, o el tiempo vuelve atrás)
+    arranca quieto en la pose pedida y los dos primeros cuadros toman la velocidad que trae sin aceleración.
+- **Trampas**:
+  - Con la velocidad de 0 a la que trae al aparecer (`--drop`), el primer cuadro daba 56 m/s² y el torso se iba 27°
+    atrás en el aire.
+  - **El dt recortado** (a 0.05 s) con un cuadro largo (guardar una captura tarda ~0.1 s) daba la velocidad al doble
+    y un "golpe" de 58 m/s²: se usa el dt real (hasta 0.25 s) y los resortes van en pasos chicos.
+  - Las capturas con la cámara de persecución no sirven para comparar poses (`--drop` arranca con la cámara arriba, el
+    sacudón de los aterrizajes, el resorte): se compararon con una copia con la cámara rígida a la moto (ver abajo).
+- **Para sumar un truco** (nac-nac, superman, heel clicker): otra contribución a los objetivos de los mismos resortes
+  con un peso que también pasa por un resorte (0 a 1): cadera y torso como acá, y para soltar una pierna o las manos,
+  un objetivo de tobillo / mano con su peso, como `legOut` (la IK ya lleva el tobillo a donde se le pida). Así entra y
+  sale sin cortes y encima siguen las reacciones (un aterrizaje en medio del truco).
+- **Se comprobó** (Motocross 450 salvo donde se dice; `MOTOSIM_PILOTO_LOG=1` imprime cada cuadro, con ventana,
+  `PILOTO <id> t= us= a= al= cadera= torso= cabeza= afuera= deriva= alcance= +torso= +cadera=`):
+  - Capturas antes y después (mismo exe salvo el piloto, cámara rígida): aceleración y frenada (`accel`), aterrizaje
+    de 3 m (`--drop 3`), whip (`--drop 3 --test whip`), curva de frente (`turn`: la cabeza mira hacia adentro y queda
+    más derecha), derrape con freno de mano (`teclas:W+40,_D2,W1`), cuerpo atrás (`pose`), la caída de `crashloop`,
+    la de carreras (`accel`, `giro60`), la Trial cayendo de 3 m, `colazo` en la favela (Trilheira) y un salto del bot.
+  - Saltos cuadro a cuadro (sin los cuadros largos de las capturas), 20 s de bot en red con 40 ms de jitter, el
+    propio y el del otro: cadera ≤ 2.3 cm, torso ≤ 3.7°, cabeza ≤ 3° por cuadro.
+  - Costo: `PoseOnBike` entero (con la IK) 4-8 µs de mediana, 34 µs el percentil 99 (antes la IK sola): los fps no
+    cambian.
+  - Física: `tools/regresion.sh` contra la v0.3.8, idéntico en `brakeslide`, `cuerpo`, `flip`, `whip`, `wheelie`,
+    `--bot --time 40`, `accel`, `crashloop`, `colazo` (favela) y `airlean`; el bot 1:04.26 / 1:04.10; y `crashloop`
+    **con ventana** (el ragdoll con el modelo): la telemetría da idéntica a la de antes.
+- **Queda**: el piloto generado (F9, `--genrider`) no lo tiene (lo dibuja `Bike::Draw` con `RiderPoseLocal`). La
+  inclinación hacia adentro en la curva es chica a propósito (la pose de pata afuera tira el torso afuera). No se midió
+  la holgura (`tools/holgura`) con las reacciones: la cadera se hunde como mucho 5.5 cm y en las capturas no se ve
+  meterse, pero en la de carreras colgada o la Trial convendría barrerlo.
+
+**Cámara rígida para comparar poses** (no está en el juego): en una copia del repo, al final de `ChaseCamera::Update`,
+si existe `MOTOSIM_CAM="yaw pitch dist [sigue] [alto]"` la cámara queda pegada a la moto (sin resorte ni sacudón),
+`yaw` grados respecto del rumbo inicial de la moto (o del actual con `sigue` = 1; -90 = de costado del lado derecho,
+180 = atrás), `alto` m sobre el centro de masa. Con eso las capturas de antes y después salen con el mismo encuadre
+cuadro a cuadro.
 
 ## Riggear un modelo nuevo (tools/riggear_piloto.py)
 

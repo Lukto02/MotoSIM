@@ -209,6 +209,43 @@ struct BikeParams {
     // costado (un muro, una casa, una barrera) y cayendo de panza a plomo; 0 = nunca.
     float crashImpactSpeed = 7.0f;
     float crashImpactVertical = 11.0f;
+    // Equilibrio por la carga (0..1; 0 = como antes): la inclinación que busca el balance sale de la carga real (el peso y
+    // la fuerza del suelo que pisan las ruedas, a lo largo de su normal) más la curva que pide el manubrio, y se mide y se
+    // limita (max_lean_deg) contra la normal de ese suelo, no contra la vertical del mundo. Así en una ladera, un peralte o
+    // la pared de un bowl la moto no se endereza "contra el mundo". Ver FISICA.md, "El equilibrio era un giroscopio".
+    float leanLoad = 0.0f;
+    // Con lean_load, tope de la inclinación contra el mundo (grados; 0 = sin tope). Sin él, la de carreras subía por la
+    // pared del peralte de afuera de la pista de motocross acostada 90° y al salir al plano se caía.
+    float leanLoadWorldDeg = 0.0f;
+    // Con lean_load, cuánto de la carga de más (sobre el peso) se deja de contar para la inclinación en un suelo tendido
+    // (menos de ~20°; desde ~40° cuenta entera): baches, whoops y compresiones duran décimas y el filtro las seguía tarde.
+    // 0 = cuenta siempre. La 450, la 600 y la Trial: 1. Ver FISICA.md, "La 450 y la 600 con el equilibrio por la carga".
+    float leanLoadFlat = 0.0f;
+    // Balance a velocidad: K y D se multiplican por esto desde balance_fast_speed (m/s; empieza a la mitad). 1 = como antes.
+    float balanceFastK = 1.0f, balanceFastD = 1.0f;
+    float balanceFastSpeed = 5.5f;
+    // ... y amortigua el rolido respecto de una inclinación de referencia que sigue a la pedida a lo sumo a estos rad/s (lo
+    // que el piloto acuesta la moto), no todo el rolido: acompaña cuando el piloto la acuesta. 0 = todo el rolido.
+    float balanceFastLead = 0.0f;
+    // Whip de verdad (ver FISICA.md, "Un whip de verdad"). 0 = como antes.
+    // whip_takeoff: en la cara del salto, con el stick al costado, el piloto patea la cola: la cubierta trasera empuja de
+    // costado (fracción de su carga, a ~43 km/h; crece con la velocidad), la moto sale del labio girando de costado y de
+    // guiñada. Es una fuerza del suelo en el contacto (con el tope de agarre de la cubierta), no se fija la rotación.
+    float whipTakeoff = 0.0f;
+    // whip_air: en el aire el whip no vuelve solo (0..1: cuánto se apagan el enderezado y la alineación de guiñada mientras la
+    // moto está cruzada) y el stick al costado es una velocidad de giro sobre el eje del whip (rolido + guiñada) que el
+    // torque persigue: para el mismo lado lo acentúa, para el otro lo frena y lo trae; suelto conserva lo que trae.
+    float whipAir = 0.0f;
+    float whipAirRate = 1.8f;        // rad/s con el stick a fondo
+    float whipAirTorque = 350.0f;    // Nm máximos
+    float whipAirGain = 300.0f;      // Nm por rad/s de diferencia
+    float whipAirDamping = 200.0f;   // Nm por rad/s con el stick suelto: el piloto frena el whip con el cuerpo (no lo trae)
+    // Aterrizar cruzado: más de esto (grados entre hacia dónde apunta y hacia dónde va, en el suelo) es caída. 0 = nunca.
+    float whipLandCrashDeg = 0.0f;
+    // Física 031 (la 450 y la 600; la otra física tantea los cantos con sondas): sobre objetos, una cara que mira hacia
+    // adelante más empinada que esto (grados; la contrahuella del escalón que la rueda deja bajando) no es apoyo para el
+    // rayo de la rueda. 0 = como antes. Ver FISICA.md, "La 450 y la 600 con el equilibrio por la carga y el whip".
+    float objectWallDeg = 0.0f;
 
     EngineParams engine;
 
@@ -278,6 +315,23 @@ public:
     // BikePhysics.cpp: todas las fuerzas, antes de cada paso de Jolt.
     void PrePhysics(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
     void PrePhysics031(const BikeInput& input, float dt, PhysicsWorld& world, const Terrain& terrain);
+    // lean_load: el suelo que pisan las ruedas, en el marco de la moto (BikePhysics.cpp).
+    struct LoadFrame {
+        float psi = 0.0f;    // inclinación respecto de la normal del suelo (rad, + a la derecha)
+        float f0n = 9.81f;   // carga por kg a lo largo de la normal (m/s²; quieta en el plano, g)
+        float f0r = 0.0f;    // el peso a lo largo del costado del suelo (m/s², + hacia la derecha de la moto)
+        float weight = 1.0f; // cuánto vale (lean_load × 0..1): con la moto muy de punta respecto del suelo, nada
+        float f0nTurn = 9.81f; // para cuánto se puede doblar: la carga, hasta el peso a lo largo de la normal
+    };
+    LoadFrame UpdateLoadFrame(JPH::Vec3 fwd, JPH::Vec3 up, float mass, JPH::Vec3 fallbackNormal, float dt);
+    void TrackLeanTarget(bool valid, float dt);   // balance_fast_k/d
+    // Whip (BikePhysics.cpp): la intención en la cara del salto, la patada de la trasera, cuánto está cruzada en el aire y
+    // el estado (pico, despegue, aterrizaje cruzado).
+    void UpdateWhipIntent(float steer, JPH::Vec3 linVel, float v, float mass, bool wasInAir, float dt);
+    float WhipKickForce(float rearLoad, float grip, float v) const;
+    float WhipAmount() const;
+    float WhipAirStick(float steer, bool takeoff, float airTimeNow);   // whip_air: el stick que cuenta como whip en este vuelo
+    void UpdateWhipState(bool grounded, bool wasInAir, float airTimeBefore, JPH::Vec3 fwd, JPH::Vec3 linVel, JPH::Vec3 fwdFlat);
     void UpdateHandbrake(const BikeInput& in, JPH::Vec3 linVel, JPH::Vec3 fwdFlat, float lowSlide, float dt);   // freno de mano (handbrake_yaw)
     float HandbrakeLean(float leanTarget) const;
     float HandbrakeSteer(float steerTarget, JPH::Vec3 linVel, float yawRate, JPH::Vec3 frontOffset, JPH::Vec3 fwdFlat, float maxSteerRad) const;
@@ -310,6 +364,22 @@ public:
     float riderSide = 0.0f;                  // cuerpo del piloto de costado (-1 izquierda .. +1 derecha)
     float steerBase = 0.0f, steerCaster = 0.0f;   // manubrio pedido y contravolante automático (rad)
     float leanGrip = 1.0f;                        // agarre bajo las ruedas, filtrado (lean_surface_grip)
+    JPH::Vec3 loadNormal = JPH::Vec3::sAxisY();   // lean_load: normal del suelo que pisan las ruedas (filtrada)
+    float loadAccel = 9.81f;                      // lean_load: carga por kg a lo largo de esa normal (filtrada)
+    float leanSurface = 0.0f;                     // lean_load: inclinación respecto de ese suelo (rad, telemetría)
+    float leanTargetPrev = 0.0f, leanTargetRate = 0.0f;   // balance_fast_k/d: cómo cambia la inclinación buscada (rad/s)
+    bool leanTargetValid = false;
+    float balanceSettle = 0.0f;                   // balance_fast_k/d: 0..1, asentada sobre las dos ruedas
+    // Whip (para el piloto animado y los trucos): se leen en cualquier moto; con whip_takeoff / whip_air en 0 igual se calculan.
+    float whipIntent = 0.0f;                 // -1..1: el piloto tira la moto de costado en la cara del salto (+ a la derecha)
+    float whipPushTime = 0.0f;               // s desde que el labio dejó de empujar (cargas de más de ~1.6 g)
+    float whipYaw = 0.0f;                    // rad: la trompa respecto de hacia dónde vuela, en el plano (+ a la derecha)
+    float whipPeakYaw = 0.0f, whipPeakRoll = 0.0f;   // lo máximo de este vuelo (rad, con signo)
+    float whipLaunch = 0.0f;                 // -1..1: con cuánto whip despegó (la intención en el labio); hasta el próximo despegue
+    bool whipCrossedLanding = false;         // el último aterrizaje fue cruzado de más (whip_land_crash_deg): caída
+    // whip_air: el stick que venía apretado desde el piso (doblando al pasar una cresta) no es un whip hasta que se suelta;
+    // y un vuelo es "del piloto" si despegó con whip o tiró el stick en el aire (si no, el enderezado de siempre).
+    bool whipArmed = true, whipRiderFlight = false;
     float bodyTiltRate = 0.0f;
     float slideAngle = 0.0f;                 // telemetría: cola afuera en la dirección de la curva (rad)
     float rearBrakeUsed = 0.0f;              // freno trasero que queda después de que el piloto lo module
