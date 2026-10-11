@@ -10,6 +10,7 @@
 
 #include "MathUtil.h"
 #include "PhysicsWorld.h"
+#include "SystemKeys.h"
 #include "rlgl.h"
 
 #include <algorithm>
@@ -140,6 +141,7 @@ int Game::Run()
                 else if (missingMap != mp.HostMap()) std::printf("falta el mapa %s\n", (missingMap = mp.HostMap()).c_str());
             }
             BikeInput in = opt.bot ? BotInput() : TestInput();
+            if (opt.bot && !opt.botTrick.empty()) BotTrick(in);
             pendingShiftUp |= in.shiftUp;
             pendingShiftDown |= in.shiftDown;
             Step(in);
@@ -158,7 +160,11 @@ int Game::Run()
     } else {
         int frames = 0, hitches = 0;
         double total = 0.0, worst = 0.0;
+        const bool testing = opt.sizeGiven || opt.screenshotAt >= 0.0f || !opt.test.empty() || opt.bot;
         while (!WindowShouldClose() && !quitRequested) {
+            // Shift (trucos) cinco veces seguidas abría las Teclas especiales de Windows: con el foco en el juego, esos
+            // atajos se apagan (SystemKeys.h). En las pruebas automáticas no se tocan.
+            if (!testing) SystemKeys::SetGameFocus(IsWindowFocused());
             const float frameDt = GetFrameTime();
             Frame(frameDt);
             Draw();
@@ -170,6 +176,7 @@ int Game::Run()
             }
             if (opt.quitAfter > 0.0f && simTime >= opt.quitAfter) break;
         }
+        SystemKeys::Restore();
         if (opt.telemetry && frames > 31)
             std::printf("frames: %d, medio %.1f ms, peor %.1f ms, %d tirones (> 25 ms)\n", frames - 31, 1000.0 * total / (frames - 31),
                         1000.0 * worst, hitches);
@@ -292,6 +299,11 @@ void Game::Init()
         if (opt.test == "whip" || opt.test == "whipL" || opt.test == "whiphold") {
             bike.SetVelocity(*physics, fwd * 14.0f + Vec3(0.0f, 7.0f, 0.0f));
             for (Wheel& w : bike.wheels) w.omega = 14.0f / w.radius;
+        }
+        // truco...: sale como de un salto grande (12 m/s adelante, 8 arriba) con las ruedas girando.
+        if (opt.test.rfind("truco", 0) == 0) {
+            bike.SetVelocity(*physics, fwd * 12.0f + Vec3(0.0f, 8.0f, 0.0f));
+            for (Wheel& w : bike.wheels) w.omega = 12.0f / w.radius;
         }
         // flip / frontflip: sale disparada hacia arriba como de una rampa grande.
         if (opt.test == "flip" || opt.test == "frontflip") {
@@ -565,6 +577,7 @@ void Game::Frame(float frameDt)
         camera.SetShift(0.0f);
     }
     BikeInput in = opt.bot ? BotInput() : (!opt.test.empty() ? TestInput() : ReadPlayerInput(frameDt));
+    if (opt.bot && !opt.botTrick.empty()) BotTrick(in);
     if (menu != Menu::None && !opt.bot && opt.test.empty()) in = BikeInput{};
     pendingShiftUp |= in.shiftUp;
     pendingShiftDown |= in.shiftDown;
@@ -762,6 +775,36 @@ void Game::Step(BikeInput in)
     bike.PostPhysics();
     ragdoll.PostPhysics(bike.BodyID());
     simTime += kDt;
+
+    // Trucos: tocar a medio volver sacude la cámara; con --telemetry, cuándo empieza y termina cada uno y con cuánto tocó.
+    {
+        static const char* const kTrickName[Trick::Count] = {"-", "superman", "heel clicker", "no-hander", "nac-nac", "can-can"};
+        if (bike.trickHitAmount > trickHitShown + 0.05f) camera.AddShake(0.15f + 0.35f * bike.trickHitAmount);
+        trickHitShown = bike.trickHitAmount;
+        if (bike.trick != telTrick) {
+            if (opt.telemetry && telTrick != Trick::None)
+                std::printf("TRUCO t=%.2f %s termina: pico %.0f%%, %.2f s (cabeceo %+.1f, rolido %+.1f grados desde que empezó)\n", simTime,
+                            kTrickName[telTrick], telTrickPeak * 100.0f, simTime - telTrickT0, mu::Deg(bike.pitch - telTrickPitch),
+                            mu::Deg(bike.roll - telTrickRoll));
+            if (opt.telemetry && bike.trick != Trick::None)
+                std::printf("TRUCO t=%.2f %s empieza (%.2f s de vuelo, cabeceo %+.1f grados)\n", simTime, kTrickName[bike.trick], bike.airTime,
+                            mu::Deg(bike.pitch));
+            telTrick = bike.trick;
+            telTrickPeak = 0.0f;
+            telTrickT0 = simTime;
+            telTrickPitch = bike.pitch;
+            telTrickRoll = bike.roll;
+            telTrickTouch = false;
+        }
+        telTrickPeak = std::max(telTrickPeak, bike.trickAmt);
+        if (bike.trick != Trick::None && bike.trickLanded >= 0.0f && !telTrickTouch) {
+            telTrickTouch = true;
+            if (opt.telemetry && bike.trickLanded >= 0.05f)
+                std::printf("TRUCO t=%.2f %s toca el piso con el %.0f%% del truco (pico %.0f%%): %s\n", simTime, kTrickName[telTrick],
+                            bike.trickLanded * 100.0f, telTrickPeak * 100.0f,
+                            bike.crashed ? "CAIDA" : (bike.trickLanded > bikeParams.trickHit ? "golpe" : "volvio a tiempo"));
+        }
+    }
 
     // Choque con otra moto: sacude la cámara y, si te la pusieron fuerte, te caés: de costado, de atrás o
     // de arriba a más de 4 m/s; con la trompa, de frente (los dos) o si te lo trajo el otro, a más de
@@ -1181,6 +1224,9 @@ BikeInput Game::ReadPlayerInput(float dt)
     BikeInput in = KeyboardInput(k, dt);
     in.shiftUp = IsKeyPressed(KEY_E);
     in.shiftDown = IsKeyPressed(KEY_Q);
+    // Trucos: Shift o Ctrl (cualquiera de los dos lados) o B; la dirección cruda (sin las rampas del teclado).
+    bool trickHeldNow = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) || IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+    float dirX = (k.d ? 1.0f : 0.0f) - (k.a ? 1.0f : 0.0f), dirY = (k.up ? 1.0f : 0.0f) - (k.down ? 1.0f : 0.0f);
 
     if (IsGamepadAvailable(0)) {
         // Los gatillos reposan en -1. Hasta ver ese valor no se confía en ellos.
@@ -1202,12 +1248,66 @@ BikeInput Game::ReadPlayerInput(float dt)
         if (sy != 0.0f) in.lean = -sy;
         if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_TRIGGER_1)) in.shiftUp = true;
         if (IsGamepadButtonPressed(0, GAMEPAD_BUTTON_LEFT_TRIGGER_1)) in.shiftDown = true;
+        if (IsGamepadButtonDown(0, GAMEPAD_BUTTON_RIGHT_FACE_RIGHT)) trickHeldNow = true;   // B: trucos
+        if (sx != 0.0f) dirX = sx;
+        if (sy != 0.0f) dirY = -sy;
     }
     if (SideBody() && pad.on && !StickCamera()) {        // la de carreras, por defecto: el cuerpo de costado con el stick derecho
         const float rx = StickCurve(pad.rx, 0.15f);
         if (rx != 0.0f) in.side = rx;
     }
+    TrickButton(in, trickHeldNow, dirX, dirY, dt);
     return in;
+}
+
+// --trucos NOMBRE (pruebas, sobre todo de red): el bot aprieta el botón de trucos en cada salto de más de 0.2 s, con la
+// dirección del truco (superman, heel, nohander, nacnac, cancan) y lo suelta a los 0.55 s de vuelo.
+void Game::BotTrick(BikeInput& in)
+{
+    const std::string& n = opt.botTrick;
+    const float dirX = n == "nacnac" ? -1.0f : (n == "cancan" ? 1.0f : 0.0f);
+    const float dirY = n == "heel" ? 1.0f : (n == "nohander" ? -1.0f : 0.0f);
+    const bool held = bike.airTime > 0.2f && bike.airTime < 0.55f;
+    TrickButton(in, held, held ? dirX : 0.0f, held ? dirY : 0.0f, kDt);
+}
+
+// Botón de trucos (ver docs/PILOTO.md, "Trucos"). Sólo arranca en el aire (o si ya venía apretado desde un truco). Con él
+// apretado, el stick (A D ↑ ↓) elige el truco y no maneja la moto en el aire (ni whip ni mortal): nada = superman,
+// arriba = heel clicker, abajo = no-hander, izquierda = nac-nac, derecha = can-can. Lo que manda es la dirección al
+// apretarlo o en los primeros kTrickChoose s (se puede apretar el botón y enseguida la dirección); después queda fijo.
+// Al soltarlo, el stick sigue sin contar en el aire hasta que pasa por el centro: el que soltó el botón con el stick
+// tirado no se encuentra con un whip o un mortal que no pidió.
+void Game::TrickButton(BikeInput& in, bool held, float dirX, float dirY, float dt)
+{
+    constexpr float kTrickChoose = 0.2f;
+    const bool air = bike.RiderOnBike() && !bike.crashed && !bike.wheels[Bike::FRONT].grounded && !bike.wheels[Bike::REAR].grounded;
+    auto pick = [&]() {
+        if (std::max(std::fabs(dirX), std::fabs(dirY)) < 0.5f) return (int)Trick::Superman;
+        if (std::fabs(dirY) >= std::fabs(dirX)) return dirY > 0.0f ? (int)Trick::HeelClicker : (int)Trick::NoHander;
+        return dirX < 0.0f ? (int)Trick::NacNac : (int)Trick::CanCan;
+    };
+    if (held && (air || trickHeld)) {
+        if (!trickHeld) {
+            trickHeld = true;
+            trickHeldTime = 0.0f;
+            trickChosen = pick();
+        } else {
+            trickHeldTime += dt;
+            if (trickHeldTime < kTrickChoose && trickChosen == Trick::Superman) trickChosen = pick();
+        }
+        in.trick = trickChosen;
+        if (air) in.steer = in.lean = in.side = 0.0f;
+        return;
+    }
+    if (trickHeld) {
+        trickHeld = false;
+        trickChosen = Trick::None;
+        trickStickLock = true;
+    }
+    if (trickStickLock) {
+        if (!air || (std::fabs(dirX) < 0.3f && std::fabs(dirY) < 0.3f)) trickStickLock = false;
+        else in.steer = in.lean = in.side = 0.0f;
+    }
 }
 
 // Cuerpo del piloto a los costados (flechas ← →, la cruz): sólo en la de carreras, donde cambia cómo dobla (colgarse
@@ -1446,6 +1546,7 @@ BikeInput Game::TeclasInput()
                 else if (c == 'v') st.keys.down = true;
                 else if (c == '<') st.keys.left = true;
                 else if (c == '>') st.keys.right = true;
+                else if (c == '!') st.keys.trick = true;
                 else break;
             }
             if (i < st.text.size() && (st.text[i] == '+' || st.text[i] == '-')) st.until = st.text[i++];
@@ -1469,7 +1570,10 @@ BikeInput Game::TeclasInput()
         teclasStepT0 = simTime;
         teclasLog.Begin(*this);
     }
-    return KeyboardInput(teclasStep < (int)teclasSteps.size() ? teclasSteps[teclasStep].keys : KeysDown{}, kDt);
+    const KeysDown keys = teclasStep < (int)teclasSteps.size() ? teclasSteps[teclasStep].keys : KeysDown{};
+    BikeInput in = KeyboardInput(keys, kDt);
+    TrickButton(in, keys.trick, (keys.d ? 1.0f : 0.0f) - (keys.a ? 1.0f : 0.0f), (keys.up ? 1.0f : 0.0f) - (keys.down ? 1.0f : 0.0f), kDt);
+    return in;
 }
 
 BikeInput Game::TestInput()
@@ -1514,10 +1618,10 @@ BikeInput Game::TestInput()
         const float dir = opt.test == "whipL" ? -1.0f : 1.0f;
         if (t > 0.15f && (t < 0.75f || opt.test == "whiphold") && bike.airTime > 0.0f) in.steer = dir;
     } else if (opt.test.rfind("whipkick", 0) == 0) {
-        // whipkickN[L][n][a][h[T]][cT][sS] (física; mapa prueba/salto_whip, tools/whip.py): llega derecho a N km/h (caja
+        // whipkickN[L][n][a][h[T]][cT][rT][sS] (física; mapa prueba/salto_whip, tools/whip.py): llega derecho a N km/h (caja
         // automática) y en la cara del salto (desde que sube con las dos ruedas hasta despegar) tira el stick a la derecha
         // (L: izquierda; sS: con S en vez de a fondo; n: no). En el aire lo suelta; h: lo sostiene todo el vuelo (hT: los
-        // primeros T s); cT: desde los T s de vuelo lo tira al otro lado 0.35 s (trae la moto); a: sin nada en la cara, el
+        // primeros T s); cT: desde los T s de vuelo lo tira al otro lado 0.35 s (trae la moto); rT: desde los T s, al otro lado hasta tocar; a: sin nada en la cara, el
         // stick en el aire de 0.1 a 0.5 s (el whip de siempre). En el aire el cabeceo como el bot. Al volver al piso, derecho.
         bike.engine.autoShift = true;
         const char* arg = opt.test.c_str() + 8;
@@ -1549,6 +1653,9 @@ BikeInput Game::TestInput()
             if (cArg) {
                 const float tc = (float)std::atof(cArg + 1);
                 if (a > tc && a < tc + 0.35f) in.steer = -dir;
+            }
+            if (const char* r = std::strchr(arg, 'r')) {         // rT: desde los T s de vuelo, el stick al otro lado hasta tocar
+                if (a > (float)std::atof(r + 1)) in.steer = -dir;
             }
         }
     } else if (opt.test.rfind("frenacurva", 0) == 0) {
@@ -1604,6 +1711,26 @@ BikeInput Game::TestInput()
         in.lean = t < 0.1f ? 0.0f : (((int)((t - 0.1f) / 0.6f)) % 2 == 0 ? 1.0f : -1.0f);
     } else if (opt.test == "airrot") {           // stick atrás a fondo para frenar la rotación
         if (t > 0.1f) in.lean = -1.0f;
+    } else if (opt.test.rfind("truco", 0) == 0) {
+        // trucoNOMBRE[pP][sS][x] (con --drop: sale como de un salto, 12 m/s adelante y 8 arriba): aprieta el botón de trucos
+        // a los P s (0.3) con la dirección del truco (superman: ninguna; heel: arriba; nohander: abajo; nacnac: izquierda;
+        // cancan: derecha) y lo suelta a los S s (0.8) de apretarlo; x: no lo suelta (toca el piso con el truco: caída).
+        // Pasa por TrickButton, como el jugador. Telemetría: líneas TRUCO.
+        const std::string arg = opt.test.substr(5);
+        float dirX = 0.0f, dirY = 0.0f;
+        if (arg.rfind("heel", 0) == 0) dirY = 1.0f;
+        else if (arg.rfind("nohander", 0) == 0) dirY = -1.0f;
+        else if (arg.rfind("nacnac", 0) == 0) dirX = -1.0f;
+        else if (arg.rfind("cancan", 0) == 0) dirX = 1.0f;
+        auto num = [&](char key, float def) {                    // la letra seguida de un número ("superman" tiene una p)
+            for (size_t at = 1; at + 1 < arg.size(); ++at)
+                if (arg[at] == key && (std::isdigit((unsigned char)arg[at + 1]) || arg[at + 1] == '.')) return (float)std::atof(arg.c_str() + at + 1);
+            return def;
+        };
+        const float press = num('p', 0.3f), hold = num('s', 0.8f);
+        const bool keep = arg.size() > 1 && arg.back() == 'x';
+        const bool held = t > press && (keep || t < press + hold);
+        TrickButton(in, held, held && t < press + 0.05f ? dirX : 0.0f, held && t < press + 0.05f ? dirY : 0.0f, kDt);
     } else if (opt.test == "flip" || opt.test == "frontflip") {
         // Mortal atrás/adelante (con --drop): stick a fondo hasta casi completar la vuelta y
         // después frenar el giro para aterrizar derecha.
@@ -2299,6 +2426,7 @@ void Game::PrintTelemetry() const
             std::printf(" | %d:%s d=%.1fm v=%.1f edad=%.0fms ping=%d moto=%s(%s)%s", id, r.name.c_str(), (r.DisplayPos() - bike.Position()).Length(),
                         r.state.vel.Length(), r.age * 1000.0f, r.ping, r.bikeId.empty() ? "?" : r.bikeId.c_str(),
                         BikeStyleName(r.bike.Params() ? r.bike.Params()->visualStyle : 0), (r.state.flags & BikeState::kRiderOn) ? "" : " CAIDO");
+            if (r.state.trick != 0) std::printf(" truco=%d %.0f%%", r.state.trick, r.state.trickAmt / 2.55f);   // lo que llega (Trick::...)
         }
         std::printf("\n");
     }
@@ -2392,6 +2520,8 @@ BikeState Game::LocalState() const
     s.bestLap = bestLap;
     if (!riderOn)
         for (int i = 0; i < RiderPart::Count; ++i) s.parts[i] = ragdoll.PartTransform(i, 1.0f);
+    s.trick = (uint8_t)bike.trick;
+    s.trickAmt = (uint8_t)std::lround(mu::Clamp(bike.trickAmt, 0.0f, 1.0f) * 255.0f);
     return s;
 }
 
@@ -3078,6 +3208,7 @@ void Game::DrawHelp(float ui)
     };
     std::vector<Pair> right = {
         {"\xE2\x86\x91  \xE2\x86\x93  /  stick", "cuerpo adelante y atrás"},
+        {"Shift  /  B", "trucos en el aire (+ dirección)"},
         {StickCamera() ? "mouse  /  stick der." : "mouse", "mirar alrededor"},
         {"R  /  Y", FreeRide() ? "reaparecer acá cerca" : "reaparecer"},
         {"Esc  /  Start", "menú: ajustes y controles"},
@@ -4590,6 +4721,8 @@ void Game::DrawMenu()
         // El stick derecho y la cruz, según Ajustes ("Stick derecho": la cámara o el cuerpo).
         std::vector<Row> rider = {
             {"Cuerpo adelante y atrás", "\xE2\x86\x91  \xE2\x86\x93", "stick izq."},
+            // Trucos en el aire: el botón solo, superman; con ↑ heel clicker, ↓ no-hander, ← nac-nac, → can-can.
+            {"Trucos en el aire (+ dirección)", "Shift / Ctrl", "B"},
             {"Reaparecer", "R", "Y"},
             {"Volver a empezar", "Retroceso", "Back"},   // a la largada, y los objetos sueltos a su lugar
         };
@@ -4636,17 +4769,34 @@ void Game::DrawMenu()
             if (!toolLines.back().empty() && width(font, next, ts) > maxW) toolLines.push_back(t);
             else toolLines.back() = next;
         }
+        // Trucos: qué hace cada dirección con el botón apretado (ver docs/PILOTO.md, "Trucos").
+        static const char* tricks[] = {"En el aire, con el botón apretado: solo, superman", "\xE2\x86\x91 heel clicker", "\xE2\x86\x93 no-hander",
+                                       "\xE2\x86\x90 nac-nac", "\xE2\x86\x92 can-can", "soltalo antes de tocar el piso"};
+        std::vector<std::string> trickLines(1);
+        for (const char* t : tricks) {
+            const std::string next = trickLines.back().empty() ? std::string(t) : trickLines.back() + "   \xC2\xB7   " + t;
+            if (!trickLines.back().empty() && width(font, next, ts) > maxW) trickLines.push_back(t);
+            else trickLines.back() = next;
+        }
         const int nDriving = (int)(sizeof(driving) / sizeof(driving[0])), nRider = (int)rider.size();
         const int nGame = (int)(sizeof(game) / sizeof(game[0]));
         const float top = y + 84.0f * scale;
         const float tablesH = std::max(48.0f * scale + 16.0f * scale + (float)(nDriving + nRider) * rh, 24.0f * scale + (float)nGame * rh);
-        const float panelH = tablesH + 18.0f * scale + 24.0f * scale + 23.0f * scale * (float)toolLines.size() + 26.0f * scale;
+        const float panelH = tablesH + 2.0f * (18.0f * scale + 24.0f * scale) + 23.0f * scale * (float)(toolLines.size() + trickLines.size()) +
+                             26.0f * scale;
         DrawRectangleRounded({x - 24.0f * scale, top - 16.0f * scale, maxW + 48.0f * scale, panelH}, 0.04f, 6,
                              alpha(Color{10, 12, 16, 200}, fade));
         float leftY = table(x, top, "MANEJO", driving, nDriving);
         leftY = table(x, leftY + 16.0f * scale, "PILOTO", rider.data(), nRider);
         const float rightY = table(x + tableW + gapX, top, "JUEGO", game, nGame);
         float py = std::max(leftY, rightY) + 18.0f * scale;
+        text(font, "TRUCOS", x, py, 14.0f * scale, alpha(kAccent, fade), 2.0f);
+        py += 24.0f * scale;
+        for (const std::string& l : trickLines) {
+            text(font, l, x, py, ts, alpha(kTextDim, fade));
+            py += 23.0f * scale;
+        }
+        py += 18.0f * scale;
         text(font, "PARA PROBAR", x, py, 14.0f * scale, alpha(kAccent, fade), 2.0f);
         py += 24.0f * scale;
         for (const std::string& l : toolLines) {

@@ -20,6 +20,12 @@ paquetes, motos remotas). El funcionamiento visto desde el jugador está en el R
   dirección, piloto, motor, petardeos, banderas (`kRiderOn`, `kCrashed`, `kLimiter`, `kShifting`,
   `kFrontGround`, `kRearGround`), por rueda dónde apoya, carga y patinaje (huellas y polvo) y, caído, las
   11 partes del ragdoll. El anfitrión lo reenvía a los demás.
+- **Al final del estado, el truco** (`trick`, `trickAmt` 0..255, dos bytes; octubre de 2026). Sin subir el protocolo:
+  `ReadState` lee lo suyo y no mira lo que sobra, y el anfitrión reenvía el paquete tal cual, así que una versión que no
+  los conoce los ignora y una nueva que no los recibe (el paquete termina antes) toma "sin truco" y deja `r.ok` como
+  estaba. Probado: nueva contra v0.3.9-beta con `tools/red.py` en los dos sentidos, y anfitrión nuevo haciendo trucos
+  (`--trucos nacnac`: el bot aprieta el botón en cada salto) con un invitado v0.3.9-beta. Con dos nuevas, la línea `net`
+  del invitado muestra `truco=N NN%` del otro. **Para agregar algo más sin romper**: siempre al final y leído así.
 - PING/PONG cada 0.5 s; ROSTER (lista de jugadores, con la moto de cada uno y el mapa) cada 1 s; 5 s sin
   noticias = desconectado. Nada necesita entrega confiable: todo se repite o se refresca.
 

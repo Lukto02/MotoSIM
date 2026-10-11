@@ -42,6 +42,9 @@ struct BikeState {
     uint16_t laps = 0;
     float bestLap = 0.0f;
     JPH::Mat44 parts[RiderPart::Count];   // el ragdoll, si el piloto se cayó
+    // Truco (Trick::...) y cuánto está hecho (0..255). Van al final del paquete, después de todo: una versión que no los
+    // conoce los ignora (lee lo suyo y no mira lo que sobra), así que el protocolo no cambia. Ver docs/RED.md.
+    uint8_t trick = 0, trickAmt = 0;
 };
 
 class Multiplayer {

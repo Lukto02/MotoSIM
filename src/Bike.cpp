@@ -199,8 +199,14 @@ void BikeParams::Register(Tuning& t)
     t.Add("whip_air_torque", &whipAirTorque);
     t.Add("whip_air_gain", &whipAirGain);
     t.Add("whip_air_damping", &whipAirDamping);
+    t.Add("whip_air_return", &whipAirReturn);
+    t.Add("whip_air_return_torque", &whipAirReturnTorque);
     t.Add("whip_land_crash_deg", &whipLandCrashDeg);
     t.Add("object_wall_deg", &objectWallDeg);
+    t.Add("trick_speed", &trickSpeed);
+    t.Add("trick_reaction", &trickReaction);
+    t.Add("trick_crash", &trickCrash);
+    t.Add("trick_hit", &trickHit);
 
     t.Add("engine_idle_rpm", &engine.idleRPM);
     t.Add("engine_clutch_rpm", &engine.clutchRPM);
@@ -355,6 +361,12 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     whipCrossedLanding = false;
     whipArmed = true;
     whipRiderFlight = false;
+    whipReturn = 0.0f;
+    trick = Trick::None;
+    trickAmt = trickRate = trickHitAmount = 0.0f;
+    trickLanded = -1.0f;
+    trickTorque = trickCom = Vec3::sZero();
+    trickScale = Mat44::sIdentity();
     reverseHold = 0.0f;
     prevPos = currPos = position;
     prevRot = currRot = q;
@@ -527,6 +539,7 @@ RiderPose Bike::RiderPoseLocal() const
         p.shoulder[i] = p.shoulders + Vec3(0.19f * side, -0.03f, 0);
         p.elbow[i] = (p.shoulder[i] + p.grip[i]) * 0.5f + Vec3(0.12f * side, -0.05f, -0.06f);
     }
+    if (trickAmt > 0.0f) ApplyTrickPose(p, trick, trickAmt);   // trucos (ver ApplyTrickPose)
     return p;
 }
 
@@ -600,5 +613,229 @@ RiderPose Bike::RiderPoseLocal031() const
         p.shoulder[i] = p.shoulders + Vec3(0.19f * side, -0.03f, 0);
         p.elbow[i] = (p.shoulder[i] + p.grip[i]) * 0.5f + Vec3(0.12f * side, -0.05f, -0.06f);
     }
+    if (trickAmt > 0.0f) ApplyTrickPose(p, trick, trickAmt);
     return p;
+}
+
+// ------------------------------------------------------------------------------------------------ trucos
+// Ver docs/PILOTO.md, "Trucos". La pose del truco sale de la del estilo (asiento, estriberas, manubrio), así sirve
+// para todas las motos; la usan el dibujo (el modelo por IK, el generado), el ragdoll al caerse y la física (TrickBody:
+// con la pose neutra, la reacción del cuerpo sobre la moto).
+namespace {
+
+Vec3 Bezier(Vec3 a, Vec3 c, Vec3 b, float t)
+{
+    const float u = 1.0f - t;
+    return a * (u * u) + c * (2.0f * u * t) + b * (t * t);
+}
+
+// Articulación del medio de dos huesos de largos l1 y l2 de `a` a `tip`, doblando hacia `pole` (dirección). Si no
+// llega, la punta se acerca (queda casi estirado).
+Vec3 MidJoint(Vec3 a, Vec3& tip, float l1, float l2, Vec3 pole)
+{
+    Vec3 d = tip - a;
+    const float dist = mu::Clamp(d.Length(), std::fabs(l1 - l2) + 1e-3f, (l1 + l2) * 0.995f);
+    const Vec3 dir = d.NormalizedOr(-Vec3::sAxisY());
+    tip = a + dir * dist;
+    const float along = (l1 * l1 - l2 * l2 + dist * dist) / (2.0f * dist);
+    const float h = std::sqrt(std::max(0.0f, l1 * l1 - along * along));
+    Vec3 side = pole - dir * pole.Dot(dir);
+    side = side.Length() > 1e-4f ? side.Normalized() : dir.GetNormalizedPerpendicular();
+    return a + dir * along + side * h;
+}
+
+} // namespace
+
+void Bike::ApplyTrickPose(RiderPose& p, int t, float amount) const
+{
+    if (t <= Trick::None || t >= Trick::Count || !(amount > 0.0f)) return;
+    const BikeStyleDef& style = GetBikeStyle(P ? P->visualStyle : 0);
+    const float a = mu::Clamp(amount, 0.0f, 1.0f);
+    const RiderPose base = p;
+    const Vec3 gc = (p.grip[0] + p.grip[1]) * 0.5f;            // centro del manubrio (gira con él)
+    const Vec3 sh = style.hips;                                  // cadera neutra del estilo (el asiento)
+    const float pegX = std::fabs(style.peg.GetX());
+
+    // Lo que pide cada truco: cadera y hombros (y la cabeza respecto de ellos) y, para cada pie o mano que se suelta, a
+    // dónde va (end), por dónde pasa (ctrl: una curva que esquiva el asiento, la cola o el tanque), hacia dónde dobla la
+    // rodilla (pole) y hacia dónde apunta el pie (toe). Cada uno con su peso: el cuerpo arranca antes que los pies.
+    Vec3 hipsT = p.hips, shouldersT = p.shoulders, headOff = p.head - p.shoulders;
+    float wBody = mu::Smoothstep(0.0f, 0.85f, a);
+    struct Limb {
+        bool free = false;
+        Vec3 ctrl = Vec3::sZero(), end = Vec3::sZero(), pole = -Vec3::sAxisY(), toe = Vec3::sAxisZ();
+        float w = 0.0f;
+    } leg[2], hand[2];
+    switch (t) {
+    case Trick::Superman: {
+        // Los pies salen de las estriberas y el cuerpo se estira atrás, horizontal, con las manos en el manubrio y los
+        // brazos estirados: los hombros bajan detrás del manubrio, la cadera queda sobre la cola y las piernas, estiradas
+        // atrás y un poco arriba.
+        shouldersT = gc + Vec3(0.0f, 0.12f, -0.51f);
+        hipsT = shouldersT + Vec3(0.0f, 0.04f, -0.46f);
+        headOff = Vec3(0.0f, 0.07f, 0.17f);
+        for (int i = 0; i < 2; ++i) {
+            const float s = i == 0 ? 1.0f : -1.0f;              // +X = izquierda
+            Limb& l = leg[i];
+            l.free = true;
+            l.end = hipsT + Vec3(0.13f * s, 0.06f, -0.74f);
+            l.ctrl = Vec3((pegX + 0.16f) * s, sh.GetY() - 0.08f, sh.GetZ() - 0.22f);   // por afuera de la cola
+            l.pole = Vec3(0.0f, -1.0f, 0.15f);                  // boca abajo: las rodillas hacia la moto
+            l.toe = Vec3(0.0f, 0.15f, -1.0f);                   // en punta, hacia atrás
+            l.w = mu::Smoothstep(0.05f, 1.0f, a);
+        }
+        break;
+    }
+    case Trick::HeelClicker: {
+        // Los dos pies juntos por arriba y por delante del manubrio, las piernas estiradas entre los brazos, la cola
+        // levantada en la punta del asiento y el torso derecho, colgado de los brazos estirados (el modelo lo inclina
+        // adelante lo justo para llegar al manubrio: ver docs/PILOTO.md, "Brazos más largos").
+        hipsT = sh + Vec3(0.0f, 0.06f, 0.28f);
+        shouldersT = hipsT + Vec3(0.0f, 0.45f, -0.03f);
+        for (int i = 0; i < 2; ++i) {
+            const float s = i == 0 ? 1.0f : -1.0f;
+            Limb& l = leg[i];
+            l.free = true;
+            l.end = Vec3(0.04f * s, gc.GetY() + 0.72f, gc.GetZ() + 0.20f);   // arriba y adelante del manubrio (~45° desde la cadera)
+            l.ctrl = Vec3(0.12f * s, sh.GetY() + 0.22f, sh.GetZ() + 0.45f);   // las rodillas suben al pecho y se estiran
+            l.pole = Vec3(0.0f, 1.0f, -0.2f);
+            l.toe = Vec3(0.0f, 0.5f, 0.85f);
+            l.w = mu::Smoothstep(0.0f, 1.0f, a);
+        }
+        break;
+    }
+    case Trick::NoHander: {
+        // Suelta las manos y abre los brazos a los costados (un poco arriba); se sienta derecho, un poco atrás, y aprieta
+        // la moto con las rodillas.
+        hipsT = p.hips + Vec3(0.0f, 0.03f, -0.05f);
+        shouldersT = p.shoulders + Vec3(0.0f, 0.03f, -0.10f);
+        for (int i = 0; i < 2; ++i) {
+            const float s = i == 0 ? 1.0f : -1.0f;
+            Limb& h = hand[i];
+            h.free = true;
+            h.end = shouldersT + Vec3(0.60f * s, 0.12f, 0.03f);
+            h.ctrl = (p.grip[i] + h.end) * 0.5f + Vec3(0.0f, 0.16f, 0.0f);   // sube y se abre (no barre el manubrio)
+            h.pole = Vec3(0.2f * s, -1.0f, -0.6f);              // codos abajo y atrás
+            h.w = mu::Smoothstep(0.0f, 1.0f, a);
+        }
+        break;
+    }
+    case Trick::NacNac:
+    case Trick::CanCan: {
+        // Nac-nac (a la izquierda): la pierna derecha pasa por arriba de la cola al otro lado y queda estirada atrás y
+        // afuera; el pie izquierdo sigue en su estribera y la cadera se corre y sube. Can-can (a la derecha): la pierna
+        // izquierda cruza por arriba del asiento, por delante de la cadera, y queda estirada al costado de la rueda
+        // delantera; el cuerpo, adelante sobre el manubrio.
+        const bool nac = t == Trick::NacNac;
+        const float s = nac ? 1.0f : -1.0f;                      // hacia dónde va la pierna (+X = izquierda)
+        const int i = nac ? 1 : 0;                               // la pierna que cruza (la del otro lado)
+        Limb& l = leg[i];
+        l.free = true;
+        if (nac) {
+            hipsT = p.hips + Vec3(0.10f * s, 0.08f, -0.03f);
+            shouldersT = p.shoulders + Vec3(0.07f * s, -0.01f, 0.03f);
+            l.end = Vec3(0.50f * s, sh.GetY() - 0.20f, sh.GetZ() - 0.40f);
+            l.ctrl = Vec3(-0.04f * s, sh.GetY() + 0.52f, sh.GetZ() - 0.42f);
+            l.pole = Vec3(0.0f, -1.0f, -0.3f);
+            l.toe = Vec3(0.5f * s, -0.3f, -0.8f);
+        } else {
+            hipsT = p.hips + Vec3(0.07f * s, 0.12f, 0.05f);
+            shouldersT = p.shoulders + Vec3(0.03f * s, 0.02f, 0.10f);
+            l.end = Vec3(0.56f * s, sh.GetY() + 0.02f, sh.GetZ() + 0.42f);   // estirada al costado y adelante, casi horizontal
+            l.ctrl = Vec3(-0.05f * s, sh.GetY() + 0.45f, sh.GetZ() + 0.30f);
+            l.pole = Vec3(0.0f, 0.8f, 0.6f);
+            l.toe = Vec3(0.6f * s, 0.1f, 0.8f);
+        }
+        l.w = mu::Smoothstep(0.0f, 1.0f, a);
+        break;
+    }
+    default: return;
+    }
+
+    // Cuerpo.
+    p.hips = base.hips + (hipsT - base.hips) * wBody;
+    p.shoulders = base.shoulders + (shouldersT - base.shoulders) * wBody;
+    p.trickHips = p.hips - base.hips;
+    p.trickShoulders = p.shoulders - base.shoulders;
+    p.head = p.shoulders + (base.head - base.shoulders) + (headOff - (base.head - base.shoulders)) * wBody;
+    float most = wBody;
+    for (int i = 0; i < 2; ++i) {
+        p.hip[i] = p.hips + (base.hip[i] - base.hips);
+        p.shoulder[i] = p.shoulders + (base.shoulder[i] - base.shoulders);
+        // Piernas: el tobillo por la curva (o en la estribera) y la rodilla con los largos de la pose (el piloto generado
+        // y el ragdoll se arman con ellos). La diferencia con la pose de siempre se va en el primer 30%: sin salto al empezar.
+        const Limb& l = leg[i];
+        const float l1 = (base.knee[i] - base.hip[i]).Length(), l2 = (base.ankle[i] - base.knee[i]).Length();
+        const Vec3 poleBase = (base.knee[i] - (base.hip[i] + base.ankle[i]) * 0.5f).NormalizedOr(Vec3::sAxisZ());
+        Vec3 ankle0 = base.ankle[i];
+        const Vec3 knee0 = MidJoint(base.hip[i], ankle0, l1, l2, poleBase);
+        Vec3 ankle = l.free ? Bezier(base.ankle[i], l.ctrl, l.end, l.w) : base.ankle[i];
+        const Vec3 pole = l.free ? (poleBase * (1.0f - l.w) + l.pole.Normalized() * l.w).NormalizedOr(poleBase) : poleBase;
+        const Vec3 knee = MidJoint(p.hip[i], ankle, l1, l2, pole);
+        const float keep = 1.0f - mu::Smoothstep(0.0f, 0.3f, l.free ? l.w : wBody);
+        p.knee[i] = knee + (base.knee[i] - knee0) * keep;
+        p.ankle[i] = ankle;
+        if (l.free) {
+            p.foot[i] = ankle + (base.foot[i] - base.ankle[i]) * (1.0f - l.w) + l.toe.Normalized() * (0.07f * l.w);
+            p.toe[i] = l.toe.Normalized();
+            p.legFree[i] = l.w;
+            p.legOut[i] *= 1.0f - l.w;
+            most = std::max(most, l.w);
+        } else {
+            p.foot[i] = ankle + (base.foot[i] - base.ankle[i]);
+        }
+        // Brazos: la mano por su curva (o en el puño) y el codo con los largos de la pose.
+        const Limb& h = hand[i];
+        const float a1 = (base.elbow[i] - base.shoulder[i]).Length(), a2 = (base.grip[i] - base.elbow[i]).Length();
+        const Vec3 elbowPole = (base.elbow[i] - (base.shoulder[i] + base.grip[i]) * 0.5f).NormalizedOr(-Vec3::sAxisY());
+        Vec3 grip0 = base.grip[i];
+        const Vec3 elbow0 = MidJoint(base.shoulder[i], grip0, a1, a2, elbowPole);
+        Vec3 grip = h.free ? Bezier(base.grip[i], h.ctrl, h.end, h.w) : base.grip[i];
+        const Vec3 ePole = h.free ? (elbowPole * (1.0f - h.w) + h.pole.Normalized() * h.w).NormalizedOr(elbowPole) : elbowPole;
+        Vec3 gripReach = grip;
+        const Vec3 elbow = MidJoint(p.shoulder[i], gripReach, a1, a2, ePole);
+        p.elbow[i] = elbow + (base.elbow[i] - elbow0) * (1.0f - mu::Smoothstep(0.0f, 0.3f, h.free ? h.w : wBody));
+        if (h.free) {
+            p.grip[i] = gripReach;
+            p.handFree[i] = h.w;
+            most = std::max(most, h.w);
+        }
+    }
+    p.trick = most;
+}
+
+// Centros de masa de las partes del cuerpo (RiderPart: pelvis, torso, cabeza, muslos, piernas, brazos, antebrazos) con la
+// pose neutra del estilo (sin cuerpo adelante ni atrás, el manubrio derecho) y el truco: lo que se movió respecto de esa
+// misma pose sin truco es lo que mueve la física. No depende del dibujo (ni del cuerpo con masa).
+void Bike::TrickBody(int t, float amount, Vec3* c) const
+{
+    const BikeStyleDef& style = GetBikeStyle(P ? P->visualStyle : 0);
+    const Wheel& fw = wheels[FRONT];
+    const Vec3 steerHead = fw.mountLocal - fw.axisLocal * 0.53f;
+    const Vec3 barCenter = steerHead + style.barOffset;
+    RiderPose p;
+    p.hips = style.hips;
+    p.shoulders = style.shoulders;
+    p.head = p.shoulders + Vec3(0.0f, 0.18f, 0.09f);
+    for (int i = 0; i < 2; ++i) {
+        const float side = i == 0 ? 1.0f : -1.0f;
+        const Vec3 peg(style.peg.GetX() * side, style.peg.GetY(), style.peg.GetZ());
+        p.hip[i] = p.hips + Vec3(0.10f * side, 0, 0);
+        p.knee[i] = Vec3(style.knee.GetX() * side, style.knee.GetY(), style.knee.GetZ());
+        p.ankle[i] = peg + Vec3(0, 0.06f, 0);
+        p.foot[i] = peg + Vec3(0, 0.02f, 0.04f);
+        p.grip[i] = barCenter + Vec3(style.gripX * side, 0.0056f, -0.006f);
+        p.shoulder[i] = p.shoulders + Vec3(0.19f * side, -0.03f, 0);
+        p.elbow[i] = (p.shoulder[i] + p.grip[i]) * 0.5f + Vec3(0.12f * side, -0.05f, -0.06f);
+    }
+    ApplyTrickPose(p, t, amount);
+    c[RiderPart::Pelvis] = p.hips;
+    c[RiderPart::Torso] = p.hips + (p.shoulders - p.hips) * 0.55f;
+    c[RiderPart::Head] = p.head;
+    for (int i = 0; i < 2; ++i) {
+        c[RiderPart::Thigh + i] = (p.hip[i] + p.knee[i]) * 0.5f;
+        c[RiderPart::Shin + i] = (p.knee[i] + p.foot[i]) * 0.5f;
+        c[RiderPart::UpperArm + i] = (p.shoulder[i] + p.elbow[i]) * 0.5f;
+        c[RiderPart::Forearm + i] = (p.elbow[i] + p.grip[i]) * 0.5f;
+    }
 }

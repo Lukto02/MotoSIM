@@ -825,28 +825,12 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
     const BikeStyleDef& st = GetBikeStyle(style);
     const float maxSteer = mu::Rad(P ? P->maxSteerDeg : 42.0f);
     const float maxTilt = mu::Rad(P ? P->airBodyTiltDeg : 35.0f);
-    {   // la forma de la moto para el ajuste del piloto (en el juego la arma Draw)
+    {   // el chasis del estilo de esta moto (en el juego lo arma Draw). Desde la v0.3.4 (la pose de la primera 0.3.1)
+        // RiderModel no tiene el ajuste a la forma de la moto (BikeShape, Fit): acá sólo se mide.
         r.bikeStyle = style;
         const Vec3 forkUp = -bike.wheels[Bike::FRONT].axisLocal;
         r.UpdateBikeBody(ToRl(bike.wheels[Bike::FRONT].mountLocal + forkUp * 0.53f), ToRl(forkUp));
-        model.BuildShape(r);
-        if (G.debug) {                       // perfil de la forma: techo en x = 0 y ancho de cada lado a varias alturas
-            const RiderModel::BikeShape& sh = model.shape;
-            std::printf("forma: z    techo(x=0) techo(x=.1) | ancho izq/der a y = -0.3 -0.1 0.0 0.1 0.2\n");
-            for (float z = -0.8f; z <= 0.7f; z += 0.05f) {
-                float dl, dv;
-                auto topAt = [&](float x) {
-                    const int ix = (int)((x - sh.x0) / 0.01f), iz = (int)((z - sh.z0) / 0.01f);
-                    return ix >= 0 && iz >= 0 && ix < sh.nx && iz < sh.nz ? sh.top[(size_t)iz * sh.nx + ix] : -9.0f;
-                };
-                std::printf("  %5.2f  %6.2f %6.2f |", z, topAt(0.0f), topAt(0.1f));
-                for (float y : {-0.3f, -0.1f, 0.0f, 0.1f, 0.2f}) {
-                    const float wl = sh.Inside({0.0001f, y, z}, dl, dv) ? dl : 0.0f, wr = sh.Inside({-0.0001f, y, z}, dl, dv) ? dl : 0.0f;
-                    std::printf(" %.2f/%.2f", wl, wr);
-                }
-                std::printf("\n");
-            }
-        }
+        model.elbowsIn = st.tuck > 0.0f || st.hangOff > 0.0f ? 1.0f : 0.0f;   // como PoseOnBike con la moto
     }
     FILE* csv = std::fopen(csvPath, "w");
     if (csv) {
@@ -893,12 +877,11 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
         for (int k = 0; k < kRegions; ++k)
             if (R.h[k].depth > it->second[k].h.depth) it->second[k] = {R.h[k], label};
         if (csv) {
-            const RiderModel::Fit& f = model.lastFit;
-            std::fprintf(csv, "%s,%s,%s,%.2f,%.3f,%.3f,%.2f,%.2f,%.2f,%.3f,%.3f", st.name, group, label.c_str(), 100.0f * RiderClearance::HandGap(model, b.RiderPoseLocal()), model.lastReach, f.lift, f.center, f.open[0], f.open[1],
-                         f.ankleOut[0], f.ankleOut[1]);
-            std::fprintf(csv, ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", 100.0f * model.SeatDepth(RiderModel::ProbeDrape), 100.0f * model.SideDepth(RiderModel::ProbeLeg),
-                         100.0f * model.SideDepth(RiderModel::ProbeLeg + 1), 100.0f * model.SideDepth(RiderModel::ProbeFoot),
-                         100.0f * model.SideDepth(RiderModel::ProbeFoot + 1), 100.0f * model.ChestDepth(b.RiderPoseLocal()));
+            // Sin el ajuste (ver arriba), las columnas del ajuste (sube, centro, abre, tob) y de sus pruebas (p...) van en 0;
+            // en sube va lo que la IK corrió la cadera y en centro, lo que inclinó el torso (rad) para que las manos lleguen.
+            std::fprintf(csv, "%s,%s,%s,%.2f,%.3f,%.3f,%.2f,%.2f,%.2f,%.3f,%.3f", st.name, group, label.c_str(), 100.0f * RiderClearance::HandGap(model, b.RiderPoseLocal()), model.lastReach,
+                         model.lastHipShift, model.lastExtraPitch, 0.0f, 0.0f, 0.0f, 0.0f);
+            std::fprintf(csv, ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
             for (int k = 0; k < kRegions; ++k) std::fprintf(csv, ",%.2f,%s", 100.0f * R.h[k].depth, Where(R.h[k]).c_str());
             std::fprintf(csv, "\n");
         }
@@ -986,6 +969,19 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
                 b.steerAngle = steer * maxSteer;
                 std::snprintf(label, sizeof label, "tope L%+.0f S%+.0f st%+.0f", lean, side, steer);
                 run("aterrizaje", b, label);
+            }
+    // Trucos en el aire (Bike::ApplyTrickPose): a medias y del todo, con el manubrio derecho o girado.
+    for (int trick = Trick::Superman; trick < Trick::Count; ++trick)
+        for (float amount : {0.5f, 1.0f})
+            for (float steer : {-0.5f, 0.0f, 0.5f}) {
+                Bike b = base();
+                b.supported = 0.0f;
+                b.trick = trick;
+                b.trickAmt = amount;
+                b.steerAngle = steer * maxSteer;
+                for (Wheel& w : b.wheels) w.extension = w.travel;
+                std::snprintf(label, sizeof label, "truco%d %.1f st%+.1f", trick, amount, steer);
+                run("trucos", b, label);
             }
     // Rápido (carreras: agachado y colgado en la curva).
     if (st.tuck > 0.0f || st.hangOff > 0.0f)

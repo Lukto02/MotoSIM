@@ -92,6 +92,7 @@ public:
     void Draw(Renderer& r, const Matrix& world);
 
 private:
+    friend struct RiderClearance;            // pruebas: cuánto se mete el piloto en la moto (tools/holgura, no va en el juego)
     int Bone(const char* name) const;
     // Pose completa con el torso inclinado `extraPitch` más y la cadera `hipShift` m más adelante;
     // devuelve cuánto se estira el brazo más exigido (distancia hombro-manubrio / largo del brazo).
@@ -114,6 +115,10 @@ private:
     int realBones = 0;                       // huesos del modelo; los virtuales van después
     std::vector<float> curlAngle;            // flexión de cada falange virtual (0 en los huesos del modelo)
     std::vector<Vector3> curlAxis;           // eje de flexión en reposo
+    std::vector<int> curlSide;               // mano de cada falange virtual (0 izquierda, 1 derecha)
+    float handOpen[2] = {0.0f, 0.0f};        // truco: la mano soltó el manubrio (0..1, RiderPose::handFree)
+    // Cuánto cierra la falange b: agarrando (gripAmount) y menos con la mano suelta (relajada, apenas doblada).
+    float FingerGrip(int b) const { return gripAmount * (1.0f - 0.8f * handOpen[curlSide[b] & 1]); }
     std::vector<int> skinBone;               // 4 huesos y pesos por vértice (los del modelo, con los dedos repartidos)
     std::vector<float> skinWeight;
 
@@ -138,10 +143,12 @@ private:
     bool motionShown = false;                      // el último cuadro sobre la moto salió de RiderMotion
     double motionTime = -1.0;                      // time del último PoseOnBike con RiderMotion
     bool headFree = false;                         // SolveBody: la cabeza mira hacia motion.look
+    float elbowsIn = 0.0f;                         // 1: codos abajo, cerca del tanque (la de carreras); 0: afuera (ataque)
     float lastReach = 0.0f, lastExtraPitch = 0.0f, lastHipShift = 0.0f;   // telemetría de la IK
 
     int hips = -1, spine = -1, neck = -1, head = -1;
     int spineChain[3] = {-1, -1, -1};
+    int clavicle[2] = {-1, -1};                    // LeftShoulder / RightShoulder (opcionales)
     int arm[2] = {-1, -1}, foreArm[2] = {-1, -1}, hand[2] = {-1, -1};
     int upLeg[2] = {-1, -1}, leg[2] = {-1, -1}, foot[2] = {-1, -1}, toe[2] = {-1, -1};
 };

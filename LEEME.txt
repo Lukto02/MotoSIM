@@ -1,8 +1,13 @@
-﻿MotoSim v0.3.9-beta - motos para jugar solo o con amigos en la red local
-========================================================================
+﻿MotoSim v0.3.9 - motos para jugar solo o con amigos en la red local
+===================================================================
 
-NOVEDADES DE LA v0.3.9-beta
-Versión BETA para probar: cambia cómo se siente la moto (también la Motocross 450). Contanos qué tal.
+NOVEDADES DE LA v0.3.9
+- TRUCOS EN EL AIRE: Shift (o Ctrl; B en el joystick) hace un superman; con una dirección, heel clicker (arriba),
+  no-hander (abajo), nac-nac (A / izquierda) y can-can (D / derecha). El cuerpo del piloto pesa: estirarse mueve
+  la moto. Soltalo a tiempo (tarda 0.3-0.4 s en volver): si tocás el piso fuera de la moto, te caés.
+- SALIR DEL WHIP: el stick al otro lado trae la moto derecha (inclinación y cruzada) y la deja ahí, sin pasarse.
+- PILOTO CON BRAZOS MÁS LARGOS: proporciones reales, llega cómodo al manubrio en todas las motos y los trucos
+  se ven estirados de verdad.
 - EQUILIBRIO QUE NO ES UN GIROSCOPIO: la moto se inclina según la carga que siente (el peso más la curva),
   no contra la vertical. En laderas, peraltes y paredes se puede girar sin parar; en un bowl sube por la
   pared. A velocidad la ayuda acompaña en vez de enderezarte.
@@ -274,7 +279,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.3.9-beta, la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.3.9, la v0.3.9-beta, la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.
@@ -292,6 +297,10 @@ CONTROLES
   Doblar / inclinar ....... A / D (stick izquierdo)
   Whip / scrub (en el aire) A / D (stick izquierdo al costado)
   Piloto adelante / atrás . Flechas arriba / abajo (stick arriba / abajo)
+  Trucos (en el aire) ..... Shift o Ctrl (B): solo, superman; con flecha arriba heel clicker, abajo
+                            no-hander, A nac-nac, D can-can (o el stick). Soltalo a tiempo: si tocás
+                            el piso sin haber vuelto a la moto, te caés. Mientras jugás, apretar
+                            Shift muchas veces no abre las "Teclas especiales" de Windows
   Cuerpo a los costados ... sólo la Carrera 1000: flechas izquierda / derecha (stick derecho),
                             hacia adentro de la curva para colgarte
   Grau (Trilheira) ........ flecha abajo + W de golpe; con la rueda arriba, W suelto = grau lento,

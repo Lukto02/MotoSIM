@@ -80,6 +80,9 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         in.steer = 0.0f;
         in.lean = 0.0f;
     }
+    // Trucos (BikePhysics.cpp, UpdateTrick): con el botón de trucos en el aire el stick elige el truco, no es whip ni mortal.
+    if (in.trick != Trick::None && wasInAir) in.steer = in.lean = 0.0f;
+    if (in.trick != Trick::None || trickAmt > 0.0f) UpdateTrick(in.trick, wasInAir, rot.Conjugated() * angVel, dt);
 
     const float riderThrottle = in.throttle;                     // lo que gira el piloto (antes de los recortes)
     if (P->handbrakeYaw > 0.0f) UpdateHandbrake(in, linVel, fwdFlat, 0.0f, dt);   // freno de mano (BikePhysics.cpp)
@@ -183,6 +186,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     }
     const float legAmount = std::fabs(legOut);
     comShiftWorld = rot * Vec3(0.0f, P->comHeight, P->comForward + riderLean * P->riderShift + legAmount * P->legOutComForward);
+    if (trickAmt > 0.0f) comShiftWorld += rot * trickCom;       // el cuerpo en el truco corre el centro de masa de todo
     const Vec3 forceCenter = com + comShiftWorld;
 
     // Aplicar una fuerza en p equivale a: fuerza en el COM + torque (p - COM) x F. Tomar el torque
@@ -534,6 +538,9 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     const float airTimeBefore = airTime;
     airTime = grounded ? 0.0f : airTime + dt;
     UpdateWhipState(grounded, wasInAir, airTimeBefore, fwd, linVel, fwdFlat);
+    // Trucos: tocar sin haber vuelto (caída o golpe) y la reacción del cuerpo sobre la moto (BikePhysics.cpp).
+    if (trickAmt > 0.0f || trickHitAmount > 0.0f) TrickTouch(grounded || world.AnyContact(), dt);
+    if (trickAmt > 0.0f) totalTorque += rot * trickTorque;
 
     // Cuerpo del piloto (whip): con el stick al costado en el aire corre el cuerpo para el otro lado,
     // como un resorte críticamente amortiguado (sus músculos). La moto recibe la reacción, -I·alfa:
@@ -562,6 +569,10 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
             const float s = mu::Smoothstep(0.0f, P->balanceSpeed, v);
             float K = mu::Lerp(P->balanceKLow, P->balanceKHigh, s);
             float D = mu::Lerp(P->balanceDLow, P->balanceDHigh, s);
+            if (trickHitAmount > 0.0f) {                 // tocó a medio volver de un truco: no la controla bien un momento
+                K *= 1.0f - 0.7f * trickHitAmount;
+                D *= 1.0f - 0.5f * trickHitAmount;
+            }
             float dampRate = rollRate;
             if (P->balanceFastK != 1.0f || P->balanceFastD != 1.0f) {   // balance_fast_k/d (BikePhysics.cpp)
                 // Sólo asentada: con las dos ruedas apoyadas hace 0.3 s (en una sola, un stoppie al caer de un salto o un wheelie, y
@@ -609,6 +620,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
             // whip_air: el stick que venía apretado desde el piso no cuenta hasta que se suelta (WhipAirStick).
             const float airSteer = P->whipAir > 0.0f ? WhipAirStick(in.steer, !wasInAir, airTime) : in.steer;
             float hold = 1.0f - P->airWhipAssistFade * std::min(1.0f, std::fabs(airSteer));
+            if (trickAmt > 0.0f) hold *= 1.0f - 0.5f * trickAmt;   // en un truco el piloto casi no endereza la moto
             if (P->whipAir > 0.0f && whipRiderFlight) hold *= 1.0f - P->whipAir * WhipAmount(); // whip_air: cruzada no vuelve sola
             // El rolido sólo se corrige un poco, y nunca con la moto casi vertical o invertida (ahí
             // el ángulo de rolido deja de tener sentido).
@@ -616,7 +628,10 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
                 const float a = P->airRollAssist * hold;
                 totalTorque += fwd * (-roll * P->balanceKHigh * a - rollRate * P->balanceDHigh * a);
             }
-            if (P->whipAir > 0.0f) {
+            // whip_air_return: el stick al otro lado la trae derecha (BikePhysics.cpp, WhipAirReturn).
+            if (P->whipAir > 0.0f && !(P->whipAirReturn > 0.0f &&
+                                       WhipAirReturn(airSteer, std::fabs(airSteer) > 0.05f ? mu::Smoothstep(0.1f, 0.25f, airTime) : 0.0f,
+                                                     fwd, up, angVel, totalTorque))) {
                 const Vec3 axis = (fwd - up).Normalized();
                 const float rate = angVel.Dot(axis);
                 // El giro de rolido y guiñada que no es del whip (el que mete el efecto giroscópico de las ruedas: la guiñada
@@ -663,5 +678,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     totalForce += -linVel * (0.5f * 1.2f * P->dragArea * speed);
 
     b.AddForce(totalForce);
+    // Trucos: con el cuerpo estirado la moto + el piloto tienen más inercia (UpdateTrick, trickScale).
+    if (trickAmt > 0.0f) totalTorque = rot * trickScale.Multiply3x3(rot.Conjugated() * totalTorque);
     b.AddTorque(totalTorque);
 }

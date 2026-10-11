@@ -90,6 +90,8 @@ void WriteState(net::Writer& w, const BikeState& s)
             PutVec(w, m.GetTranslation());
             PutQuat(w, m.GetQuaternion());
         }
+    w.Put(s.trick);                  // al final: las versiones anteriores no lo leen (ver BikeState)
+    w.Put(s.trickAmt);
 }
 
 BikeState ReadState(net::Reader& r)
@@ -129,6 +131,15 @@ BikeState ReadState(net::Reader& r)
             const Vec3 p = GetVec(r);
             m = Mat44::sRotationTranslation(GetQuat(r), p);
         }
+    // El truco, si viene (una versión anterior no lo manda: el paquete termina antes y no es un error).
+    if (r.ok) {
+        const uint8_t t = r.Get<uint8_t>(), a = r.Get<uint8_t>();
+        if (r.ok && t < Trick::Count) {
+            s.trick = t;
+            s.trickAmt = a;
+        }
+        r.ok = true;
+    }
     return s;
 }
 
@@ -683,6 +694,8 @@ void Multiplayer::UpdateVisuals(float frameDt)
         r.bike.legOut = r.state.legOut;
         r.bike.bodyTilt = r.state.bodyTilt;
         r.bike.riderSide = r.state.riderSide;
+        r.bike.trick = r.state.trick;                // el truco (la pose lo arma igual que en su PC)
+        r.bike.trickAmt = r.state.trick != 0 ? (float)r.state.trickAmt / 255.0f : 0.0f;
         const bool onGround = (r.state.flags & (BikeState::kFrontGround | BikeState::kRearGround)) != 0;
         r.bike.supported += ((onGround ? 1.0f : 0.0f) - r.bike.supported) * std::min(1.0f, frameDt * 6.0f);
         if (riderOn) {
