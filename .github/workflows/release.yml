@@ -2,7 +2,7 @@ name: Publicar build Windows
 on:
   push:
     branches: [main]
-    paths: [src/Version.h]
+    paths: [src/Version.h, .github/workflows/release.yml]
   workflow_dispatch:
 permissions:
   contents: write
@@ -38,8 +38,11 @@ jobs:
         run: |
           $version = [regex]::Match((Get-Content src/Version.h -Raw), 'MOTOSIM_VERSION "([^"]+)"').Groups[1].Value
           gh release view $version --repo $env:GITHUB_REPOSITORY 2>$null
-          if ($LASTEXITCODE -eq 0) { throw "La release $version ya existe; no se reemplaza." }
+          # Si ya existe no se reemplaza (pasa al tocar este workflow sin cambiar Version.h).
+          if ($LASTEXITCODE -eq 0) { Write-Host "La release $version ya existe; no se reemplaza."; exit 0 }
           # Una beta (v0.3.9-beta) sale como pre-release y no le quita "Latest" a la última estable.
-          $kind = if ($version -match '-') { @('--prerelease', '--latest=false') } else { @('--latest') }
+          # Siempre una lista: un if que devuelve un solo valor lo deja como texto y el splat (@kind) falla (v0.3.9).
+          $kind = @('--latest')
+          if ($version -match '-') { $kind = @('--prerelease', '--latest=false') }
           gh release create $version "dist/$version/MotoSim-$version.zip" --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "MotoSim $version" --notes-file RELEASE_NOTES.md @kind
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
