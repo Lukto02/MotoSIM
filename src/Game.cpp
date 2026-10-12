@@ -30,6 +30,71 @@ using JPH::Vec3;
 bool RunSoilChecks(Terrain& terrain, PhysicsWorld& world);
 
 namespace {
+// Paleta del menú Colores: dos filas de ocho, de los vivos a los neutros.
+struct Swatch {
+    const char* name;
+    Color c;
+};
+constexpr int kSwatches = 16, kSwatchCols = 8;
+const Swatch kPalette[kSwatches] = {
+    {"Rojo", {204, 24, 34, 255}},      {"Naranja", {242, 118, 18, 255}}, {"Amarillo", {250, 204, 18, 255}}, {"Lima", {140, 214, 34, 255}},
+    {"Verde", {36, 150, 62, 255}},     {"Turquesa", {20, 170, 160, 255}}, {"Celeste", {40, 160, 230, 255}}, {"Azul", {26, 78, 196, 255}},
+    {"Azul marino", {20, 34, 86, 255}}, {"Violeta", {118, 46, 168, 255}}, {"Rosa", {232, 70, 140, 255}},   {"Bordó", {118, 22, 40, 255}},
+    {"Blanco", {238, 238, 234, 255}},  {"Gris", {120, 124, 132, 255}},   {"Grafito", {56, 58, 64, 255}},  {"Negro", {24, 24, 28, 255}},
+};
+bool SameColor(Color a, Color b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
+int SwatchOf(Color c)                                // -1: no es de la paleta
+{
+    for (int i = 0; i < kSwatches; ++i)
+        if (SameColor(kPalette[i].c, c)) return i;
+    return -1;
+}
+int NearestSwatch(Color c)
+{
+    int best = 0;
+    float bestD = 1e9f;
+    for (int i = 0; i < kSwatches; ++i) {
+        const float dr = (float)c.r - kPalette[i].c.r, dg = (float)c.g - kPalette[i].c.g, db = (float)c.b - kPalette[i].c.b;
+        if (dr * dr + dg * dg + db * db < bestD) {
+            bestD = dr * dr + dg * dg + db * db;
+            best = i;
+        }
+    }
+    return best;
+}
+float Luma(Color c) { return 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b; }
+std::string HexColor(Color c)
+{
+    char buf[8];
+    std::snprintf(buf, sizeof(buf), "%02X%02X%02X", c.r, c.g, c.b);
+    return buf;
+}
+bool ParseHexColor(std::string s, Color& out)        // "RRGGBB" o "#RRGGBB"
+{
+    if (!s.empty() && s[0] == '#') s.erase(0, 1);
+    if (s.size() != 6 || s.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) return false;
+    const long v = std::strtol(s.c_str(), nullptr, 16);
+    out = {(unsigned char)((v >> 16) & 255), (unsigned char)((v >> 8) & 255), (unsigned char)(v & 255), 255};
+    return true;
+}
+// Lista de colores separados por coma o espacio ("RRGGBB,RRGGBB,RRGGBB"); cuántos leyó.
+int ParseHexList(const std::string& s, Color* out, int max)
+{
+    int n = 0;
+    std::string cur;
+    for (size_t i = 0; i <= s.size() && n < max; ++i) {
+        if (i == s.size() || s[i] == ',' || s[i] == ' ' || s[i] == ';') {
+            if (!cur.empty() && ParseHexColor(cur, out[n])) ++n;
+            cur.clear();
+        } else {
+            cur += s[i];
+        }
+    }
+    return n;
+}
+} // namespace
+
+namespace {
 
 // Colores de la interfaz.
 const Color kAccent = {236, 96, 40, 255};
@@ -352,7 +417,23 @@ void Game::Init()
     if (opt.host) StartHost();
     else if (!opt.join.empty()) StartJoin(opt.join);
     else if (!opt.headless && opt.test.empty() && !opt.bot) menu = Menu::Main;   // al abrir: jugar solo o en red
+    // --colores "moto=RRGGBB,RRGGBB,RRGGBB;piloto=RRGGBB,RRGGBB" (o piloto=moto): los colores por esa vez, para las capturas.
+    for (size_t at = 0; at < opt.colors.size();) {
+        size_t end = opt.colors.find(';', at);
+        if (end == std::string::npos) end = opt.colors.size();
+        const std::string part = opt.colors.substr(at, end - at);
+        at = end + 1;
+        Color c[3];
+        if (part.rfind("moto=", 0) == 0 && ParseHexList(part.substr(5), c, 3) == 3) bikeColors[bikeId] = {{c[0], c[1], c[2]}};
+        else if (part == "piloto=moto") suitMode = SuitMode::Bike;
+        else if (part.rfind("piloto=", 0) == 0 && ParseHexList(part.substr(7), c, 2) == 2) {
+            suitMode = SuitMode::Custom;
+            suitColors[0] = c[0];
+            suitColors[1] = c[1];
+        }
+    }
     if (!opt.headless && !opt.menuScreen.empty()) {                              // pruebas: una pantalla del menú
+        if (opt.menuScreen == "colores") OpenColors(bikeId, false);
         if (opt.menuScreen == "join") {
             OpenMenu(Menu::Join);
             codeInput = "60N00V";
@@ -400,6 +481,8 @@ void Game::LoadMap(const MapDef& def, bool keepPlace)
         terrain.Unload();
         favela.Unload();
         circuit.Unload();
+        highway.Unload();
+        traffic.Unload();
         props.Unload();
     }
     physics.reset();
@@ -423,12 +506,22 @@ void Game::LoadMap(const MapDef& def, bool keepPlace)
         circuit.Build(track, terrain, current);
         circuit.CreateCollision(*physics);
     }
+    highway = Highway{};
+    traffic = Traffic{};
+    if (current.generator == "highway" && !opt.flat) {   // autopista y su tráfico (GameTraffic.cpp)
+        highway.Build(track, terrain, current);
+        highway.CreateCollision(*physics);
+        traffic.Build(track, terrain, highway.Layout(), current);
+        traffic.CreateBodies(*physics);
+    }
     deformation.ResetWheelHistory();
     props.Build(opt.flat ? std::vector<MapObject>{} : current.objects, terrain, *physics);
     if (!opt.headless) {
         terrain.CreateMeshes();
         if (favela.Active()) favela.CreateMeshes(font);
         if (circuit.Active()) circuit.CreateMeshes();
+        if (highway.Active()) highway.CreateMeshes();
+        if (traffic.Active()) traffic.CreateMeshes();
         props.CreateMeshes();
         BuildTrackDressing();
         BuildRacingLine();
@@ -544,6 +637,8 @@ void Game::Shutdown()
         terrain.Unload();
         favela.Unload();
         circuit.Unload();
+        highway.Unload();
+        traffic.Unload();
         props.Unload();
         particles.Unload();
         sound.Shutdown();
@@ -693,6 +788,7 @@ void Game::Frame(float frameDt)
 // Choque con la moto de otro jugador: ¿se cae el piloto propio? Cada PC decide sólo el suyo, con lo que
 // ya recibe (el protocolo no cambia). Ver docs/RED.md, "Choques entre motos".
 namespace {
+constexpr float kTrickCrashSlide = 0.8f; // m/s de costado con que se cae el piloto al tocar el piso en medio de un truco
 constexpr float kBikeHitFall = 4.0f;     // m/s en la normal: te pegan de costado, de atrás o de arriba
 constexpr float kBikeHitFront = 0.75f;   // coseno: el otro está delante (a menos de ~41° de la trompa)
 constexpr float kBikeHitEcho = 0.5f;     // s tras un golpe fuerte con el mismo jugador: es el eco (ida y vuelta)
@@ -771,14 +867,22 @@ void Game::Step(BikeInput in)
     if (bike.wheelLog) std::printf("paso t=%.4f\n", simTime);
     bike.PrePhysics(in, kDt, *physics, terrain);
     const Vec3 velBeforeStep = bike.Velocity(), angVelBeforeStep = bike.AngularVelocity();
+    if (traffic.Active()) TrafficStep();                // autopista: los autos (cinemáticos) a donde van a estar
     physics->Step(kDt);
     bike.PostPhysics();
     ragdoll.PostPhysics(bike.BodyID());
     simTime += kDt;
+    if (opt.telemetry && ragdoll.Active()) {         // cuántas partes del ragdoll ya chocan con la moto (las encimadas, no)
+        static int shown = -1;
+        const int n = ragdoll.PartsCollidingWithBike();
+        if (n != shown) std::printf("RAGDOLL t=%.2f partes que chocan con la moto: %d de %d\n", simTime, n, (int)RiderPart::Count);
+        shown = n;
+    }
 
     // Trucos: tocar a medio volver sacude la cámara; con --telemetry, cuándo empieza y termina cada uno y con cuánto tocó.
     {
-        static const char* const kTrickName[Trick::Count] = {"-", "superman", "heel clicker", "no-hander", "nac-nac", "can-can"};
+        static const char* const kTrickName[Trick::Count] = {"-", "superman", "heel clicker", "no-hander", "nac-nac", "can-can", "nac-nac der",
+                                                             "can-can izq"};
         if (bike.trickHitAmount > trickHitShown + 0.05f) camera.AddShake(0.15f + 0.35f * bike.trickHitAmount);
         trickHitShown = bike.trickHitAmount;
         if (bike.trick != telTrick) {
@@ -868,6 +972,12 @@ void Game::Step(BikeInput in)
             if (opt.telemetry) std::printf("GOLPE t=%.2f a %.1f m/s (normal y %.2f): el piloto sale despedido\n", simTime, imp.speed, imp.normalY);
         }
     }
+    // Un auto de la autopista: chocarlo o rozarlo con diferencia de velocidad tira al piloto (Traffic::BikeHit).
+    if (traffic.Active() && bike.RiderOnBike() && !bike.crashed && traffic.BikeHit(*physics, opt.telemetry, simTime)) {
+        bike.crashed = true;
+        impactCrash = true;
+        camera.AddShake(0.6f);
+    }
 
     // Caída: el piloto se suelta de la moto y sigue como ragdoll con la velocidad que llevaba.
     if (bike.crashed && bike.RiderOnBike()) {
@@ -878,8 +988,21 @@ void Game::Step(BikeInput in)
         }
         // Con el modelo, el ragdoll se arma con sus articulaciones (el generado se dibuja igual con esas).
         const RiderPose pose = riderModel.Loaded() ? riderModel.JointPose(bike.RiderPoseLocal()) : bike.RiderPoseLocal();
-        ragdoll.Spawn(*physics, terrain, pose, bike.Position(), bike.Rotation(), impactCrash ? velBeforeStep : bike.Velocity(),
-                      impactCrash ? angVelBeforeStep : bike.AngularVelocity());
+        Vec3 spawnVel = impactCrash ? velBeforeStep : bike.Velocity();
+        // Tocó el piso en medio de un truco (Bike::TrickTouch): sin los pies en las estriberas ni las manos firmes no puede
+        // sostener el golpe y el cuerpo se cae de costado, para donde ya se iba la moto (su rolido o, si viene derecha, el
+        // manubrio). Sin esto, en el superman quedaba acostado sobre la moto, que seguía andando derecha a 40 km/h, hasta que
+        // ella se caía 2.5 s después (ver docs/PILOTO.md, "Caída en superman").
+        if (bike.trick != Trick::None && bike.trickAmt > bikeParams.trickCrash) {
+            const Vec3 fwd = bike.Rotation() * Vec3::sAxisZ(), right = bike.Rotation() * -Vec3::sAxisX();
+            const float rollRate = bike.AngularVelocity().Dot(fwd);                  // + la moto se tumba a la derecha
+            float side = std::fabs(rollRate) > 0.05f ? (rollRate > 0.0f ? 1.0f : -1.0f) : (bike.steerAngle < 0.0f ? -1.0f : 1.0f);
+            if (std::fabs(bike.roll) > 0.05f) side = bike.roll > 0.0f ? 1.0f : -1.0f;
+            const Vec3 sideFlat = Vec3(right.GetX(), 0.0f, right.GetZ()).NormalizedOr(right) * side;
+            spawnVel += sideFlat * kTrickCrashSlide;
+            if (opt.telemetry) std::printf("TRUCO t=%.2f el piloto se cae para la %s\n", simTime, side > 0.0f ? "derecha" : "izquierda");
+        }
+        ragdoll.Spawn(*physics, terrain, pose, bike.Position(), bike.Rotation(), spawnVel, impactCrash ? angVelBeforeStep : bike.AngularVelocity());
         ragdoll.report = opt.telemetry;
         if (riderModel.Loaded()) riderModel.BindToRagdoll(bike.RiderPoseLocal(), ragdoll);
         bike.DetachRider(*physics);
@@ -1261,19 +1384,21 @@ BikeInput Game::ReadPlayerInput(float dt)
 }
 
 // --trucos NOMBRE (pruebas, sobre todo de red): el bot aprieta el botón de trucos en cada salto de más de 0.2 s, con la
-// dirección del truco (superman, heel, nohander, nacnac, cancan) y lo suelta a los 0.55 s de vuelo.
+// dirección del truco (superman, heel, nohander, nacnac, cancan, nacnacder, cancanizq) y lo suelta a los 0.55 s de vuelo.
 void Game::BotTrick(BikeInput& in)
 {
     const std::string& n = opt.botTrick;
-    const float dirX = n == "nacnac" ? -1.0f : (n == "cancan" ? 1.0f : 0.0f);
-    const float dirY = n == "heel" ? 1.0f : (n == "nohander" ? -1.0f : 0.0f);
+    const float dirX = (n == "nacnac" || n == "cancanizq") ? -1.0f : ((n == "cancan" || n == "nacnacder") ? 1.0f : 0.0f);
+    const float dirY = (n == "heel" || n == "cancanizq") ? 1.0f : ((n == "nohander" || n == "nacnacder") ? -1.0f : 0.0f);
     const bool held = bike.airTime > 0.2f && bike.airTime < 0.55f;
     TrickButton(in, held, held ? dirX : 0.0f, held ? dirY : 0.0f, kDt);
 }
 
 // Botón de trucos (ver docs/PILOTO.md, "Trucos"). Sólo arranca en el aire (o si ya venía apretado desde un truco). Con él
 // apretado, el stick (A D ↑ ↓) elige el truco y no maneja la moto en el aire (ni whip ni mortal): nada = superman,
-// arriba = heel clicker, abajo = no-hander, izquierda = nac-nac, derecha = can-can. Lo que manda es la dirección al
+// arriba = heel clicker, abajo = no-hander, izquierda = nac-nac, derecha = can-can, y en diagonal la pierna sale para ese
+// costado: atrás (abajo) nac-nac, adelante (arriba) can-can (abajo a la derecha, el nac-nac a la derecha; arriba a la
+// izquierda, el can-can a la izquierda). Lo que manda es la dirección al
 // apretarlo o en los primeros kTrickChoose s (se puede apretar el botón y enseguida la dirección); después queda fijo.
 // Al soltarlo, el stick sigue sin contar en el aire hasta que pasa por el centro: el que soltó el botón con el stick
 // tirado no se encuentra con un whip o un mortal que no pidió.
@@ -1281,10 +1406,18 @@ void Game::TrickButton(BikeInput& in, bool held, float dirX, float dirY, float d
 {
     constexpr float kTrickChoose = 0.2f;
     const bool air = bike.RiderOnBike() && !bike.crashed && !bike.wheels[Bike::FRONT].grounded && !bike.wheels[Bike::REAR].grounded;
+    // Ocho direcciones: arriba / abajo (más de 67.5° de la horizontal), heel clicker / no-hander; al costado, la pierna sale
+    // para ese lado: derecho al costado, como siempre (← nac-nac, → can-can); en diagonal, hacia atrás (↙ ↘) nac-nac y hacia
+    // adelante (↖ ↗) can-can. Así ↘ es el nac-nac a la derecha y ↖ el can-can a la izquierda (ver docs/PILOTO.md, "Nac-nac y
+    // can-can para los dos lados").
     auto pick = [&]() {
-        if (std::max(std::fabs(dirX), std::fabs(dirY)) < 0.5f) return (int)Trick::Superman;
-        if (std::fabs(dirY) >= std::fabs(dirX)) return dirY > 0.0f ? (int)Trick::HeelClicker : (int)Trick::NoHander;
-        return dirX < 0.0f ? (int)Trick::NacNac : (int)Trick::CanCan;
+        const float ax = std::fabs(dirX), ay = std::fabs(dirY);
+        if (std::max(ax, ay) < 0.5f) return (int)Trick::Superman;
+        if (ay > 2.414f * ax) return dirY > 0.0f ? (int)Trick::HeelClicker : (int)Trick::NoHander;   // tan(67.5°)
+        const bool left = dirX < 0.0f;
+        if (ay < 0.414f * ax) return left ? (int)Trick::NacNac : (int)Trick::CanCan;                  // tan(22.5°)
+        if (dirY < 0.0f) return left ? (int)Trick::NacNac : (int)Trick::NacNacRight;
+        return left ? (int)Trick::CanCanLeft : (int)Trick::CanCan;
     };
     if (held && (air || trickHeld)) {
         if (!trickHeld) {
@@ -1293,7 +1426,13 @@ void Game::TrickButton(BikeInput& in, bool held, float dirX, float dirY, float d
             trickChosen = pick();
         } else {
             trickHeldTime += dt;
-            if (trickHeldTime < kTrickChoose && trickChosen == Trick::Superman) trickChosen = pick();
+            // En los primeros kTrickChoose s vale la dirección que llegue (el botón y enseguida la dirección; la diagonal,
+            // que en el teclado son dos teclas y en el stick pasa por un costado): mientras el cuerpo casi no se movió
+            // (Bike::UpdateTrick cambia de truco con menos de 15%); soltar la dirección no vuelve al superman.
+            const int now = pick();
+            if (trickHeldTime < kTrickChoose && now != Trick::Superman && now != trickChosen &&
+                (trickChosen == Trick::Superman || bike.trickAmt < 0.15f))
+                trickChosen = now;
         }
         in.trick = trickChosen;
         if (air) in.steer = in.lean = in.side = 0.0f;
@@ -1381,7 +1520,9 @@ BikeInput Game::BotInput()
     botIndex = track.Nearest(pos.GetX(), pos.GetZ(), botIndex, 60);
     const float s = track.Points()[botIndex].s;
     const TrackPoint target = track.At(s + 4.0f + v * 0.55f);
-    const Vec3 toTarget(target.x - pos.GetX(), 0.0f, target.z - pos.GetZ());
+    float laneLat = 0.0f, laneSpeed = 1e9f;          // autopista: el carril elegido y el auto de adelante (GameTraffic.cpp)
+    if (highway.Active()) BotLane(s, v, laneLat, laneSpeed);
+    const Vec3 toTarget(target.x - target.tz * laneLat - pos.GetX(), 0.0f, target.z + target.tx * laneLat - pos.GetZ());
     const float angle = std::atan2(toTarget.Dot(rightFlat), toTarget.Dot(fwdFlat));
     in.steer = mu::Clamp(angle * 2.2f, -1.0f, 1.0f);
 
@@ -1401,7 +1542,7 @@ BikeInput Game::BotInput()
         }
         return 13.0f;
     };
-    float vTarget = current.botSpeed;
+    float vTarget = std::min(current.botSpeed, laneSpeed);
     const float botLateral = current.botLateral > 0.0f ? current.botLateral : opt.botLateralAccel;
     const float lookAhead = std::max(60.0f, v * v / 8.0f + 20.0f);   // lo que tarda en frenar (motos rápidas)
     for (float d = 0.0f; d < lookAhead; d += 1.0f) {
@@ -1714,12 +1855,15 @@ BikeInput Game::TestInput()
     } else if (opt.test.rfind("truco", 0) == 0) {
         // trucoNOMBRE[pP][sS][x] (con --drop: sale como de un salto, 12 m/s adelante y 8 arriba): aprieta el botón de trucos
         // a los P s (0.3) con la dirección del truco (superman: ninguna; heel: arriba; nohander: abajo; nacnac: izquierda;
-        // cancan: derecha) y lo suelta a los S s (0.8) de apretarlo; x: no lo suelta (toca el piso con el truco: caída).
+        // cancan: derecha; nacnacder: abajo a la derecha; cancanizq: arriba a la izquierda) y lo suelta a los S s (0.8) de
+        // apretarlo; x: no lo suelta (toca el piso con el truco: caída).
         // Pasa por TrickButton, como el jugador. Telemetría: líneas TRUCO.
         const std::string arg = opt.test.substr(5);
         float dirX = 0.0f, dirY = 0.0f;
         if (arg.rfind("heel", 0) == 0) dirY = 1.0f;
         else if (arg.rfind("nohander", 0) == 0) dirY = -1.0f;
+        else if (arg.rfind("nacnacder", 0) == 0) dirX = 1.0f, dirY = -1.0f;     // diagonal atrás a la derecha
+        else if (arg.rfind("cancanizq", 0) == 0) dirX = -1.0f, dirY = 1.0f;     // diagonal adelante a la izquierda
         else if (arg.rfind("nacnac", 0) == 0) dirX = -1.0f;
         else if (arg.rfind("cancan", 0) == 0) dirX = 1.0f;
         auto num = [&](char key, float def) {                    // la letra seguida de un número ("superman" tiene una p)
@@ -1952,7 +2096,8 @@ void Game::Respawn(float s)
     const float yaw = std::atan2(p.tx, p.tz);
     // En red cada jugador aparece en su carril, para no encimarse con los demás.
     static const float kLane[Multiplayer::kMaxPlayers] = {-1.3f, 1.3f, -3.9f, 3.9f};
-    const float lane = mp.Active() ? kLane[mp.LocalId() % Multiplayer::kMaxPlayers] : 0.0f;
+    // En la autopista, sobre el carril del medio de su mano (la línea central es el separador).
+    const float lane = (mp.Active() ? kLane[mp.LocalId() % Multiplayer::kMaxPlayers] : 0.0f) - highway.RideOffset();
     const float x = p.x + p.tz * lane, z = p.z - p.tx * lane;
     // Altura: la máxima del suelo bajo las dos ruedas, para no aparecer enterrado en una pendiente.
     float ground = terrain.Height(x, z);
@@ -2225,6 +2370,15 @@ void Game::LoadPrefs()
         helpMode = it->second == "siempre" ? HelpMode::Always : (it->second == "nunca" ? HelpMode::Never : HelpMode::Start);
     if (auto it = values.find("moto"); it != values.end()) chosenBike = savedBike = it->second;   // vacío = la de cada mapa
     if (auto it = values.find("nombre"); it != values.end()) savedName = it->second;   // vacío = el usuario de Windows
+    // Colores (menú Colores): los de cada moto que se cambió y el traje.
+    for (const auto& [key, value] : values) {
+        Color c[3];
+        if (key.rfind("colores_moto.", 0) == 0 && key.size() > 13 && ParseHexList(value, c, 3) == 3) bikeColors[key.substr(13)] = {{c[0], c[1], c[2]}};
+    }
+    if (const std::string suit = textOf("piloto_colores"); !suit.empty())
+        suitMode = suit == "moto" ? SuitMode::Bike : (suit == "propio" ? SuitMode::Custom : SuitMode::Original);
+    ParseHexList(textOf("piloto_principal"), &suitColors[0], 1);
+    ParseHexList(textOf("piloto_secundario"), &suitColors[1], 1);
 
     if (migrating) {
         startNotice = std::string("Renovamos los gráficos: quedaron en ") + Renderer::PresetName(detectedPreset) + ". Ajustes \xE2\x86\x92 Gráficos.";   // se muestra al armar el mapa (LoadMap pisa el mensaje)
@@ -2311,7 +2465,12 @@ void Game::SavePrefs() const
                              "\ntierra_blandura = " + std::to_string(g.soilSoftness) + "\ntierra_profundidad = " + std::to_string(g.soilDepth) +
                              "\ntierra_relieve = " + std::to_string(g.soilDetail) + "\ntierra_particulas = " + std::to_string(g.soilParticles) +
                              "\ncontrol_traccion = " + b(prefTraction) + "\nstick_derecho_carrera = " + (prefStickCamera ? "camara" : "cuerpo") + "\nmoto = " + savedBike + "\nnombre = " + savedName + "\n";
-    SaveFileText(PrefsPath().c_str(), const_cast<char*>(text.c_str()));
+    // Colores: el traje y las motos que se cambiaron (principal, secundario y detalles).
+    std::string colors = std::string("piloto_colores = ") + (suitMode == SuitMode::Bike ? "moto" : (suitMode == SuitMode::Custom ? "propio" : "original")) +
+                         "\npiloto_principal = " + HexColor(suitColors[0]) + "\npiloto_secundario = " + HexColor(suitColors[1]) + "\n";
+    for (const auto& [id, c] : bikeColors) colors += "colores_moto." + id + " = " + HexColor(c.c[0]) + "," + HexColor(c.c[1]) + "," + HexColor(c.c[2]) + "\n";
+    const std::string all = text + colors;
+    SaveFileText(PrefsPath().c_str(), const_cast<char*>(all.c_str()));
 }
 
 // El preset de calidad que eligió el jugador (o el que sigue): a mano, así que deja de ser "automático".
@@ -2427,6 +2586,10 @@ void Game::PrintTelemetry() const
                         r.state.vel.Length(), r.age * 1000.0f, r.ping, r.bikeId.empty() ? "?" : r.bikeId.c_str(),
                         BikeStyleName(r.bike.Params() ? r.bike.Params()->visualStyle : 0), (r.state.flags & BikeState::kRiderOn) ? "" : " CAIDO");
             if (r.state.trick != 0) std::printf(" truco=%d %.0f%%", r.state.trick, r.state.trickAmt / 2.55f);   // lo que llega (Trick::...)
+            if (r.state.colorFlags & BikeState::kBikeColors)                                                    // sus colores a gusto
+                std::printf(" moto=%s,%s,%s", HexColor(r.state.colors[0]).c_str(), HexColor(r.state.colors[1]).c_str(), HexColor(r.state.colors[2]).c_str());
+            if (r.state.colorFlags & BikeState::kSuitColors)
+                std::printf(" traje=%s,%s", HexColor(r.state.colors[3]).c_str(), HexColor(r.state.colors[4]).c_str());
         }
         std::printf("\n");
     }
@@ -2522,6 +2685,13 @@ BikeState Game::LocalState() const
         for (int i = 0; i < RiderPart::Count; ++i) s.parts[i] = ragdoll.PartTransform(i, 1.0f);
     s.trick = (uint8_t)bike.trick;
     s.trickAmt = (uint8_t)std::lround(mu::Clamp(bike.trickAmt, 0.0f, 1.0f) * 255.0f);
+    // Los colores a gusto (los demás los ven; una versión anterior no los lee y usa los de siempre).
+    if (CustomColors(bikeId)) {
+        const BikeColors c = ColorsOf(bikeId);
+        s.colorFlags |= BikeState::kBikeColors;
+        for (int i = 0; i < 3; ++i) s.colors[i] = c.c[i];
+    }
+    if (SuitPaintOf(&s.colors[3])) s.colorFlags |= BikeState::kSuitColors;
     return s;
 }
 
@@ -2816,6 +2986,10 @@ void Game::DrawScene(bool shadowCasters)
         if (shadowCasters) circuit.DrawShadows(renderer);
         else circuit.Draw(renderer);
     }
+    if (highway.Active()) {
+        if (shadowCasters) highway.DrawShadows(renderer);
+        else highway.Draw(renderer);
+    }
     if (favela.Active()) {
         if (shadowCasters) favela.DrawShadows(renderer);
         else favela.Draw(renderer, (float)GetTime());
@@ -2838,9 +3012,13 @@ void Game::DrawScene(bool shadowCasters)
     // Goma en el asfalto: después de lo opaco del suelo (queda encima de las líneas pintadas y del asfalto de boxes).
     if (!shadowCasters) deformation.DrawSkids(renderer);
     if (shadowFarPass) return;                 // la cascada lejana termina acá: sólo el mundo quieto
-    if (menu == Menu::Bikes && !previewBikeId.empty()) {
+    if (traffic.Active()) traffic.Draw(renderer, alpha, shadowCasters);   // los autos de la autopista (se mueven)
+    Color suit[2];                                   // el traje propio (si se cambió)
+    const bool painted = SuitPaintOf(suit);
+    riderModel.paint = {painted, suit[0], suit[1]};
+    if ((menu == Menu::Bikes || menu == Menu::Colors) && !previewBikeId.empty()) {
         // Selector de motos: la marcada, sin piloto, girando sobre una plataforma oscura con un aro del color
-        // del juego (la plataforma crece al entrar y sube la moto con ella).
+        // del juego (la plataforma crece al entrar y sube la moto con ella). En Colores, con el piloto arriba.
         const Vec3 base(previewPos.GetX(), showroomGround, previewPos.GetZ());
         const float grow = mu::Smoothstep(0.0f, 1.0f, showroomBlend), h = kPlatformHeight * grow, r = 1.2f * (0.6f + 0.4f * grow);
         // El aro: una franja apenas más ancha que la tapa, justo debajo de ella. El pedestal oscuro baja 0.6 m
@@ -2848,33 +3026,58 @@ void Game::DrawScene(bool shadowCasters)
         renderer.Disc(Mat44::sTranslation(base + Vec3(0.0f, h - 0.0255f, 0.0f)) * Mat44::sScale(Vec3(r + 0.05f, 0.039f, r + 0.05f)), kAccent);
         renderer.Disc(Mat44::sTranslation(base + Vec3(0.0f, (h - 0.6f) * 0.5f, 0.0f)) * Mat44::sScale(Vec3(r, h + 0.6f, r)), Color{30, 32, 38, 255});
         renderer.Disc(Mat44::sTranslation(base + Vec3(0.0f, h + 0.001f, 0.0f)) * Mat44::sScale(Vec3(r * 0.62f, 0.002f, r * 0.62f)), Color{40, 43, 50, 255});
-        previewBike.SetVisualState(previewPos, Quat::sRotation(Vec3::sAxisY(), menuCamTime * 0.55f + 2.2f), false);
-        previewBike.Draw(renderer, 0.0f, false, mp.LocalId());
+        previewBike.SetVisualState(previewPos, PreviewRotation(), false);
+        previewBike.Draw(renderer, 0.0f, false, LiveryFor(previewBikeId, Multiplayer::kMaxPlayers));
+        if (menu == Menu::Colors) {
+            if (drawRiderModel) riderModel.Draw(renderer, ToRl(Mat44::sRotationTranslation(PreviewRotation(), previewPos)));
+            else DrawGeneratedRider(previewBike, 0.0f, painted, suit);
+        }
     } else {
-        bike.Draw(renderer, alpha, !drawRiderModel && !opt.hideRider, mp.LocalId());
-        if (!drawRiderModel) ragdoll.Draw(renderer, alpha);
-        else if ((bike.RiderOnBike() && !opt.hideRider) || ragdoll.Active()) riderModel.Draw(renderer, riderWorld);
+        bike.Draw(renderer, alpha, false, LiveryFor(bikeId, mp.LocalId()));
+        if (!drawRiderModel && !opt.hideRider && bike.RiderOnBike()) DrawGeneratedRider(bike, alpha, painted, suit);
+        if (!drawRiderModel) {
+            if (painted) renderer.SetSuit({2, {}, {}, {suit[0], suit[1]}});
+            ragdoll.Draw(renderer, alpha);
+            if (painted) renderer.SetSuit({});
+        } else if ((bike.RiderOnBike() && !opt.hideRider) || ragdoll.Active()) {
+            riderModel.Draw(renderer, riderWorld);
+        }
     }
 
-    // Los demás jugadores: su moto con sus colores y su piloto (sentado o como ragdoll).
+    // Los demás jugadores: su moto con sus colores y su piloto (sentado o como ragdoll). Los colores a gusto llegan con su
+    // estado (una versión anterior no los manda: el esquema de su número, como siempre).
     for (int id = 0; id < Multiplayer::kMaxPlayers; ++id) {
         const Multiplayer::Remote& r = mp.Remotes()[id];
         if (!r.active || !r.hasState) continue;
         const bool riderOn = (r.state.flags & BikeState::kRiderOn) != 0;
-        r.bike.Draw(renderer, 0.0f, riderOn && !r.rider, id);
+        int livery = id;
+        if (r.state.colorFlags & BikeState::kBikeColors) {
+            renderer.SetCustomLivery(id, {r.state.colors[0], r.state.colors[1], r.state.colors[2], nullptr});
+            livery = Renderer::kCustomLivery + id;
+        }
+        r.bike.Draw(renderer, 0.0f, false, livery);
+        if (riderOn && !r.rider) DrawGeneratedRider(r.bike, 0.0f, (r.state.colorFlags & BikeState::kSuitColors) != 0, &r.state.colors[3]);
         if (r.rider) r.rider->Draw(renderer, riderOn ? ToRl(Mat44::sRotationTranslation(r.DisplayRot(), r.DisplayPos())) : MatrixIdentity());
     }
 }
+
+Quat Game::PreviewRotation() const { return Quat::sRotation(Vec3::sAxisY(), menuCamTime * 0.55f + 2.2f); }
 
 void Game::Draw()
 {
     terrain.UpdateSoilVisibility(camera.cam.position.x,camera.cam.position.z);
     deformation.Flush();             // dibuja en la textura de huellas (fuera de BeginDrawing)
 
+    bike.UpdateSteerShown((double)simTime + (double)(alpha * kDt));   // el manubrio dibujado, suave (Bike::UpdateSteerShown)
     // Piloto con modelo: pose y skinning una vez por frame (sirven para la sombra y para la imagen).
     drawRiderModel = riderModel.Loaded() && useRiderModel;
     if (drawRiderModel) {
-        if (bike.RiderOnBike()) {
+        if (menu == Menu::Colors && !previewBikeId.empty()) {
+            // Colores: el piloto en la moto de la vitrina (quieta, girando); al volver a la carrera el cuerpo con masa arranca
+            // de nuevo (el tiempo saltó).
+            previewBike.SetVisualState(previewPos, PreviewRotation(), true);
+            riderModel.PoseOnBike(previewBike.RiderPoseLocal(), previewBike, previewPos, PreviewRotation(), GetTime(), 1.0f);
+        } else if (bike.RiderOnBike()) {
             // Con el cuerpo con masa (RiderMotion): sigue a la moto como se dibuja, en tiempo de simulación.
             const float ground = bike.wheels[Bike::FRONT].grounded || bike.wheels[Bike::REAR].grounded ? 1.0f : 0.0f;
             riderModel.PoseOnBike(bike.RiderPoseLocal(), bike, bike.RenderPosition(alpha), bike.RenderRotation(alpha),
@@ -3208,7 +3411,7 @@ void Game::DrawHelp(float ui)
     };
     std::vector<Pair> right = {
         {"\xE2\x86\x91  \xE2\x86\x93  /  stick", "cuerpo adelante y atrás"},
-        {"Shift  /  B", "trucos en el aire (+ dirección)"},
+        {"Shift  /  B", "trucos en el aire (+ dirección o diagonal)"},
         {StickCamera() ? "mouse  /  stick der." : "mouse", "mirar alrededor"},
         {"R  /  Y", FreeRide() ? "reaparecer acá cerca" : "reaparecer"},
         {"Esc  /  Start", "menú: ajustes y controles"},
@@ -3272,7 +3475,7 @@ void Game::DrawSession()
         const std::string label = r.name.empty() ? std::string("...") : r.name;
         const float tw = width(font, label, size);
         DrawRectangle((int)(sp.x - tw * 0.5f - size * 0.9f), (int)(sp.y - size * 0.6f), (int)(tw + size * 1.6f), (int)(size * 1.25f), kPanel);
-        DrawCircle((int)(sp.x - tw * 0.5f - size * 0.35f), (int)sp.y, size * 0.22f, Livery(id).plastic);
+        DrawCircle((int)(sp.x - tw * 0.5f - size * 0.35f), (int)sp.y, size * 0.22f, PlayerColor(id));
         text(font, label, sp.x - tw * 0.5f, sp.y - size * 0.55f, size, kText);
     }
 
@@ -3295,7 +3498,7 @@ void Game::DrawSession()
         y += 22.0f * u;
     }
     for (const Multiplayer::Entry& e : roster) {
-        DrawRectangle((int)x, (int)(y + 4.0f * u), (int)(11.0f * u), (int)(11.0f * u), Livery(e.id).plastic);
+        DrawRectangle((int)x, (int)(y + 4.0f * u), (int)(11.0f * u), (int)(11.0f * u), PlayerColor(e.id));
         text(font, e.name + (e.ping < 0 ? "  (vos)" : ""), x + 19.0f * u, y, 18.0f * u, kText);
         if (e.ping >= 0) {
             const std::string p = std::to_string(e.ping) + " ms";
@@ -3402,11 +3605,11 @@ void Game::UpdateMenuCamera(float dt)
     menuCamTime += dt;
 
     // La moto del selector: la marcada, parada en la plataforma sobre el suelo, girando.
-    const bool showroom = menu == Menu::Bikes;
+    const bool showroom = menu == Menu::Bikes || menu == Menu::Colors;   // en Colores, la que se pinta
     if (showroom) {
         const std::vector<BikeDef>& bikes = mods.Bikes();
         const int n = std::max(1, (int)bikes.size());
-        const std::string id = bikes.empty() ? current.bike : bikes[menuSel % n].id;
+        const std::string id = menu == Menu::Colors ? colorBike : (bikes.empty() ? current.bike : bikes[menuSel % n].id);
         if (id != previewBikeId) {
             if (BikeData* d = DataForBike(id)) {
                 previewBike.InitVisual(d->params);
@@ -3433,16 +3636,20 @@ void Game::UpdateMenuCamera(float dt)
     }
     showroomBlend = mu::MoveTowards(showroomBlend, showroom ? 1.0f : 0.0f, dt / 0.7f);
     const float k = mu::Smoothstep(0.0f, 1.0f, showroomBlend);
+    // Colores: la moto con el piloto arriba, un poco más lejos y más abajo que en el selector (entra el casco), y más
+    // de frente (se ve el pecho del traje).
+    colorsBlend = mu::MoveTowards(colorsBlend, menu == Menu::Colors ? 1.0f : 0.0f, dt / 0.7f);
+    const float kc = mu::Smoothstep(0.0f, 1.0f, colorsBlend) * k;
     const Vec3 anchor = showroomBlend > 0.0f ? showroomAnchor : subject;
     const float ground = showroomBlend > 0.0f ? showroomGround : terrain.Height(subject.GetX(), subject.GetZ());
     previewPos = Vec3(anchor.GetX(), ground + kPlatformHeight * k + previewLift, anchor.GetZ());
 
     // Encuadre: dónde queda la moto en la pantalla (fracción desde el centro) según el lente.
     const float aspect = (float)GetScreenWidth() / std::max(1.0f, (float)GetScreenHeight());
-    const float fov = mu::Lerp(32.0f, 34.0f, k), dist = mu::Lerp(6.6f, 7.4f, k);
-    const float screenX = mu::Lerp(0.4f, 0.46f, k), screenY = mu::Lerp(0.1f, 0.5f, k);   // + derecha / + arriba del centro
+    const float fov = mu::Lerp(32.0f, 34.0f, k), dist = mu::Lerp(mu::Lerp(6.6f, 7.4f, k), 8.6f, kc);
+    const float screenX = mu::Lerp(0.4f, 0.46f, k), screenY = mu::Lerp(mu::Lerp(0.1f, 0.5f, k), 0.46f, kc);   // + derecha / + arriba del centro
     menuCamYaw += dt * 0.09f * (1.0f - k);
-    const float height = mu::Lerp(0.75f + 0.25f * std::sin(menuCamTime * 0.21f), 1.5f, k);
+    const float height = mu::Lerp(mu::Lerp(0.75f + 0.25f * std::sin(menuCamTime * 0.21f), 1.5f, k), 1.9f, kc);
     const Vec3 center = subject + (previewPos - subject) * k;           // el centro de la moto
     Vec3 pos = center + Vec3(std::sin(menuCamYaw) * dist, height, std::cos(menuCamYaw) * dist);
     pos.SetY(std::max(pos.GetY(), terrain.Height(pos.GetX(), pos.GetZ()) + 0.4f));
@@ -3466,6 +3673,7 @@ std::string Game::StyleLabel(const std::string& style)
     if (style == "mx2t") return "motocross 2T";
     if (style == "trail") return "trail de calle";
     if (style == "race") return "pista";
+    if (style == "naked") return "naked de calle";
     return style;
 }
 
@@ -3494,6 +3702,126 @@ void Game::ChooseBike(const std::string& id)
     }
 }
 
+// ---------------------------------------------------------------------------------------- colores
+Game::BikeColors Game::FactoryColors(const std::string& id) const
+{
+    const BikeDef* bd = mods.Bike(id);
+    const int style = bd ? std::max(0, BikeStyleFromName(bd->style)) : 0;
+    const BikeLivery& l = GetBikeStyle(style).livery(mp.LocalId());
+    BikeColors c = {{l.plastic, l.stripe1, l.stripe2}};
+    if (bd)
+        for (int i = 0; i < bd->colorCount; ++i) c.c[i] = {bd->colors[i][0], bd->colors[i][1], bd->colors[i][2], 255};
+    return c;
+}
+
+Game::BikeColors Game::ColorsOf(const std::string& id) const
+{
+    auto it = bikeColors.find(id);
+    return it != bikeColors.end() ? it->second : FactoryColors(id);
+}
+
+bool Game::CustomColors(const std::string& id) const
+{
+    const BikeDef* bd = mods.Bike(id);
+    const BikeLivery& l = GetBikeStyle(bd ? std::max(0, BikeStyleFromName(bd->style)) : 0).livery(mp.LocalId());
+    const BikeColors c = ColorsOf(id);
+    return !SameColor(c.c[0], l.plastic) || !SameColor(c.c[1], l.stripe1) || !SameColor(c.c[2], l.stripe2);
+}
+
+int Game::LiveryFor(const std::string& id, int slot)
+{
+    static_assert(Renderer::kCustomSlots > Multiplayer::kMaxPlayers, "colores: falta el lugar de la vitrina");
+    if (!CustomColors(id)) return mp.LocalId();
+    const BikeDef* bd = mods.Bike(id);
+    const BikeColors c = ColorsOf(id);
+    renderer.SetCustomLivery(slot, {c.c[0], c.c[1], c.c[2], GetBikeStyle(bd ? std::max(0, BikeStyleFromName(bd->style)) : 0).livery(mp.LocalId()).number});
+    return Renderer::kCustomLivery + slot;
+}
+
+bool Game::SuitPaintOf(Color out[2]) const
+{
+    if (suitMode == SuitMode::Original) return false;
+    if (suitMode == SuitMode::Custom) {
+        out[0] = suitColors[0];
+        out[1] = suitColors[1];
+        return true;
+    }
+    // Como la moto: el principal, y de los otros dos el más oscuro (el traje lleva un segundo color de base, no de detalle).
+    const BikeColors c = ColorsOf(menu == Menu::Colors && !colorBike.empty() ? colorBike : bikeId);
+    out[0] = c.c[0];
+    out[1] = Luma(c.c[1]) <= Luma(c.c[2]) ? c.c[1] : c.c[2];
+    return true;
+}
+
+Color Game::PlayerColor(int id) const
+{
+    if (id == mp.LocalId()) return CustomColors(bikeId) ? ColorsOf(bikeId).c[0] : Livery(id).plastic;
+    if (id >= 0 && id < Multiplayer::kMaxPlayers) {
+        const Multiplayer::Remote& r = mp.Remotes()[id];
+        if (r.active && (r.state.colorFlags & BikeState::kBikeColors)) return r.state.colors[0];
+    }
+    return Livery(id).plastic;
+}
+
+// El piloto generado (F9 o sin el modelo): las piezas de Bike::Draw, con el traje pintado si hace falta.
+void Game::DrawGeneratedRider(const Bike& b, float a, bool paint, const Color* colors)
+{
+    if (paint) renderer.SetSuit({2, {}, {}, {colors[0], colors[1]}});
+    const Mat44 W = Mat44::sRotationTranslation(b.RenderRotation(a), b.RenderPosition(a));
+    for (const RiderPiece& pc : RiderPieces(b.RiderPoseLocal())) DrawRiderPiece(renderer, W * pc.local, pc.mesh, pc.color);
+    if (paint) renderer.SetSuit({});
+}
+
+void Game::OpenColors(const std::string& id, bool fromBikes)
+{
+    OpenMenu(Menu::Colors);
+    colorBike = id.empty() ? bikeId : id;
+    colorFromBikes = fromBikes;
+    colorEditing = false;
+    colorDrag = -1;
+}
+
+// El color de la fila marcada (0-2 la moto, 4-5 el piloto).
+Color Game::EditedColor() const
+{
+    if (menuSel >= 0 && menuSel <= 2) return ColorsOf(colorBike).c[menuSel];
+    Color suit[2] = {riderModel.SuitBase(0), riderModel.SuitBase(1)};   // el original, si no se cambió
+    SuitPaintOf(suit);
+    return suit[menuSel == 5 ? 1 : 0];
+}
+
+void Game::SetEditedColor(Color c, bool keepHsv)
+{
+    c.a = 255;
+    if (menuSel >= 0 && menuSel <= 2) {
+        BikeColors all = ColorsOf(colorBike);
+        all.c[menuSel] = c;
+        const BikeColors factory = FactoryColors(colorBike);
+        if (SameColor(all.c[0], factory.c[0]) && SameColor(all.c[1], factory.c[1]) && SameColor(all.c[2], factory.c[2])) bikeColors.erase(colorBike);
+        else bikeColors[colorBike] = all;
+    } else if (menuSel == 4 || menuSel == 5) {
+        if (suitMode != SuitMode::Custom) {          // tocar un color del piloto lo pasa a "a gusto", desde lo que se ve
+            Color now[2] = {riderModel.SuitBase(0), riderModel.SuitBase(1)};
+            SuitPaintOf(now);
+            suitColors[0] = now[0];
+            suitColors[1] = now[1];
+            suitMode = SuitMode::Custom;
+        }
+        suitColors[menuSel - 4] = c;
+    }
+    if (!keepHsv) {
+        const Vector3 hsv = ColorToHSV(c);
+        if (hsv.y > 0.001f) colorHsv[0] = hsv.x;     // en un gris el tono no existe: queda el que había
+        colorHsv[1] = hsv.y;
+        colorHsv[2] = hsv.z;
+    }
+}
+
+void Game::ColorChanged()
+{
+    if (!opt.headless) SavePrefs();
+}
+
 // ---------------------------------------------------------------------------------------- menú
 std::vector<Game::MenuItem> Game::MenuItems()
 {
@@ -3503,6 +3831,8 @@ std::vector<Game::MenuItem> Game::MenuItems()
     const MenuItem settings{"Ajustes", "Imagen, sonido, lo que se ve en pantalla y la caja.",
                             [this] { OpenMenu(Menu::Settings); }, "ajustes"};
     const MenuItem controls{"Controles", "Todas las teclas y los botones del joystick.", [this] { OpenMenu(Menu::Controls); }, "controles"};
+    const MenuItem colors{"Colores", "Los de tu moto y los de tu piloto, a gusto (los demás los ven en la partida).",
+                          [this] { OpenColors(bikeId, false); }, "colores"};
     // Reiniciar (lo mismo que Retroceso / Back), y la carrera queda lista para arrancar con el menú cerrado.
     const MenuItem restart{FreeRide() ? "Volver al inicio" : "Reiniciar carrera",
                            FreeRide() ? "A la largada, y los objetos sueltos a su lugar. También con Retroceso."
@@ -3528,6 +3858,7 @@ std::vector<Game::MenuItem> Game::MenuItems()
                              menuSel = std::max(0, CurrentMapIndex());
                          }, "mapa"});
         items.push_back({"Moto: " + bikeName, "Con cuál corrés: la de cada mapa o cualquiera, con sus números.", [this] { OpenBikeMenu(); }, "moto"});
+        items.push_back(colors);
         items.push_back({"Nombre: " + playerName, "Cómo te ven los demás en la carrera.", [this] {
                              nameInput = playerName;
                              OpenMenu(Menu::Name);
@@ -3544,6 +3875,7 @@ std::vector<Game::MenuItem> Game::MenuItems()
                                  menuSel = std::max(0, CurrentMapIndex());
                              }, "mapa"});
         items.push_back({"Moto: " + bikeName, "Cada uno corre con la que quiere.", [this] { OpenBikeMenu(); }, "moto"});
+        items.push_back(colors);
         items.push_back(settings);
         items.push_back(controls);
         items.push_back({"Salir de la partida", "Seguís corriendo solo.", [this] { LeaveSession(); }, "dejar"});
@@ -4176,6 +4508,10 @@ void Game::HandleMenuKeys()
         const bool clicked = mousePick(n);
         const float wheel = GetMouseWheelMove();
         if (wheel != 0.0f) menuSel = std::clamp(menuSel - (wheel > 0.0f ? 1 : -1), 0, n - 1);
+        if (IsKeyPressed(KEY_C) || (pad && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_UP))) {   // los colores de la marcada
+            OpenColors(mods.Bikes().empty() ? bikeId : mods.Bikes()[menuSel % n].id, true);
+            break;
+        }
         if (enter || IsKeyPressed(KEY_SPACE) || clicked) {
             // Elegir la del mapa vuelve a "cada mapa con su moto".
             const std::string id = mods.Bikes().empty() ? std::string() : mods.Bikes()[menuSel % n].id;
@@ -4183,6 +4519,129 @@ void Game::HandleMenuKeys()
             BackToMain("moto");
         } else if (back) {
             BackToMain("moto");
+        }
+        break;
+    }
+    case Menu::Colors: {
+        // Filas: 0-2 la moto (principal, secundario, detalles), 3 el piloto (original / como la moto / a gusto), 4-5 sus dos
+        // colores, 6 de fábrica. Enter en un color abre el editor (la paleta y las barras de tono, intensidad y brillo): las
+        // flechas recorren la paleta (el color sigue al cursor) y bajan a las barras (← → las mueven); Enter acepta y Esc
+        // deshace. Sin abrirlo, ← → en un color recorren la paleta. Todo se ve en la vitrina en el momento.
+        const int n = 7;
+        auto colorRow = [](int k) { return k <= 2 || k == 4 || k == 5; };
+        const Vector2 mouse = GetMousePosition();
+        auto leave = [&] {
+            ColorChanged();
+            if (colorFromBikes) {
+                const std::string id = colorBike;
+                OpenMenu(Menu::Bikes);
+                const std::vector<BikeDef>& bikes = mods.Bikes();
+                for (size_t i = 0; i < bikes.size(); ++i)
+                    if (bikes[i].id == id) menuSel = (int)i;
+            } else {
+                BackToMain("colores");
+            }
+        };
+        auto openEditor = [&] {
+            colorEditing = true;
+            colorBefore = EditedColor();
+            SetEditedColor(colorBefore);
+            const int sw = SwatchOf(colorBefore);
+            colorCell = sw >= 0 ? sw : kSwatches;            // fuera de la paleta: en la barra del tono
+            colorCol = sw >= 0 ? sw % kSwatchCols : 0;
+        };
+        // Barras del editor: lo que vale cada una (0..1) y ponerla.
+        auto setBar = [&](int bar, float v) {
+            v = mu::Clamp(v, 0.0f, 1.0f);
+            if (bar == 0) colorHsv[0] = v * 360.0f;
+            else colorHsv[bar] = v;
+            SetEditedColor(ColorFromHSV(colorHsv[0], colorHsv[1], colorHsv[2]), true);
+        };
+        auto barValue = [&](int bar) { return bar == 0 ? colorHsv[0] / 360.0f : colorHsv[bar]; };
+        // Mouse sobre el editor (paleta y barras, colorCellRects): click en un color lo pone; en una barra, se arrastra.
+        int hit = -1;
+        for (int i = 0; i < (int)colorCellRects.size(); ++i)
+            if (CheckCollisionPointRec(mouse, colorCellRects[i])) hit = i;
+        if (colorDrag >= 0) {
+            if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && colorDrag < (int)colorCellRects.size()) {
+                const Rectangle& r = colorCellRects[colorDrag];
+                setBar(colorDrag - kSwatches, (mouse.x - r.x) / std::max(1.0f, r.width));
+            } else {
+                colorDrag = -1;
+                ColorChanged();                              // al soltar la barra
+            }
+            break;
+        }
+        if (hit >= 0 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && colorRow(menuSel)) {
+            if (!colorEditing) openEditor();
+            colorCell = hit;
+            if (hit < kSwatches) {
+                SetEditedColor(kPalette[hit].c);
+                ColorChanged();
+            } else {
+                colorDrag = hit;
+                setBar(hit - kSwatches, (mouse.x - colorCellRects[hit].x) / std::max(1.0f, colorCellRects[hit].width));
+            }
+            break;
+        }
+        if (colorEditing) {
+            int c = colorCell;
+            const int bars = kSwatches;                      // 16 tono, 17 intensidad, 18 brillo
+            if (up) c = c >= bars + 1 ? c - 1 : (c == bars ? kSwatchCols + colorCol : (c >= kSwatchCols ? c - kSwatchCols : c));
+            if (down) c = c < kSwatchCols ? c + kSwatchCols : (c < kSwatches ? bars : std::min(c + 1, bars + 2));
+            if (c < kSwatches) {
+                if (left) c = c % kSwatchCols == 0 ? c + kSwatchCols - 1 : c - 1;
+                if (right) c = c % kSwatchCols == kSwatchCols - 1 ? c - kSwatchCols + 1 : c + 1;
+                if (c != colorCell) SetEditedColor(kPalette[c].c);   // el color sigue al cursor
+                colorCol = c % kSwatchCols;                  // al subir desde las barras vuelve a esta columna
+            } else if (left || right) {
+                const float step = c == bars ? 6.0f / 360.0f : 0.04f;
+                float v = barValue(c - bars) + (right ? step : -step);
+                if (c == bars) v = v - std::floor(v);        // el tono da la vuelta
+                setBar(c - bars, v);
+            }
+            colorCell = c;
+            if (enter || IsKeyPressed(KEY_SPACE)) {
+                colorEditing = false;
+                ColorChanged();
+            } else if (back) {
+                SetEditedColor(colorBefore);                // deshacer
+                colorEditing = false;
+                ColorChanged();
+            } else if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && hit < 0) {
+                colorEditing = false;                        // click afuera: queda y vuelve a las filas
+                ColorChanged();
+            }
+            break;
+        }
+        if (up || IsKeyPressed(KEY_W)) menuSel = (menuSel + n - 1) % n;
+        if (down || IsKeyPressed(KEY_S)) menuSel = (menuSel + 1) % n;
+        const bool clicked = mousePick(n);
+        const int sel = menuSel % n;
+        if (colorRow(sel) && (left || right || IsKeyPressed(KEY_A) || IsKeyPressed(KEY_D))) {
+            const Color now = EditedColor();
+            const int at = SwatchOf(now) >= 0 ? SwatchOf(now) : NearestSwatch(now);
+            SetEditedColor(kPalette[(at + ((right || IsKeyPressed(KEY_D)) ? 1 : kSwatches - 1)) % kSwatches].c);
+            ColorChanged();
+        } else if (sel == 3 && (left || right || enter || IsKeyPressed(KEY_SPACE) || clicked)) {
+            const int mode = ((int)suitMode + (left ? 2 : 1)) % 3;
+            if (mode == (int)SuitMode::Custom && suitMode != SuitMode::Custom) {   // a gusto arranca desde lo que se ve
+                Color now[2] = {riderModel.SuitBase(0), riderModel.SuitBase(1)};
+                SuitPaintOf(now);
+                suitColors[0] = now[0];
+                suitColors[1] = now[1];
+            }
+            suitMode = (SuitMode)mode;
+            ColorChanged();
+        } else if (colorRow(sel) && (enter || IsKeyPressed(KEY_SPACE) || clicked)) {
+            openEditor();
+        } else if (sel == 6 && (enter || IsKeyPressed(KEY_SPACE) || clicked)) {
+            bikeColors.erase(colorBike);
+            suitMode = SuitMode::Original;
+            ColorChanged();
+            ShowMessage("Colores de fábrica");
+        } else if (back) {
+            leave();
         }
         break;
     }
@@ -4397,7 +4856,7 @@ void Game::DrawMenu()
             text(font, "Pilotos  " + std::to_string(roster.size()) + " / " + std::to_string(Multiplayer::kMaxPlayers), x, ly, 22.0f * scale, alpha(kTextDim, fade));
             ly += 34.0f * scale;
             for (const Multiplayer::Entry& e : roster) {
-                DrawRectangle((int)x, (int)(ly + 6.0f * scale), (int)(8.0f * scale), (int)(28.0f * scale), alpha(Livery(e.id).plastic, fade));
+                DrawRectangle((int)x, (int)(ly + 6.0f * scale), (int)(8.0f * scale), (int)(28.0f * scale), alpha(PlayerColor(e.id), fade));
                 text(font, e.name, x + 22.0f * scale, ly, 32.0f * scale, alpha(kText, fade));
                 const std::string right = e.ping < 0 ? std::string("vos") : std::to_string(e.ping) + " ms";
                 text(font, right, x + 22.0f * scale + width(font, e.name, 32.0f * scale) + 16.0f * scale, ly + 8.0f * scale, 20.0f * scale, alpha(kTextDim, fade));
@@ -4496,7 +4955,149 @@ void Game::DrawMenu()
             std::snprintf(buf, sizeof(buf), "%.1f m", b.turnRadius);
             stat("Giro más cerrado", buf, top.turnRadius / std::max(b.turnRadius, 0.1f));
         }
-        footer("\xE2\x86\x91 \xE2\x86\x93  elegir      Enter  correr con esa      Esc  volver");
+        footer("\xE2\x86\x91 \xE2\x86\x93  elegir      Enter  correr con esa      C  sus colores      Esc  volver      (joystick: Y colores)");
+        break;
+    }
+    case Menu::Colors: {
+        // A la izquierda las filas (MOTO: tres colores; PILOTO: original / como la moto / a gusto y sus dos colores; de
+        // fábrica), abajo a la derecha el editor del color marcado (paleta, tono, intensidad y brillo) y arriba a la derecha
+        // la moto con el piloto en la vitrina, con los colores de ahora.
+        const BikeDef* bd = mods.Bike(colorBike);
+        y = std::min(y, H * 0.31f);
+        text(font, "Colores", x, y - 24.0f * scale, 44.0f * scale, alpha(kText, fade));
+        text(font, (bd ? bd->name : colorBike) + "   \xC2\xB7   el piloto es el mismo en todas las motos", x, y + 34.0f * scale, 21.0f * scale,
+             alpha(kTextDim, fade));
+        const BikeColors bc = ColorsOf(colorBike);
+        Color suitNow[2] = {riderModel.SuitBase(0), riderModel.SuitBase(1)};
+        SuitPaintOf(suitNow);
+        const char* labels[7] = {"Principal", "Secundario", "Detalles", "Piloto", "Principal", "Secundario", "Colores de fábrica"};
+        const char* modes[3] = {"Original", "Como la moto", "A gusto"};
+        auto colorRow = [](int k) { return k <= 2 || k == 4 || k == 5; };
+        auto shown = [&](int k) { return k <= 2 ? bc.c[k] : suitNow[k == 5 ? 1 : 0]; };
+        auto nameOf = [&](Color c) {
+            const int sw = SwatchOf(c);
+            return sw >= 0 ? std::string(kPalette[sw].name) : std::string("a gusto");
+        };
+        menuSel = std::clamp(menuSel, 0, 6);
+        menuRects.clear();
+        const float rowH = 44.0f * scale, gap = 6.0f * scale, listW = std::min(470.0f * scale, W * 0.36f), headH = 26.0f * scale;
+        float ry = y + 78.0f * scale;
+        for (int k = 0; k < 7; ++k) {
+            if (k == 0 || k == 3) {                          // encabezados de grupo
+                text(font, k == 0 ? "MOTO" : "PILOTO", x, ry + 6.0f * scale, 15.0f * scale, alpha(kTextDim, fade), 2.0f);
+                ry += headH;
+            }
+            if (k == 6) ry += 10.0f * scale;
+            const bool sel = k == menuSel, dim = (k == 4 || k == 5) && suitMode != SuitMode::Custom;
+            const float appear = mu::Smoothstep(0.04f * k, 0.04f * k + 0.3f, menuTime);
+            const float rx = x + (1.0f - appear) * -30.0f, a = fade * appear;
+            DrawRectangle((int)rx, (int)ry, (int)listW, (int)rowH, alpha(Color{255, 255, 255, (unsigned char)(sel ? 30 : 14)}, a));
+            DrawRectangle((int)rx, (int)ry, (int)(6.0f * scale), (int)rowH, alpha(sel ? kAccent : Color{255, 255, 255, 50}, a));
+            text(font, labels[k], rx + 22.0f * scale, ry + (rowH - 24.0f * scale) * 0.5f, 24.0f * scale,
+                 alpha(sel ? kText : Color{210, 214, 222, 200}, a * (dim ? 0.6f : 1.0f)));
+            if (colorRow(k)) {                               // la muestra a la derecha y su nombre
+                const Color c = shown(k);
+                const float sw = 58.0f * scale, sh = 26.0f * scale, sx = rx + listW - sw - 14.0f * scale, sy = ry + (rowH - sh) * 0.5f;
+                DrawRectangleRounded({sx - 2.0f * scale, sy - 2.0f * scale, sw + 4.0f * scale, sh + 4.0f * scale}, 0.35f, 6, alpha(Color{0, 0, 0, 150}, a));
+                DrawRectangleRounded({sx, sy, sw, sh}, 0.3f, 6, alpha(c, a * (dim ? 0.55f : 1.0f)));
+                const bool factory = k <= 2 && SameColor(c, FactoryColors(colorBike).c[k]) && SwatchOf(c) < 0;
+                const std::string nm = dim ? (suitMode == SuitMode::Bike ? "como la moto" : "original") : (factory ? "de fábrica" : nameOf(c));
+                text(font, nm, sx - width(font, nm, 18.0f * scale) - 12.0f * scale, ry + (rowH - 18.0f * scale) * 0.5f, 18.0f * scale, alpha(kTextDim, a));
+            } else if (k == 3) {                             // ◀ modo ▶
+                const std::string v = modes[(int)suitMode];
+                const float fs = 21.0f * scale, vw = width(font, v, fs), right = rx + listW - 18.0f * scale, cy = ry + rowH * 0.5f;
+                const Color tc = alpha(sel ? kText : Color{210, 214, 222, 220}, a);
+                text(font, v, right - 16.0f * scale - vw, cy - fs * 0.5f, fs, tc);
+                const float t = 6.0f * scale;
+                DrawTriangle({right, cy}, {right - t, cy - t}, {right - t, cy + t}, alpha(sel ? kAccent : kTextDim, a));
+                const float lx = right - 28.0f * scale - vw;
+                DrawTriangle({lx - t, cy}, {lx, cy + t}, {lx, cy - t}, alpha(sel ? kAccent : kTextDim, a));
+            }
+            menuRects.push_back({rx, ry, listW, rowH});
+            ry += rowH + gap;
+        }
+        static const char* hints[7] = {
+            "Plásticos, tanque y guardabarros (lo que más se ve).",
+            "Franjas y calcos; en algunas motos, el asiento o los números.",
+            "Filetes y detalles chicos.",
+            "Original: el traje de siempre. Como la moto: con los colores de la moto. A gusto: los que elijas.",
+            "El color fuerte del traje y del casco (el rojo del original).",
+            "El segundo color del traje (el azul del original). El blanco, el negro y el visor quedan.",
+            "Esta moto vuelve a sus colores y el piloto al traje original.",
+        };
+        text(font, hints[menuSel], x, ry + 8.0f * scale, 19.0f * scale, alpha(kTextDim, fade));
+
+        // El editor del color marcado (abajo a la derecha): la paleta y las barras de tono, intensidad y brillo.
+        colorCellRects.clear();
+        if (colorRow(menuSel)) {
+            if (!colorEditing) {                             // las barras muestran el de la fila (sin perder el tono de un gris)
+                const Vector3 hsv = ColorToHSV(EditedColor());
+                if (hsv.y > 0.001f) colorHsv[0] = hsv.x;
+                colorHsv[1] = hsv.y;
+                colorHsv[2] = hsv.z;
+            }
+            const float pw = std::min(560.0f * scale, W * 0.42f), pad = 24.0f * scale, cg = 8.0f * scale;
+            const float cw = (pw - 2.0f * pad - (kSwatchCols - 1) * cg) / kSwatchCols, chh = cw * 0.62f, barH = 34.0f * scale;
+            const float ph = 70.0f * scale + 2.0f * chh + cg + 18.0f * scale + 3.0f * barH + 18.0f * scale;
+            const float px = W - pw - std::max(40.0f, W * 0.05f), py0 = H - 96.0f * scale - ph;
+            const float on = colorEditing ? 1.0f : 0.8f;
+            DrawRectangleRounded({px, py0, pw, ph}, 0.05f, 6, alpha(Color{10, 12, 16, 200}, fade));
+            DrawRectangle((int)px, (int)(py0 + 18.0f * scale), (int)(5.0f * scale), (int)(40.0f * scale), alpha(kAccent, fade));
+            const Color cur = EditedColor();
+            const std::string what = std::string(labels[menuSel]) + (menuSel <= 2 ? " de la moto" : " del piloto");
+            text(font, what, px + pad, py0 + 16.0f * scale, 28.0f * scale, alpha(kText, fade));
+            text(font, colorEditing ? "Enter: listo   \xC2\xB7   Esc: como estaba" : "Enter o click: elegir acá", px + pad, py0 + 48.0f * scale, 16.0f * scale,
+                 alpha(kTextDim, fade));
+            {                                                // la muestra grande
+                const float bw = 92.0f * scale, bh = 44.0f * scale, bx = px + pw - pad - bw, by = py0 + 16.0f * scale;
+                DrawRectangleRounded({bx - 2.0f * scale, by - 2.0f * scale, bw + 4.0f * scale, bh + 4.0f * scale}, 0.3f, 6, alpha(Color{255, 255, 255, 60}, fade));
+                DrawRectangleRounded({bx, by, bw, bh}, 0.25f, 6, alpha(cur, fade));
+            }
+            float py = py0 + 70.0f * scale;
+            for (int i = 0; i < kSwatches; ++i) {
+                const float cx = px + pad + (i % kSwatchCols) * (cw + cg), cy = py + (i / kSwatchCols) * (chh + cg);
+                const bool focus = colorEditing && colorCell == i, chosen = SameColor(kPalette[i].c, cur);
+                if (focus || chosen)
+                    DrawRectangleRounded({cx - 4.0f * scale, cy - 4.0f * scale, cw + 8.0f * scale, chh + 8.0f * scale}, 0.3f, 6,
+                                         alpha(focus ? kText : Color{255, 255, 255, 110}, fade));
+                DrawRectangleRounded({cx - 1.0f, cy - 1.0f, cw + 2.0f, chh + 2.0f}, 0.25f, 6, alpha(Color{0, 0, 0, 160}, fade));
+                DrawRectangleRounded({cx, cy, cw, chh}, 0.25f, 6, alpha(kPalette[i].c, fade * on));
+                colorCellRects.push_back({cx, cy, cw, chh});
+            }
+            if (colorEditing && colorCell < kSwatches) {     // el nombre del que tiene el cursor
+                const float cy = py + 2.0f * chh + cg + 2.0f * scale;
+                text(font, kPalette[colorCell].name, px + pad, cy, 16.0f * scale, alpha(kTextDim, fade));
+            }
+            py += 2.0f * chh + cg + 18.0f * scale;
+            const char* barNames[3] = {"Tono", "Intensidad", "Brillo"};
+            for (int b = 0; b < 3; ++b) {
+                const bool focus = colorEditing && colorCell == kSwatches + b;
+                const float lx = px + pad, bx = px + pad + 130.0f * scale, bw = pw - 2.0f * pad - 130.0f * scale - 10.0f * scale;
+                const float bh = 14.0f * scale, by = py + (barH - bh) * 0.5f;
+                text(font, barNames[b], lx, py + (barH - 20.0f * scale) * 0.5f, 20.0f * scale, alpha(focus ? kText : kTextDim, fade));
+                if (focus) DrawRectangle((int)(lx - 14.0f * scale), (int)(py + 8.0f * scale), (int)(4.0f * scale), (int)(barH - 16.0f * scale), alpha(kAccent, fade));
+                // El degradado de la barra: el tono, de gris al color o de negro al color.
+                const int segs = b == 0 ? 24 : 1;
+                for (int s = 0; s < segs; ++s) {
+                    auto at = [&](float t) {
+                        if (b == 0) return ColorFromHSV(t * 360.0f, std::max(colorHsv[1], 0.35f), std::max(colorHsv[2], 0.5f));
+                        if (b == 1) return ColorFromHSV(colorHsv[0], t, std::max(colorHsv[2], 0.15f));
+                        return ColorFromHSV(colorHsv[0], colorHsv[1], t);
+                    };
+                    const float t0 = (float)s / segs, t1 = (float)(s + 1) / segs;
+                    DrawRectangleGradientH((int)(bx + bw * t0), (int)by, (int)std::ceil(bw * (t1 - t0)) + 1, (int)bh, alpha(at(t0), fade * on), alpha(at(t1), fade * on));
+                }
+                DrawRectangleLinesEx({bx - 1.0f, by - 1.0f, bw + 2.0f, bh + 2.0f}, 1.0f, alpha(Color{0, 0, 0, 160}, fade));
+                const float v = b == 0 ? colorHsv[0] / 360.0f : colorHsv[b];
+                const float kx = bx + bw * mu::Clamp(v, 0.0f, 1.0f), kw = 6.0f * scale;
+                DrawRectangleRounded({kx - kw * 0.5f - 2.0f, by - 6.0f * scale - 2.0f, kw + 4.0f, bh + 12.0f * scale + 4.0f}, 0.5f, 4, alpha(Color{0, 0, 0, 200}, fade));
+                DrawRectangleRounded({kx - kw * 0.5f, by - 6.0f * scale, kw, bh + 12.0f * scale}, 0.5f, 4, alpha(focus ? kText : Color{220, 222, 228, 255}, fade));
+                colorCellRects.push_back({bx - 8.0f * scale, py, bw + 16.0f * scale, barH});
+                py += barH;
+            }
+        }
+        footer(colorEditing ? "Flechas  paleta y barras      Enter  listo      Esc  como estaba      (joystick: cruz, A y B)"
+                            : "\xE2\x86\x91 \xE2\x86\x93  elegir      \xE2\x86\x90 \xE2\x86\x92  otro color      Enter  paleta y tono      Esc  volver");
         break;
     }
     case Menu::Maps: {
@@ -4721,7 +5322,8 @@ void Game::DrawMenu()
         // El stick derecho y la cruz, según Ajustes ("Stick derecho": la cámara o el cuerpo).
         std::vector<Row> rider = {
             {"Cuerpo adelante y atrás", "\xE2\x86\x91  \xE2\x86\x93", "stick izq."},
-            // Trucos en el aire: el botón solo, superman; con ↑ heel clicker, ↓ no-hander, ← nac-nac, → can-can.
+            // Trucos en el aire: el botón solo, superman; con ↑ heel clicker, ↓ no-hander, ← nac-nac, → can-can; en diagonal,
+            // la pierna sale para ese costado: ↓+→ nac-nac a la derecha, ↑+← can-can a la izquierda.
             {"Trucos en el aire (+ dirección)", "Shift / Ctrl", "B"},
             {"Reaparecer", "R", "Y"},
             {"Volver a empezar", "Retroceso", "Back"},   // a la largada, y los objetos sueltos a su lugar
@@ -4771,7 +5373,8 @@ void Game::DrawMenu()
         }
         // Trucos: qué hace cada dirección con el botón apretado (ver docs/PILOTO.md, "Trucos").
         static const char* tricks[] = {"En el aire, con el botón apretado: solo, superman", "\xE2\x86\x91 heel clicker", "\xE2\x86\x93 no-hander",
-                                       "\xE2\x86\x90 nac-nac", "\xE2\x86\x92 can-can", "soltalo antes de tocar el piso"};
+                                       "\xE2\x86\x90 nac-nac", "\xE2\x86\x92 can-can", "\xE2\x86\x93+\xE2\x86\x92 nac-nac a la derecha",
+                                       "\xE2\x86\x91+\xE2\x86\x90 can-can a la izquierda", "soltalo antes de tocar el piso"};
         std::vector<std::string> trickLines(1);
         for (const char* t : tricks) {
             const std::string next = trickLines.back().empty() ? std::string(t) : trickLines.back() + "   \xC2\xB7   " + t;

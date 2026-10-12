@@ -21,6 +21,7 @@ namespace {
 constexpr uint8_t kMagic0 = 'M', kMagic1 = 'X', kProtocol = 7;   // v0.2: + ruedas (huellas y polvo); v0.3.1: + pata afuera y whip; v0.2.1 (tras la v0.3.1): + mapa (favela); 5 (v0.2.3): + cuerpo de costado; 6: mapa por nombre (mods); 7: la moto de cada uno
 enum Type : uint8_t { HELLO = 1, WELCOME, REJECT, STATE, ROSTER, PING, PONG, BYE };
 enum Reject : uint8_t { kFull = 1, kVersion = 2 };
+constexpr uint8_t kColorMark = 0xC7;       // al final del estado: vienen los colores a gusto (ver WriteState)
 
 constexpr float kSendRate = 60.0f;         // estados por segundo
 constexpr double kTimeout = 5.0;           // s sin noticias: se fue
@@ -90,8 +91,20 @@ void WriteState(net::Writer& w, const BikeState& s)
             PutVec(w, m.GetTranslation());
             PutQuat(w, m.GetQuaternion());
         }
-    w.Put(s.trick);                  // al final: las versiones anteriores no lo leen (ver BikeState)
+    // Al final: las versiones anteriores no lo leen (ver BikeState). Primero el truco que conoce la v0.3.9 (el espejado va
+    // como el original: una versión anterior lo ve sin espejar) y después, en un byte más, el de verdad.
+    w.Put((uint8_t)Trick::Base(s.trick));
     w.Put(s.trickAmt);
+    w.Put(s.trick);
+    // Después, los colores a gusto (v0.3.10): la marca, las banderas y, si hay alguna, los cinco colores (RGB).
+    w.Put(kColorMark);
+    w.Put(s.colorFlags);
+    if (s.colorFlags)
+        for (const Color& c : s.colors) {
+            w.Put(c.r);
+            w.Put(c.g);
+            w.Put(c.b);
+        }
 }
 
 BikeState ReadState(net::Reader& r)
@@ -134,9 +147,31 @@ BikeState ReadState(net::Reader& r)
     // El truco, si viene (una versión anterior no lo manda: el paquete termina antes y no es un error).
     if (r.ok) {
         const uint8_t t = r.Get<uint8_t>(), a = r.Get<uint8_t>();
-        if (r.ok && t < Trick::Count) {
+        const bool two = r.ok;
+        const uint8_t full = r.Get<uint8_t>();       // el truco de verdad (desde la v0.3.10: los espejados)
+        const bool three = r.ok;
+        if (two && t < Trick::Count) {
             s.trick = t;
             s.trickAmt = a;
+            // El de verdad, si viene y es de la misma familia; si no, el de arriba.
+            if (three && full < Trick::Count && Trick::Base(full) == t) s.trick = full;
+        }
+        // Los colores a gusto, si vienen con su marca (una versión anterior no los manda: los de siempre).
+        if (three) {
+            const uint8_t mark = r.Get<uint8_t>(), flags = r.Get<uint8_t>();
+            if (r.ok && mark == kColorMark && (flags & 3)) {
+                Color c[5];
+                for (Color& k : c) {
+                    k.r = r.Get<uint8_t>();
+                    k.g = r.Get<uint8_t>();
+                    k.b = r.Get<uint8_t>();
+                    k.a = 255;
+                }
+                if (r.ok) {
+                    s.colorFlags = flags & 3;
+                    std::copy(c, c + 5, s.colors);
+                }
+            }
         }
         r.ok = true;
     }
@@ -165,6 +200,13 @@ double Multiplayer::Now() const
     using namespace std::chrono;
     static const steady_clock::time_point start = steady_clock::now();
     return duration<double>(steady_clock::now() - start).count();
+}
+
+bool Multiplayer::HostClock(double& t) const
+{
+    if (mode != Mode::Client || !hasHostClock) return false;
+    t = hostClock + (Now() - hostClockAt);
+    return true;
 }
 
 void Multiplayer::SetRiderModel(const std::vector<std::string>& paths, bool withGraphics)
@@ -255,6 +297,7 @@ void Multiplayer::Leave(PhysicsWorld& physics)
     for (std::string& b : knownBike) b.clear();
     mode = Mode::Off;
     myId = -1;
+    hasHostClock = false;
     code.clear();
     otherCodes.clear();
     pendingPops.clear();
@@ -511,6 +554,16 @@ void Multiplayer::HandlePacket(const net::Address& from, const uint8_t* data, in
         if (r.ok)
             for (int id = 0; id < kMaxPlayers; ++id)
                 if (!listed[id] && id != myId) RemoveRemote(id, physics);
+        // Al final, si viene: el reloj compartido del anfitrión (el tráfico de la autopista). Un anfitrión que no lo
+        // manda (otro mapa u otra versión): no hay.
+        if (r.ok) {
+            const double clock = r.Get<double>();
+            hasHostClock = r.ok && clock >= 0.0;
+            if (hasHostClock) {
+                hostClock = clock + rtt * 0.5;
+                hostClockAt = now;
+            }
+        }
         break;
     }
     case PING: {
@@ -635,6 +688,7 @@ void Multiplayer::Step(float dt, const BikeState& local, const std::string& loca
                     w.PutString(peers[id].bike, 96);
                     if (remotes[id].active) remotes[id].name = peers[id].name;
                 }
+            if (sharedClock >= 0.0) w.Put<double>(sharedClock);   // al final: las versiones anteriores no lo leen
             Broadcast(w, -1);
         }
     }
@@ -694,6 +748,17 @@ void Multiplayer::UpdateVisuals(float frameDt)
         r.bike.legOut = r.state.legOut;
         r.bike.bodyTilt = r.state.bodyTilt;
         r.bike.riderSide = r.state.riderSide;
+        {   // Actitud y velocidad (como las calcula PrePhysics): la pose las usa para agacharse y colgarse en la de carreras y
+            // para pararse sobre la cola. Sin esto el piloto de otro jugador nunca se colgaba ni se agachaba (ver PILOTO.md,
+            // "La Carrera 1000"). Sólo dibujo.
+            const Quat q = r.DisplayRot();
+            const Vec3 fwd = q * Vec3::sAxisZ(), up = q * Vec3::sAxisY(), right = fwd.Cross(up);
+            const Vec3 vel = r.age < kMaxExtrapolation ? r.state.vel : Vec3::sZero();
+            r.bike.pitch = std::asin(mu::Clamp(fwd.GetY(), -1.0f, 1.0f));
+            r.bike.roll = std::atan2(-right.GetY(), up.GetY());
+            r.bike.speed = vel.Length();
+            r.bike.forwardSpeed = vel.Dot(fwd);
+        }
         r.bike.trick = r.state.trick;                // el truco (la pose lo arma igual que en su PC)
         r.bike.trickAmt = r.state.trick != 0 ? (float)r.state.trickAmt / 255.0f : 0.0f;
         const bool onGround = (r.state.flags & (BikeState::kFrontGround | BikeState::kRearGround)) != 0;
@@ -713,6 +778,8 @@ void Multiplayer::UpdateVisuals(float frameDt)
             }
         }
         if (r.rider) {
+            // Los colores de su traje (si los eligió; si no, o con una versión anterior, los de la textura).
+            r.rider->paint = {(r.state.colorFlags & BikeState::kSuitColors) != 0, r.state.colors[3], r.state.colors[4]};
             if (riderOn) {
                 // Con el cuerpo con masa: lo que mide de la moto sale de cómo se dibuja (igual que la propia).
                 r.rider->PoseOnBike(r.lastPose, r.bike, r.DisplayPos(), r.DisplayRot(), GetTime(), onGround ? 1.0f : 0.0f, 2.5f);

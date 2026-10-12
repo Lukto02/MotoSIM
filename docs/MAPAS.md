@@ -51,6 +51,10 @@ El formato completo está en `MODDING.md`. Esto es lo aprendido armándolos.
   - carteles (textos en la sección `"circuit"` del mapa), puente, árboles y cerros.
 
   Al cargar imprime cuántas cajas puso y avisa si alguna tapa la pista.
+- `highway`: autopista de doble mano con tráfico (`Highway.cpp` y `Traffic.cpp`). La línea central del trazado es el
+  medio del separador; el corte (carriles, banquinas, separador) sale de la sección `"highway"` y los autos de
+  `"traffic"`. Va con `"track": {"style": "street"}` (y `smooth`, `shoulder`, `superelevation`) y
+  `"ground_textures": "circuit"`. Ver "Autopista del Atlántico" abajo.
 
 ## El bot en cada mapa
 
@@ -71,7 +75,9 @@ y 1 m, y los mapas de siempre con la trial. Ver [PRUEBAS.md](PRUEBAS.md). `medan
 `medanos_ola`, `medanos_grande` y `medanos_montes`: Los Médanos con la vuelta guía por lo que la vuelta
 no pisa (mismo terreno; los escribe `tools/medanos.py`). `park_tierra`, `park_madera`, `park_pump`,
 `park_plaza` y `park_bowl`: el Parque de física con una vuelta guía (estilo `guide`: no estampa la pista)
-por cada zona, y `park` con la trial (los escribe `tools/parque.py`).
+por cada zona, y `park` con la trial (los escribe `tools/parque.py`). `autopista_sin_trafico`, `autopista_denso` (18
+autos por km y carril) y `autopista_sin_arboles`: la autopista sin autos (el bot va por el carril del medio), con casi el
+doble de autos y sin campo (para medir lo que cuesta cada cosa).
 
 ## Medir un salto
 
@@ -235,6 +241,156 @@ Lo aprendido:
   - leca y boxes son sólo visuales (físicamente son pasto; las matas de pasto se ven a través);
   - el plano lejano de la cámara (900 m) es más corto que la diagonal del mapa;
   - al bot le falta `bot_brake`, bajar el gas según la inclinación y no serpentear a alta velocidad.
+
+### Autopista del Atlántico (base/autopista, octubre de 2026)
+El usuario: "un mapa de autopista (que se sienta endless) con autos [...] autos yendo a distintas velocidades y cambiando
+de carril ocasionalmente [...] poder ir con una moto adelantando (filtering entre carriles) los autos a alta velocidad".
+Y a mitad del trabajo: "¿hay zonas en donde pasarse al carril contrario?" (no las había: se agregaron los cruces del
+separador).
+
+**El mapa** (`mods/base/maps/autopista.json`, lo escribe `tools/autopista.py`): vuelta cerrada de **11.8 km** armada como
+rectas y arcos (radios de 600 a 1100 m, curvas en S de 900-1100 m; el script cierra la vuelta resolviendo el largo de dos
+rectas y da la distancia mínima entre tramos: 576 m) en un terreno de 4096 m a 2.5 m (1640² muestras, lomas `hills` de
+26 m y escala 0.0011: la pampa). Tres carriles de 3.6 m por mano, banquina de 1 m adentro y 3 m afuera, separador de 3
+m: la calzada mide 32.6 m. Con la Carrera 1000. 780 autos (11 por km y carril, 90-140 km/h, 12% de camiones y
+utilitarios), seis puentes de cruces con su terraplén, seis cruces del separador, cinco pórticos con carteles verdes, 227
+columnas de luz, carteles de 130 y mojones de kilómetro, ~4900 árboles (montes de eucaliptos e hileras de álamos sobre
+los alambrados) y 40 chacras con galpón y silos. 620 mil vértices en 375 mallas por bloques de 256 m.
+
+**La calzada** (`Terrain::StampStreets` con tres claves nuevas de `track`, todas con default que deja la calle de siempre):
+- `smooth` 160: la rasante es el terreno promediado ±160 m (tres pasadas de un promedio corrido, O(M)). Con el promedio de
+  siempre (±3 m) la autopista copiaba cada loma del campo, y a 250 km/h una loma de 2 m en 100 m es un salto. Medido con
+  `--test profile`: pendiente entre −1.6% y +2.2%, el cambio de pendiente cada 2 m nunca pasa 0.4% (p99 0.1%).
+- `shoulder` 9: el terraplén o desmonte baja al campo en 9 m (con 2.5 m, el de la favela, quedaban taludes de 40°).
+- `superelevation` 0.05 con `superelevation_radius` 700: peralte de la calzada entera hacia adentro de la curva, 5% con
+  R ≤ 700 (en proporción a la curvatura con radios mayores), con tres pasadas de ±25 m para entrar y salir.
+
+**El generador** (`Highway.cpp`, copia las primitivas del autódromo): líneas de carril como calcos a 2 cm (amarilla junto al
+separador, blanca en el borde, trazos de 4.5 m cada 12 m), separador New Jersey en secciones cada 6 m unidas cara a cara
+(sin huecos ni solapes; colisión de 0.9 m), guardarraíl de doble onda en tramos de 8 m con postes cada 4 m (los postes son
+"detalle": se dibujan hasta `graphics.detailRadius`), columnas de luz de doble brazo cada 50 m, pórticos cada 2.4 km,
+carteles de 130 cada 3 km y mojones cada 1 km (atlas propio con Arial negrita), puentes y el campo.
+- **Puentes de los cruces**: el terraplén del camino que cruza es una forma `line` del terreno (8.6 m sobre el campo, de
+  210 m a cada lado, `tools/autopista.py`); la calzada lo corta (estampa encima) y el generador pone estribos de hormigón
+  desde la banquina hasta el terraplén, la pila en el separador y el tablero apoyado en la altura del terraplén de cada lado
+  (si quedara a menos de 6.6 m sobre la calzada, avisa al cargar). Arriba, asfalto y parapetos; sobre el terraplén, el
+  camino como calco hasta 330 m.
+- **Cruces del separador** (`crossovers`, cada 2 km, huecos de 40 m): lejos de los puentes (la pila) y de los pórticos (el
+  poste del medio); la punta del separador se pinta amarilla y negra. Sin columna de luz a menos de 8 m del hueco. Por ahí
+  uno se pasa a la otra mano, de contramano (los autos de esa mano lo ven: frenan si lo tienen adelante en su carril).
+- Árboles y chacras a más de 48 m (110 m las chacras) de la línea central y a más de 190 m de los puentes. La búsqueda de
+  la línea más cercana se hace sobre la línea cada 10 m (con `Track::Nearest` sin pista eran 5000 × 23 600 cuentas).
+
+**El tráfico** (`Traffic.cpp`): dos capas.
+- **Base**: los 780 autos de la vuelta, en paso fijo de 0.1 s. Cada uno sigue su carril con el modelo IDM (acelera hacia su
+  velocidad deseada y frena por el de adelante: distancia parado 2.5 m, 1.0-1.7 s de separación, frenada cómoda 2.2 m/s²,
+  tope 8). Cada ~14 s (al azar) piensa en cambiar de carril: a la izquierda para pasar a uno lento (si ahí acelera 0.3 m/s²
+  más), a la derecha si no pierde nada (la mitad de las veces) y, un 12%, porque sí; sólo si hay lugar adelante (6 m +
+  0.3 s) y el de atrás no tiene que frenar más de 2.5 m/s². Pone el guiño 1.2-2 s, revisa otra vez y cambia en 3.5-5.5 s
+  (smoothstep de costado, el auto gira con la velocidad de costado). Camiones sólo en los dos carriles de la derecha. La
+  posición entre pasos es la balística del paso (la misma cuenta que el avance): sin saltos. Sólo sumas, productos,
+  divisiones, raíces, azar entero (xorshift por auto) y orden con desempate por número: **la base sale igual en todas
+  las PCs** para el mismo instante del reloj. Antes del reloj 0 corre 60 s de rodaje.
+- **Local** (sólo cerca de una moto): cada auto a menos de 450 m a lo largo de una moto mira las motos de su franja
+  (medio ancho + 0.55 m: la moto entre dos carriles, sobre la línea, no frena a ninguno) y al de adelante en pantalla si
+  alguno está atrasado, frena con el mismo IDM y se **atrasa** respecto de la base; libre, vuelve a ella hasta 5 m/s más
+  rápido. Al cambiar de carril no se tira encima de una moto o un auto que tenga al costado (espera con el guiño). Al
+  aparecer la moto, los autos que la tendrían encima se corren 35 m para atrás.
+- **Cuerpos**: 36 cuerpos cinemáticos (capa PROP: chocan con la moto, el piloto y los objetos sueltos; las ruedas, que
+  tantean sólo lo estático, no los pisan), dados a los autos más cerca de la moto y del piloto (110 m), con
+  `MoveKinematic` a la pose del final de cada paso. El contacto lo anota `PhysicsWorld` (`LastCarHit`: user data
+  `kTrafficTag`) con la diferencia de velocidad **entera** en el punto de contacto: más de 4.5 m/s (16 km/h), o más de 3
+  en la normal, tira al piloto (`impactCrash`: el ragdoll sale con la velocidad de antes del golpe). Con `LastImpact`
+  (sólo la normal) rozar un auto a 40 km/h más que él no hacía nada.
+- **Dibujo**: una malla para todos los autos que se rearma cada cuadro (sin índices; 15-35 mil vértices), de los más cerca
+  a los más lejos para que la pasada de sombras use sólo los primeros 70 m. Seis tipos (mediano, chico, camioneta, pickup,
+  utilitario y camión) con la pintura en blanco teñida por auto, vidrios, ruedas, paragolpes y espejos sólo a menos de 110
+  m, y las luces: faros siempre, luces de freno cuando frena (base o local), guiño al cambiar de carril. Las luces
+  encendidas usan un modo nuevo del shader iluminado (v de la UV = 7: sin sombrear, con niebla; ver RENDER.md).
+- **Bot** (`Game::BotLane` en `GameTraffic.cpp` y `Traffic::BotAdvice`): aparece en la banquina, junta 80 km/h y entra;
+  elige entre los carriles y las líneas entre carriles (de a un carril) la franja que le deja más velocidad (el de adelante
+  más 0.35 × (hueco − 25 m)), con un premio por quedarse y un castigo por ir entre dos autos; no se cambia si hay un auto al
+  costado o uno de atrás que no llega a frenar (8 m + 3 s × diferencia), ni detrás de uno más lento si no da frenar a 6 m/s²;
+  y no cambia de franja frenando ni en las curvas (radio de menos de ~1300 m acá o 150 m adelante).
+
+**Lo que costó**:
+- **Al empezar en un carril, el primer auto lo atropellaba** (a 34 m/s): el bot aparece quieto y el auto de atrás venía a
+  125 km/h. Mover los autos para atrás 35 m no alcanzaba (necesita ~80 m para frenar a 8 m/s²) y el IDM sólo miraba 180 m.
+  → La moto aparece y reaparece **en la banquina** (`Highway::RideOffset`; en `Game::Respawn` es una resta de 0 en los
+  otros mapas) y los autos miran 420 m adelante.
+- **"Atrasados" que no se iban nunca** (270 de 636 autos a los 40 s): seguir la base con un control de velocidad deja un atraso
+  chico cada vez que la base acelera, y cada auto atrasado sumaba a los de atrás a la capa local. → Sin nada adelante, con
+  menos de 1 m y 1 m/s de diferencia, vuelve a la base de una. Quedaron 3-40.
+- **El bot en las curvas se abría 3-7 m** (a 58 m/s en R 600): sigue un punto 4 + 0.55·v m adelante y con eso dobla recién
+  cuando el ángulo al punto es grande; en la autopista eso es el separador o el guardarraíl (siete `GOLPE` en 300 s **sin
+  autos**). Una integral del error lo empeoró (error medio 3 → 7 m, la moto zigzaguea: el error es mayormente transitorio, a
+  la entrada y salida de las curvas, no permanente). Lo que anduvo: correr el punto hacia adentro de la curva que viene
+  0.8 m por m/s² de aceleración de costado (`k·v²`) y bajar el bot a 45 m/s (162 km/h) con `bot_lateral` 3.5: error medio
+  de 1.3 a 0.5 m, 0 golpes en 300 s. Con 58 m/s y 1.2 m por m/s² seguía golpeando 5 veces.
+- **Con tráfico, cambiando de carril en las curvas se iba contra las barreras** (con 11 autos por km y carril, 6-12 `GOLPE`
+  en 900 s): a 160 km/h en R 600 el seguimiento de costado oscila (período ~3.5 s, la inclinación de +22° a −28° en 0.7 s) y
+  crece hasta el separador o el guardarraíl. Amortiguar con la velocidad de costado (0.5-1.5 s) no alcanzó (2-5 golpes).
+  → Sin cambiar de franja frenando ni en las curvas: 0 golpes y 0 caídas en 900 s.
+- **Rozaba los autos del carril de al lado** filtrando sobre la línea: con medio metro de error de costado no hay lugar
+  entre dos autos (la línea queda a 0.9 m del costado de cada uno). → El bot pide 1 m de margen a cada lado de su franja
+  (`kBotMargin`): filtra sólo cuando los autos de los dos carriles no están a la par.
+- **Los guiños de adelante no se veían**: quedaban detrás del paragolpes (que sale 3 cm). → Al costado del faro, y un
+  repetidor en cada guardabarros.
+
+**Cómo se comprobó**:
+- Bot 900 s (`--headless --map base/autopista --bot --time 900 --telemetry`): vueltas de **6:50.5 y 6:37.1** (con tráfico el
+  bot va mucho detrás de autos), **0 caídas** y 0 golpes contra barreras (con 9 autos por km y carril y el bot de antes de
+  no cambiar en las curvas: 2 caídas por un auto, un roce de costado y uno de atrás a 11-13 m/s). Las líneas `AUTO` dicen dónde estaba el auto respecto de la moto y los laterales de los dos; las `TRAFICO`, cada
+  5 s, el reloj, cuántos frenan por la moto, cuántos están atrasados, los cuerpos en uso, los cambios de carril (~5 por
+  segundo en toda la vuelta: cada auto cambia cada ~2 min) y el paso más lento de cada 5 s (mediana 0.3 ms, p90 0.5, algún
+  pico de 2-6 ms con la PC cargada). Sin tráfico (`prueba/autopista_sin_trafico`, 600 s): **4:23.1 y 4:22.1**, 0 golpes.
+- Capturas (`--noprefs --size 1280 720 --nohud`): la largada en la banquina, el bot entre los autos a ~160 km/h
+  (`--bot --screenshot 30 x.png --shots-every 3`), un puente desde abajo y desde arriba (`--spawn 1240`, `--spawn 1300 --view
+  20 30 12`), un pórtico (`--spawn 520`), un cruce del separador (`--spawn 960 --view 20 25 7`), un choque contra un utilitario
+  (`--test "teclas:W+160,A0.35,W8"`: rozándolo a 26 m/s el piloto sale despedido y los autos de atrás frenan) y un auto que
+  cambia de carril con el guiño (`--test pose --view 150 6 1.4 --screenshot 61.2`, el `GUINO t=60.10` de la telemetría).
+- `--test profile` y `--test bikestats` sin errores. `--test soilcheck` da **2 fallos en la autopista**: "resolución local de
+  cinco centímetros" y "rodadura estable": con celdas de 2.5 m y 1640² muestras el suelo fino no entra en los 32 bits de
+  los SubShapeID de Jolt y `Terrain::Build` baja la subdivisión (las huellas en el pasto quedan más gruesas); en el asfalto
+  no hay huellas. El autódromo (1 m) da 0 fallos.
+- Red (anfitrión en la autopista, invitado que entra 12 s después; ver RED.md): la suma de la base a los 30 y 60 s del reloj
+  da **igual en las dos PCs** (`a053b719`, `8679b8e6`).
+- fps (Intel integrada de esta PC, preset Bajo, 1280×720, bot 40 s): con la PC libre **16.7 ms medio, peor 17.5, 0 tirones**
+  (el tope de 60 Hz del vsync); con otros procesos pesados corriendo, de a pares con el autódromo: autopista 17.6 y 16.9 ms
+  contra 34.5 y 21.6 del autódromo. Con tráfico denso (`prueba/autopista_denso`, 1278 autos) 16.7 ms y 0 tirones.
+  Medio y Alto, de a pares con el autódromo (30 s cada uno, dos veces): autopista 17.1 / 16.8 ms y 17.5 / 17.3 ms contra
+  18.2 / 17.0 y 18.1 / 17.1 del autódromo. El tráfico cuesta 0.1-0.5 ms de CPU por paso de física y rearmar la malla de
+  los autos; la malla va en tres búferes que se turnan (para no reescribir el que la placa puede estar dibujando todavía;
+  es precaución: con el ruido de las mediciones en esta PC no se pudo ver la diferencia).
+- Regresión de la 450 idéntica contra la v0.3.9 (la lista de PRUEBAS.md, más favela, autódromo, park, valle y médanos con
+  la 450; el park con su 2T da distinto por los cambios de física del agente de física, e idéntico contra un exe del mismo
+  árbol sin la autopista), bot de motocross **1:04.41 / 1:04.24**.
+
+**Lecciones**:
+- Un mapa para ir a 250 km/h necesita la rasante promediada cientos de metros; el promedio de una calle de favela copia
+  cada loma.
+- Para que el tráfico sea igual en todas las PCs sin mandar autos por la red: una simulación de paso fijo que no dependa de
+  nada local, con un reloj compartido, y lo que reacciona a las motos en una capa aparte que se cura sola (atraso que
+  vuelve a cero). Las PCs coinciden lejos de las motos y difieren un rato cerca.
+- Un roce con un auto a alta velocidad casi no tiene velocidad en la normal: hay que juzgar el contacto por la diferencia
+  de velocidad entera en el punto (`LastCarHit`), no por `LastImpact`.
+- Aparecer en un carril de una autopista es aparecer delante de un auto a 130: la moto va a la banquina.
+- El bot de seguir un punto adelante se abre en las curvas en proporción a `v²·k`; en una pista angosta o con barreras hay
+  que correr el punto hacia adentro (no integrar el error) o ir más despacio; y a 160 km/h no tirar la moto de costado
+  acostada en una curva (el seguimiento oscila y crece): el bot cambia de carril sólo en las rectas.
+- Medir fps en esta PC con otros agentes trabajando no sirve de a una corrida: el mismo mapa da 16.7 o 26 ms según la
+  carga. Hay que medir de a pares (el mapa nuevo y uno de referencia, el autódromo, uno detrás del otro) y repetir.
+
+**Pendientes**:
+- Sonido de los autos (el paso, el doppler): no hay; es del área de sonido (`EngineSound` tiene voces para las motos de los
+  demás).
+- El bot no usa los cruces ni va de contramano; con tráfico da la vuelta en ~6 min, detrás de los autos más de lo que
+  filtra.
+- La cámara de seguir se queda atrás a más de 200 km/h (la moto se ve chica) y atraviesa los autos al chocar (área de
+  cámara).
+- Las huellas del suelo fino en el pasto son más gruesas (soilcheck, arriba).
+- Los autos no tienen física de auto: un choque no los mueve (son cinemáticos) y no esquivan una moto que se les tira al
+  costado.
 
 ### Morro do Grau (favela)
 - La ladeira recta (~20%) cruza las cuatro calles del zigzag. Se hizo con `terraces`: mesetas a nivel de

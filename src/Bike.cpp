@@ -171,6 +171,9 @@ void BikeParams::Register(Tuning& t)
     t.Add("brake_align_from", &brakeAlignFrom);
     t.Add("brake_align_full", &brakeAlignFull);
     t.Add("brake_align_free", &brakeAlignFree);
+    t.Add("flat_side_exact", &flatSideExact);
+    t.Add("brake_align_rear", &brakeAlignRear);
+    t.Add("tire_track_exact", &tireTrackExact);
     t.Add("rear_lift_load", &rearLiftLoad);
     t.Add("rear_lift_mitigation", &rearLiftMitigation);
     t.Add("brake_yaw_comp", &brakeYawComp);
@@ -368,8 +371,31 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     trickTorque = trickCom = Vec3::sZero();
     trickScale = Mat44::sIdentity();
     reverseHold = 0.0f;
+    ++resetCount;
+    trackExactW = 0.0f;
+    steerShown = steerShownRate = 0.0f;
+    steerShownTime = -1.0;
     prevPos = currPos = position;
     prevRot = currRot = q;
+}
+
+void Bike::UpdateSteerShown(double time)
+{
+    constexpr float kSteerShownW = 40.0f;   // rad/s: atrás de la física como mucho ~5° (el bot de la Trial derrapando)
+    const double dt = time - steerShownTime;
+    if (!steerShownOn || steerShownTime < 0.0 || dt < 0.0 || dt > 0.5) {   // arranca, o el tiempo saltó: el de la física
+        steerShown = steerAngle;
+        steerShownRate = 0.0f;
+    } else {
+        const int n = std::max(1, (int)std::ceil(dt / (1.0 / 240.0)));          // en pasos chicos: estable con cualquier cuadro
+        const float h = (float)(dt / n);
+        for (int k = 0; k < n; ++k) {
+            steerShownRate += (kSteerShownW * kSteerShownW * (steerAngle - steerShown) - 2.0f * kSteerShownW * steerShownRate) * h;
+            steerShown += steerShownRate * h;
+        }
+    }
+    steerShownTime = time;
+    steerShownOn = true;
 }
 
 void Bike::SetVelocity(PhysicsWorld& world, Vec3 velocity)
@@ -406,10 +432,10 @@ void Bike::Draw(Renderer& r, float alpha, bool drawRider, int livery) const
     // Eje de dirección: pasa por el eje delantero a lo largo de la horquilla.
     const Vec3 forkUp = -fw.axisLocal;
     const Vec3 steerHead = fw.mountLocal + forkUp * 0.53f;
-    const Mat44 steerM = W * Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -steerAngle)) *
+    const Mat44 steerM = W * Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -DrawSteer())) *
                          Mat44::sTranslation(-steerHead);
     const Mat44 forkTilt = Mat44::sRotation(Quat::sFromTo(Vec3::sAxisY(), forkUp));
-    r.UpdateBikeBody(ToRl(steerHead), ToRl(forkUp));
+    r.UpdateBikeBody(ToRl(steerHead), ToRl(forkUp), livery);   // (con un esquema a gusto, también el suyo)
 
     // ------------------------------------------------------------------ ruedas
     auto wheelM = [](const Mat44& frame, Vec3 axle, float angle, float scale) {
@@ -460,7 +486,7 @@ RiderPose Bike::RiderPoseLocal() const
     const Wheel& fw = wheels[FRONT];
     const Vec3 forkUp = -fw.axisLocal;
     const Vec3 steerHead = fw.mountLocal + forkUp * 0.53f;
-    const Mat44 steerOnly = Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -steerAngle)) * Mat44::sTranslation(-steerHead);
+    const Mat44 steerOnly = Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -DrawSteer())) * Mat44::sTranslation(-steerHead);
     // Manubrio, estriberas y asiento según el estilo de la moto (BikeStyles.cpp y BikeMeshes.cpp).
     const BikeStyleDef& style = GetBikeStyle(P ? P->visualStyle : 0);
     const Vec3 barCenter = steerHead + style.barOffset;
@@ -569,7 +595,7 @@ RiderPose Bike::RiderPoseLocal031() const
     const Wheel& fw = wheels[FRONT];
     const Vec3 forkUp = -fw.axisLocal;
     const Vec3 steerHead = fw.mountLocal + forkUp * 0.53f;
-    const Mat44 steerOnly = Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -steerAngle)) * Mat44::sTranslation(-steerHead);
+    const Mat44 steerOnly = Mat44::sTranslation(steerHead) * Mat44::sRotation(Quat::sRotation(forkUp, -DrawSteer())) * Mat44::sTranslation(-steerHead);
     const Vec3 barCenter = steerHead + Vec3(0.0f, 0.14f, -0.06f);
 
     const float lean = riderLean;
@@ -630,11 +656,16 @@ Vec3 Bezier(Vec3 a, Vec3 c, Vec3 b, float t)
 }
 
 // Articulación del medio de dos huesos de largos l1 y l2 de `a` a `tip`, doblando hacia `pole` (dirección). Si no
-// llega, la punta se acerca (queda casi estirado).
+// llega, la punta se acerca (queda casi estirado). Desde el 90% del alcance la punta se acerca al tope de a poco (tanh, sin
+// quiebre): con el tope de golpe, el tobillo o la mano que pasaba de largo frenaba en un cuadro y la rodilla, que cerca de
+// estirada se mueve muy rápido, pegaba un tirón (5-8 cm por cuadro en el heel clicker; docs/PILOTO.md, "Saltos de la pose").
 Vec3 MidJoint(Vec3 a, Vec3& tip, float l1, float l2, Vec3 pole)
 {
     Vec3 d = tip - a;
-    const float dist = mu::Clamp(d.Length(), std::fabs(l1 - l2) + 1e-3f, (l1 + l2) * 0.995f);
+    const float reach = (l1 + l2) * 0.995f, soft = 0.9f * reach;
+    float dist = d.Length();
+    if (dist > soft) dist = soft + (reach - soft) * std::tanh((dist - soft) / (reach - soft));
+    dist = std::max(dist, std::fabs(l1 - l2) + 1e-3f);
     const Vec3 dir = d.NormalizedOr(-Vec3::sAxisY());
     tip = a + dir * dist;
     const float along = (l1 * l1 - l2 * l2 + dist * dist) / (2.0f * dist);
@@ -661,6 +692,8 @@ void Bike::ApplyTrickPose(RiderPose& p, int t, float amount) const
     // rodilla (pole) y hacia dónde apunta el pie (toe). Cada uno con su peso: el cuerpo arranca antes que los pies.
     Vec3 hipsT = p.hips, shouldersT = p.shoulders, headOff = p.head - p.shoulders;
     float wBody = mu::Smoothstep(0.0f, 0.85f, a);
+    float lookYaw = 0.0f, lookDown = 0.0f, twist = 0.0f;         // hacia dónde mira (sólo el modelo: RiderPose::lookYaw)
+    constexpr float kNacNacLook = 1.35f;                        // rad: el nac-nac mira atrás (~77°), por arriba del hombro
     struct Limb {
         bool free = false;
         Vec3 ctrl = Vec3::sZero(), end = Vec3::sZero(), pole = -Vec3::sAxisY(), toe = Vec3::sAxisZ();
@@ -721,23 +754,31 @@ void Bike::ApplyTrickPose(RiderPose& p, int t, float amount) const
         break;
     }
     case Trick::NacNac:
-    case Trick::CanCan: {
+    case Trick::CanCan:
+    case Trick::NacNacRight:
+    case Trick::CanCanLeft: {
         // Nac-nac (a la izquierda): la pierna derecha pasa por arriba de la cola al otro lado y queda estirada atrás y
-        // afuera; el pie izquierdo sigue en su estribera y la cadera se corre y sube. Can-can (a la derecha): la pierna
+        // afuera; el pie izquierdo sigue en su estribera y la cadera se corre y sube; la cabeza mira atrás, por arriba
+        // del hombro de ese lado (la pierna), y los hombros giran un poco con ella. Can-can (a la derecha): la pierna
         // izquierda cruza por arriba del asiento, por delante de la cadera, y queda estirada al costado de la rueda
-        // delantera; el cuerpo, adelante sobre el manubrio.
-        const bool nac = t == Trick::NacNac;
-        const float s = nac ? 1.0f : -1.0f;                      // hacia dónde va la pierna (+X = izquierda)
-        const int i = nac ? 1 : 0;                               // la pierna que cruza (la del otro lado)
+        // delantera; el cuerpo, adelante sobre el manubrio. NacNacRight y CanCanLeft, los mismos espejados.
+        const bool nac = t == Trick::NacNac || t == Trick::NacNacRight;
+        const float s = (t == Trick::NacNac || t == Trick::CanCanLeft) ? 1.0f : -1.0f;   // hacia dónde va la pierna (+X = izquierda)
+        const int i = s > 0.0f ? 1 : 0;                          // la pierna que cruza (la del otro lado)
         Limb& l = leg[i];
         l.free = true;
         if (nac) {
             hipsT = p.hips + Vec3(0.10f * s, 0.08f, -0.03f);
             shouldersT = p.shoulders + Vec3(0.07f * s, -0.01f, 0.03f);
             l.end = Vec3(0.50f * s, sh.GetY() - 0.20f, sh.GetZ() - 0.40f);
-            l.ctrl = Vec3(-0.04f * s, sh.GetY() + 0.52f, sh.GetZ() - 0.42f);
+            // El pie sale para atrás por su lado y cruza por arriba del guardabarros (antes pasaba a 17 cm de la cadera, por
+            // arriba del asiento: el muslo giraba 130° en cuatro cuadros y la rodilla pegaba un tirón de 22 cm por cuadro).
+            l.ctrl = Vec3(-0.30f * s, sh.GetY() + 0.40f, sh.GetZ() - 0.80f);
             l.pole = Vec3(0.0f, -1.0f, -0.3f);
             l.toe = Vec3(0.5f * s, -0.3f, -0.8f);
+            lookYaw = kNacNacLook * s;
+            lookDown = 0.30f;
+            twist = 0.25f * s;
         } else {
             hipsT = p.hips + Vec3(0.07f * s, 0.12f, 0.05f);
             shouldersT = p.shoulders + Vec3(0.03f * s, 0.02f, 0.10f);
@@ -758,6 +799,9 @@ void Bike::ApplyTrickPose(RiderPose& p, int t, float amount) const
     p.trickHips = p.hips - base.hips;
     p.trickShoulders = p.shoulders - base.shoulders;
     p.head = p.shoulders + (base.head - base.shoulders) + (headOff - (base.head - base.shoulders)) * wBody;
+    p.lookYaw = lookYaw * wBody;
+    p.lookDown = lookDown * wBody;
+    p.twist = twist * wBody;
     float most = wBody;
     for (int i = 0; i < 2; ++i) {
         p.hip[i] = p.hips + (base.hip[i] - base.hips);

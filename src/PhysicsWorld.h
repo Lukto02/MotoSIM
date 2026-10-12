@@ -19,6 +19,9 @@ constexpr JPH::ObjectLayer PROP = 4;      // objetos sueltos de los mapas (tambo
 
 // User data de la forma de la cola de la moto (guardabarros / parrilla / patente): raspa el piso.
 constexpr JPH::uint64 kTailSkidTag = 0x7A11;
+// User data de los autos del tráfico (cuerpos cinemáticos de la capa PROP): kTrafficTag | número de auto.
+constexpr JPH::uint64 kTrafficTag = 0x7AF1C00000000000ull;
+constexpr JPH::uint64 kTrafficTagMask = 0xFFFFF00000000000ull;
 
 // Boilerplate de Jolt: allocators, job system, filtros de capas y el PhysicsSystem.
 // Todo el acceso a cuerpos se hace desde el hilo principal entre Step()s, por eso se usan
@@ -53,6 +56,14 @@ public:
         float speed = 0.0f, normalY = 0.0f;
     };
     Impact LastImpact() const;
+    // El toque más fuerte de la moto (con su piloto) contra un auto del tráfico en el último Step: diferencia de
+    // velocidad en el punto de contacto (entera: de frente, de atrás o rozando de costado), la parte en la normal y el
+    // número de auto (-1 si no hubo).
+    struct CarHit {
+        float speed = 0.0f, normal = 0.0f;
+        int car = -1;
+    };
+    CarHit LastCarHit() const;
     // La cola de la moto raspando el piso en el último Step (wheelie pasado): dónde y a qué velocidad
     // desliza contra el suelo, y hacia dónde.
     struct Scrape {

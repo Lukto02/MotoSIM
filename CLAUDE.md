@@ -35,7 +35,8 @@ probar; para un trabajo de un área, lanzar el suyo en vez de uno genérico. Det
   o detrás de una clave cuyo default reproduce lo de antes; comprobar con `tools/regresion.sh` contra el
   último paquete (`dist/`) que la telemetría da idéntica (ver `docs/PRUEBAS.md`). `tuning.ini` es la base de
   todas las motos; lo que sea sólo de la Motocross va en `mods/base/bikes/motocross.ini` (hoy, a pedido, sólo
-  su frenada con la S, la suspensión más viva y el equilibrio por la carga y el whip; ver `docs/FISICA.md`).
+  su frenada con la S, la suspensión más viva, el equilibrio por la carga y el whip, `brake_align` contra el trompo y
+  `tire_track_exact` en el wheelie; ver `docs/FISICA.md`).
 - **Documentar lo aprendido en el mismo cambio**: todo problema no obvio resuelto (física, tuning,
   diseño de una moto o un mapa, trampas de Jolt/raylib, criterios de interfaz) va al documento de
   `docs/` que corresponde, con qué pasaba → por qué → qué se hizo → cómo se comprobó. Los agentes

@@ -101,6 +101,10 @@ struct BikeDef {
     std::string id, name, dir, description;
     std::string style = "mx";          // mx | trail | race | trial (piezas de la moto y pose del piloto, BikeStyles.h)
     std::string tuning;                // .ini que pisa tuning.ini (ruta completa; vacío = la de siempre)
+    // Colores de fábrica ("colors": ["#principal", "#secundario", "#detalles"], los que falten quedan los del estilo):
+    // reemplazan al esquema del jugador mientras no elija otros en el menú Colores. 0 = los del estilo (uno por jugador).
+    int colorCount = 0;
+    unsigned char colors[3][3] = {};
 };
 
 struct MapDef {
@@ -118,12 +122,17 @@ struct MapDef {
     bool banking = true;               // peraltes en las curvas
     std::string roadStyle = "track";   // track (base suavizada, banquinas largas) | street (calles niveladas, cruces que se mezclan)
                                        // | guide (sólo una vuelta guía: no toca el terreno; para andar libre)
+    // Calles (street): cuánto se promedia la altura a lo largo (m a cada lado; 0 = el de siempre, ±3 m), el ancho de la
+    // banquina hasta el terreno natural (m) y el peralte de las curvas (pendiente de costado máxima, 0.06 = 6%, que se
+    // alcanza con radio superRadius o menos). Con los defaults, la calle de siempre (la favela, el circuito).
+    float streetSmooth = 0.0f, streetShoulder = 2.5f, superelevation = 0.0f, superRadius = 600.0f;
     std::vector<MapFeature> features;  // puestos a mano
     std::vector<std::vector<FeatureKind>> autoFeatures;   // o un plan por recta, en orden (como la de motocross)
     bool hasStart = false;
     float startX = 0.0f, startZ = 0.0f;
     MapTerraces terraces;
     std::string generator;             // "" | "favela" (casas, postes, cables, carteles...) | "circuit" (circuito de velocidad)
+                                       // | "highway" (autopista: barreras, líneas, puentes, carteles; con tráfico, Traffic.h)
     float botSpeed = 17.0f;            // m/s: lo más rápido que va el bot de pruebas
     float botLateral = -1.0f;          // m/s² con que encara las curvas (-1 = el de la línea de comandos)
     float botBrake = -1.0f;            // m/s² con que planea las frenadas (-1 = 4, o 2.5 en mapas de calles)

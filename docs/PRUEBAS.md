@@ -103,6 +103,10 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   aire, el whip) hasta que salga el próximo paquete, que pasa a ser la referencia. Mientras tanto, lo que no tiene que
   cambiar se comprueba con las claves en 0: el exe nuevo con los `.ini` de la 450 y la 600 de la v0.3.8
   (`git show v0.3.8:mods/base/bikes/motocross.ini` o los de `dist/v0.3.8/.../mods`) en su carpeta da idéntico en todas.
+- **Desde el trompo frenando y el wheelie doblando (v0.3.10**; ver [FISICA.md](FISICA.md), "La 450 y la 600: el trompo frenando
+  con la S" y "En wheelie doblando la moto iba de costado"): la 450 sigue en **1:04.41 / 1:04.24**; la 600 pasa a **1:04.23 /
+  1:04.34**. Contra la v0.3.9 dan distintas a propósito `accel` (la frenada recta del final ya no se cruza), `whip` de la 450
+  (aterriza en la trasera cruzada e inclinada) y el bot de la 600; las otras de siempre, idénticas.
 - **Trampa: `--map favela --bot` sin `--bike` no es la 450**: el mapa trae la Trilheira (`"bike"` en `favela.json`). Para
   la 450, `--bike base/motocross`.
 - Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:04.92 y 1:04.77** con la 450 y
@@ -149,6 +153,7 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | manejar como con el teclado | `--test "teclas:W+150,D1.5,S-1"`: pasos separados por comas con las teclas apretadas (W A S D, `_` Espacio, `^` `v` flechas arriba y abajo, `<` `>` izquierda y derecha) y hasta cuándo (`N` s, `+N` hasta N km/h, `-N` hasta bajar a N). Pasa por las mismas rampas que el teclado (`Game::KeyboardInput`) con caja automática. Imprime una línea `TECLAS` por paso: km/h, s, metros, g, cuánto giró el camino y el rumbo (+ = a la derecha), cuánto se corrió de costado respecto de la recta en que venía, inclinación al empezar y al terminar, deriva máxima (arriba de 18 km/h), cabeceo mínimo y cola en el aire |
 | cada frenada, también jugando | con `--telemetry`, una línea `FRENADA` desde que la delantera pasa del 50% hasta que se suelta o para (los mismos datos que `TECLAS`). Jugando con ventana: `MotoSim.exe --telemetry --telemetry-dt 1000 > frenadas.txt` |
 | las maniobras de frenar y doblar | `python tools/maniobras.py <exe> [--bike base/carrera] [--map prueba/plaza_asfalto_ancha] [--vel 100,150,200] [--solo recta,dobla_suelta] [--crudo]`: frenar derecho, doblar y clavar soltando la D (sin gas y con gas), doblando sin soltar, clavar y después doblar, tocar la D frenando, soltar la curva sin frenar, una chicana y un toque de freno doblando; una línea por maniobra (la frenada o el último paso). En el circuito las que doblan se salen de la pista: usar una plaza |
+| ¿frenando y doblando dobla para el otro lado? | desde `pruebas/`: `python ../tools/alreves.py <exe> [--bike base/carrera] [--map prueba/plaza_asfalto_ancha] [--vel 100,150,200,250,280] [--modo stick|teclas|todo] [--todos]`: un barrido de `frenacurvaNxS` (frena a fondo y dobla con el manubrio fijo en S, de 0.06 a 1, como un stick) y de guiones de teclado (la S sin soltar la D, soltándola, esperando y clavando, sólo el trasero, la D a medias, todo a la vez desde derecho) con la frenada partida en pasos de 0.1 s. Marca **AL REVES** (el camino gira o se corre para el otro lado de la D) y **CRUZADA** (más de 0.3 s inclinada para un lado con el camino girando para el otro) y cuenta los casos. Las de tierra, con `--map prueba/plaza_tierra --vel 60,90,120`. Ver [FISICA.md](FISICA.md), "Frenando y doblando rápido, la moto doblaba para el otro lado" |
 | el freno de mano (Espacio / A doblando) | desde `pruebas/`: `python ../tools/derrape.py <exe> [--bike base/motocross] [--map prueba/plaza_tierra] [--vel 30,50,70] [--solo clava,recto]`: con las rampas del teclado, dobla con la D y clava el trasero hasta parar (`clava`), o 1.2 s y sale con gas (`clava_sale`), o soltando la D (`clava_suelta`), o derecho (`recto`); una línea por maniobra con la cola (máxima, mediana y por franja de velocidad), cuánto giró el camino y el rumbo, g, trasera trabada, cómo sale y si se cayó |
 | el freno de cada rueda en cada paso | `--wheel-log T0 T1`: además de lo de la rueda, una línea `freno` (vueltas, patinaje, si está retenida, freno, uso y agarre máximo) |
 | bajar la escadaria a N km/h | `--map favela --spawn 68 --test bajadaN` (sigue la línea) y `python tools/escalera.py 74 88` |
@@ -196,6 +201,9 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   partida en red) y `--menu no` (corriendo, como "Jugar solo": el HUD con la ayuda de teclas del principio).
 - El panel de datos técnicos (velocidad, rpm, suspensión, agarre...) ya no está siempre: `--datos` lo muestra (o
   T, o Ajustes). Las capturas con el bot o una prueba no llevan la ayuda de teclas (es para el jugador).
+- Colores (menú Colores): `--menu colores` y `--colores "moto=RRGGBB,RRGGBB,RRGGBB;piloto=RRGGBB,RRGGBB"` (o `piloto=moto`)
+  para la moto con que se arranca, por esa vez; con `--noprefs`. Ver MENU.md, "Colores de la moto y del piloto".
+
 - El minimapa y la línea de frenada tampoco salen con el bot o una prueba: `--minimapa norte|gira|no` y `--linea si|no|toda`
   los fuerzan por esa vez (no se guardan). `--linea toda` dibuja la línea ideal de la vuelta entera, ancha y sin desvanecer, para
   mirarla desde arriba: `--map base/circuito --linea toda --test idle --spawn 950 --view 0 89 30 --screenshot 2.5 f.png --time 2.7`.
@@ -242,9 +250,14 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
     tandas de flechas y Enter fueron a la ventana del usuario.
   - GLFW saca la tecla del scancode del `lParam` (bits 16-23, y el 24 para las flechas), no del código virtual.
 - Cámara:
-  - `--side --view 0 0 0.3`: costado **izquierdo**, fija (`--side` ignora el yaw);
+  - `--side --view 0 0 0.3`: costado **derecho** (el del escape, la trompa a la derecha de la imagen), fija (`--side`
+    ignora el yaw). Hasta octubre de 2026 acá decía "izquierdo": con la Carrera se ve el escape (x < 0) y con la Naked 950,
+    que tiene el monobrazo a la izquierda, se ve la rueda trasera sin brazo;
   - `--view 90 15 0.5`: costado **derecho** desde un poco arriba (ahí va el escape);
-  - `--view 270 15 0.5`: el izquierdo.
+  - `--view 270 4 0.5`: el izquierdo (la trompa a la izquierda de la imagen);
+  - yaw 0 es desde atrás y 180 desde adelante; 3/4: `--view 225 10 0.75` (adelante a la izquierda), `45 10 0.75` (atrás a
+    la derecha). El ojo no baja de 0.6 m sobre el suelo: con zoom chico (0.3-0.5) y pitch bajo queda mirando desde arriba;
+    para ver de costado bajo, zoom 0.5 y pitch 4, y para 3/4, zoom 0.75.
 
   El yaw de la órbita no es igual con distintos pitch: confirmar mirando dónde queda la trompa.
 - `tools/grilla.py salida.png columnas escala [crop x0 y0 x1 y1] archivos...` arma una grilla numerada
@@ -306,6 +319,17 @@ una rama sin mergear. Para que no vuelva a pasar:
 - El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.4.0 (12/10/2026): autopista con tráfico, Naked 950, colores, frenar doblando y el piloto pulido
+
+`dist/v0.4.0/MotoSim-v0.4.0.zip` (30 archivos, 10.2 MB). Protocolo 7: juega con la v0.3.4 a la v0.3.9 y la v0.2.5 a la v0.2.8 (el
+reloj del tráfico, los colores y el truco espejado van al final de los paquetes y las versiones viejas los ignoran). MSVC con
+runtime estático (sólo DLLs de Windows). Verificado desde la carpeta del paquete: `bikestats` (7 mapas, 7 motos) sin errores,
+`soilcheck` 0 fallos en los tres del workflow (la autopista da 2 por el tamaño del mapa: ver MAPAS.md), bots (450 1:04.41 /
+1:04.24, 600 1:04.23 / 1:04.34, favela con la 450 1:36.71, circuito 2:10.86, park 0:50.87 / 0:50.90, autopista con tráfico 6:50.48
+con la Carrera y 6:50.40 con la Naked, sin caídas), en red nueva contra nueva y contra la v0.3.9 en los dos sentidos. Regresión de
+la 450 contra la v0.3.9: idéntica salvo `whip` (a propósito: `tire_track_exact`, FISICA.md). Detalle en MAPAS.md (autopista),
+MOTOS.md (Naked 950), MENU.md / RENDER.md (colores), FISICA.md (frenar doblando, trompo, wheelie) y PILOTO.md (saltos, Carrera).
 
 ### v0.3.9 (11/10/2026): trucos en el aire, salir del whip y brazos más largos
 

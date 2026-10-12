@@ -5,8 +5,8 @@
 #include <string>
 
 namespace BikeStyle {
-enum Id { Motocross, Trail, Race, Trial, TwoStroke, Motocross600, Count };
+enum Id { Motocross, Trail, Race, Trial, TwoStroke, Motocross600, Naked, Count };
 }
 
-int BikeStyleFromName(const std::string& name);   // "mx", "trail", "race", "trial", "mx2t"; -1 si no existe
+int BikeStyleFromName(const std::string& name);   // "mx", "trail", "race", "trial", "mx2t", "mx600", "naked"; -1 si no existe
 const char* BikeStyleName(int id);

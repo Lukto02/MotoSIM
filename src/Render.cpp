@@ -218,6 +218,13 @@ uniform sampler2D texture0;
 uniform vec4 colDiffuse;
 uniform float gloss;
 uniform int riderSurface;
+// Traje con otros colores (Renderer::SetSuit). 1: el modelo; la máscara dice, por texel y ya filtrada como la textura,
+// cuánto hay de cada color de fábrica por su brillo (/ 2): se suma lo que cambia ese color (paint - ref) por eso. En un
+// texel de borde (mitad rojo, mitad blanco) cambia sólo la mitad roja: no quedan halos. 2: el piloto generado, por el
+// color de vértice (camiseta, su panel oscuro y el naranja de los detalles).
+uniform int suitOn;
+uniform sampler2D suitMask;
+uniform vec3 suitRef0, suitRef1, suitPaint0, suitPaint1;
 out vec4 finalColor;
 
 float Hash12(vec2 p)
@@ -235,7 +242,21 @@ float Noise2(vec2 p)
 
 void main()
 {
-    vec4 base = texture(texture0, fragTexCoord) * colDiffuse * fragColor;
+    vec4 tex = texture(texture0, fragTexCoord);
+    if (suitOn == 1) {
+        vec2 m = texture(suitMask, fragTexCoord).rg * 2.0;
+        tex.rgb = clamp(tex.rgb + m.x * (suitPaint0 - suitRef0) + m.y * (suitPaint1 - suitRef1), 0.0, 1.0);
+    }
+    vec4 base = tex * colDiffuse * fragColor;
+    if (suitOn == 2) {
+        const vec3 dark = vec3(20.0, 46.0, 112.0) / 255.0;          // kJerseyDark (Render.cpp): el principal más oscuro
+        const vec3 L = vec3(0.2126, 0.7152, 0.0722);
+        vec3 c = fragColor.rgb;
+        float a = 1.0 - smoothstep(0.01, 0.03, distance(c, suitRef0));
+        float d = (1.0 - smoothstep(0.01, 0.03, distance(c, dark))) * dot(dark, L) / max(dot(suitRef0, L), 1e-3);
+        float o = 1.0 - smoothstep(0.01, 0.03, distance(c, suitRef1));
+        base.rgb = clamp(base.rgb + ((a + d) * (suitPaint0 - suitRef0) + o * (suitPaint1 - suitRef1)) * colDiffuse.rgb, 0.0, 1.0);
+    }
     if (riderSurface != 0) {
         // La textura original define los paneles, pero su luz pintada no debe duplicar la del sol.
         vec3 t = texture(texture0, fragTexCoord).rgb;
@@ -261,6 +282,13 @@ void main()
     vec3 albedo = ToLinear(base.rgb);
     vec3 n = normalize(fragNormal);
     vec3 v = normalize(camPos - fragPos);
+
+    // Luz encendida (v de la UV = 7: faros, luces de freno y guiños de los autos de la autopista): sin sombrear, con
+    // la niebla. Ninguna otra malla usa v > 6.5.
+    if (fragTexCoord.y > 6.5) {
+        finalColor = vec4(Tonemap(ApplyFog(albedo * 2.6, fragPos)), base.a);
+        return;
+    }
 
     // Muros de la favela (v de la UV): 3 = ladrillo cerámico a la vista, 4 = revoque con manchas. El
     // dibujo sale de la posición en el mundo sobre la pared y de lejos se desvanece (no titila).
@@ -1892,6 +1920,14 @@ void Renderer::Init()
     postFxaaLoc = GetShaderLocation(postShader, "fxaaEnabled");
     postGradeLoc = GetShaderLocation(postShader, "grade");
     riderSurfaceLoc = GetShaderLocation(lit, "riderSurface");
+    // Traje a gusto: la máscara va en el lugar "height" del material (raylib la enlaza en cada DrawMesh si tiene textura).
+    suitOnLoc = GetShaderLocation(lit, "suitOn");
+    suitRefLoc[0] = GetShaderLocation(lit, "suitRef0");
+    suitRefLoc[1] = GetShaderLocation(lit, "suitRef1");
+    suitPaintLoc[0] = GetShaderLocation(lit, "suitPaint0");
+    suitPaintLoc[1] = GetShaderLocation(lit, "suitPaint1");
+    lit.locs[SHADER_LOC_MAP_HEIGHT] = GetShaderLocation(lit, "suitMask");
+    material.shader = lit;
 
     // Pasto: la matriz de cada instancia llega por atributo; texture1 = huellas (se asigna al dibujar).
     bladeTex = GenBladeTexture();
@@ -1969,17 +2005,62 @@ void Renderer::SetLook(const MapLook& look)
     SetShaderValue(terrainShader, sheenOnLoc, &sheen, SHADER_UNIFORM_FLOAT);
 }
 
-void Renderer::UpdateBikeBody(Vector3 steerHead, Vector3 forkUp)
+void Renderer::UpdateBikeBody(Vector3 steerHead, Vector3 forkUp, int livery)
 {
     const int s = bikeStyle;
-    if (bodyBuilt[s] && Vector3Equals(steerHead, bodySteerHead[s]) && Vector3Equals(forkUp, bodyForkUp[s])) return;
-    for (int i = 0; i < kLiveries; ++i) {
-        if (bodyBuilt[s]) UnloadMesh(liveryParts[s][i][0]);
-        liveryParts[s][i][0] = GetBikeStyle(s).genBody(steerHead, forkUp, GetBikeStyle(s).livery(i));
+    if (!(bodyBuilt[s] && Vector3Equals(steerHead, bodySteerHead[s]) && Vector3Equals(forkUp, bodyForkUp[s]))) {
+        for (int i = 0; i < kLiveries; ++i) {
+            if (bodyBuilt[s]) UnloadMesh(liveryParts[s][i][0]);
+            liveryParts[s][i][0] = GetBikeStyle(s).genBody(steerHead, forkUp, GetBikeStyle(s).livery(i));
+        }
+        bodySteerHead[s] = steerHead;
+        bodyForkUp[s] = forkUp;
+        bodyBuilt[s] = true;
     }
-    bodySteerHead[s] = steerHead;
-    bodyForkUp[s] = forkUp;
-    bodyBuilt[s] = true;
+    // Un esquema a gusto: se arma con los generadores del estilo (como los de fábrica) cuando cambia algo.
+    if (livery < kCustomLivery || livery >= kCustomLivery + kCustomSlots) return;
+    CustomLivery& c = custom[livery - kCustomLivery];
+    auto same = [](Color a, Color b) { return a.r == b.r && a.g == b.g && a.b == b.b; };
+    const BikeLivery& w = c.want;
+    if (c.built && c.style == s && Vector3Equals(steerHead, c.steerHead) && Vector3Equals(forkUp, c.forkUp) && same(w.plastic, c.have.plastic) &&
+        same(w.stripe1, c.have.stripe1) && same(w.stripe2, c.have.stripe2) && w.number == c.have.number)
+        return;
+    if (c.built)
+        for (Mesh& m : c.parts) UnloadMesh(m);
+    const BikeStyleDef& style = GetBikeStyle(s);
+    BikeLivery l = w;
+    if (!l.number) l.number = style.livery(livery - kCustomLivery).number;   // sin número: el de ese jugador
+    c.parts[0] = style.genBody(steerHead, forkUp, l);
+    Mesh parts[2];
+    style.genLivery(l, parts);
+    c.parts[1] = parts[0];
+    c.parts[2] = parts[1];
+    c.have = w;
+    c.style = s;
+    c.steerHead = steerHead;
+    c.forkUp = forkUp;
+    c.built = true;
+}
+
+void Renderer::SetCustomLivery(int slot, const BikeLivery& colors)
+{
+    if (slot >= 0 && slot < kCustomSlots) custom[slot].want = colors;
+}
+
+void Renderer::SetSuit(const Suit& s)
+{
+    if (shadowPass) return;                     // la sombra no tiene color
+    const int mode = s.mode;
+    SetShaderValue(lit, suitOnLoc, &mode, SHADER_UNIFORM_INT);
+    material.maps[MATERIAL_MAP_HEIGHT].texture = mode == 1 ? s.mask : Texture2D{};
+    if (mode == 0) return;
+    for (int i = 0; i < 2; ++i) {
+        const Color r = mode == 2 ? (i == 0 ? kJersey : kKitOrange) : s.ref[i];   // el generado: camiseta y detalles naranjas
+        const Vector3 ref = {r.r / 255.0f, r.g / 255.0f, r.b / 255.0f};
+        const Vector3 paint = {s.paint[i].r / 255.0f, s.paint[i].g / 255.0f, s.paint[i].b / 255.0f};
+        SetShaderValue(lit, suitRefLoc[i], &ref, SHADER_UNIFORM_VEC3);
+        SetShaderValue(lit, suitPaintLoc[i], &paint, SHADER_UNIFORM_VEC3);
+    }
 }
 
 void Renderer::Shutdown()
@@ -1995,6 +2076,9 @@ void Renderer::Shutdown()
     MemFree(debrisMaterial.maps);
     UnloadShader(debrisShader);
     for (Mesh& m : rider) UnloadMesh(m);
+    for (CustomLivery& c : custom)
+        if (c.built)
+            for (Mesh& m : c.parts) UnloadMesh(m);
     for (int s = 0; s < 2; ++s) {
         for (int i = 0; i < BikeMesh::Count; ++i)
             if (i != BikeMesh::Body && i != BikeMesh::FrontFender && i != BikeMesh::ForkUpper) UnloadMesh(bikeParts[s][i]);

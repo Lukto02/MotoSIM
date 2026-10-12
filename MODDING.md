@@ -198,6 +198,14 @@ track with berms, a bowl and a quarter pipe on flat ground.
   false). The bot, the respawn (R) and the lap timer still follow it, so make it a long loop over the
   flat corridors and the best jumps. Obstacles (`features`) are not built on a guide.
 
+Three more `street` keys, for fast roads (the highway uses them; leave them out and a street is as always):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `smooth` | 0 | meters the road height is averaged over along the road, on each side (0 = about 3 m, the usual street). A highway needs ~150: long, gentle vertical curves instead of following every bump of the ground at 250 km/h |
+| `shoulder` | 2.5 | meters from the road edge to the natural ground: wider = gentler cut and fill slopes beside the road |
+| `superelevation` | 0 | banking of the curves as a side slope (0.05 = 5%), the inside of the curve lower; it is reached at `superelevation_radius` (default 600 m) or tighter, and fades in and out over ~60 m |
+
 ### `start`
 
 `[x, z]`: the start/finish line goes on the track point closest to it. Without it, the line goes at
@@ -316,6 +324,44 @@ multiplies it.
     "billboards": ["MOTOSIM", "CAFÉ LA CHICANA"]   // up to 12 texts
   }
   ```
+- **`generator`: `"highway"`** builds a dual carriageway around the track and fills it with traffic. The track's
+  centre line is the middle of the median; use `"track": {"style": "street", "width": 2 × half}` where half is
+  `median/2 + inner_shoulder + lanes × lane_width + outer_shoulder` (the game warns if it doesn't match), with
+  `"ground_textures": "circuit"`. It builds the lane lines, a concrete median barrier with gaps to cross to the other
+  side, guardrails, light poles, sign gantries, speed and kilometre signs, the overpasses and the countryside (trees,
+  farms, silos). The bike starts (and respawns) on the outer shoulder; the bot rides the lanes and dodges the cars.
+  `mods/base/maps/autopista.json` is written by `tools/autopista.py` (layout as straights and arcs, bridges and their
+  embankments). Options go in a `"highway"` section, and the cars in a `"traffic"` section (all optional):
+
+  ```jsonc
+  "highway": {
+    "name": "AUTOPISTA DEL ATLÁNTICO",
+    "lanes": 3,               // per direction (1..5); lane 0 is the fast lane, next to the median
+    "lane_width": 3.6, "median": 3.0, "inner_shoulder": 1.0, "outer_shoulder": 3.0,   // m
+    "lights": 50,             // m between light poles in the median (0 = none)
+    "gantries": 2400,         // m between sign gantries (0 = none)
+    "crossovers": 2000,       // m between gaps in the median barrier, to cross to the other side (0 = none)
+    "crossover_length": 40,   // m, the gap
+    "trees": 1.0,             // 0..3, how much countryside
+    "bridges": [[744, -1420]],  // overpasses: the crossing road goes over the highway at the track point closest to
+                                // [x, z]. Its embankment is a terrain shape ("line", yaw across the highway, ~8.6 m high)
+    "signs": ["MAR DEL PLATA  312", "SALIDA 23  CHASCOMÚS"]   // gantry texts, up to 12
+  },
+  "traffic": {
+    "density": 9,             // cars per km per lane, both directions (0 = no traffic)
+    "speed": [90, 140],       // km/h, the range of the cars' own speeds (the fast lane gets the top of it)
+    "lane_change": 14,        // s, how often each car thinks about changing lanes (to pass, to keep right or just because)
+    "trucks": 0.12,           // share of trucks and vans in the two right lanes
+    "seed": 7,                // another number, other cars
+    "react": true             // cars brake for a bike ahead of them in their lane and don't change lanes into it
+  }
+  ```
+
+  Every car follows its lane at its own speed, keeps its distance from the one ahead (it brakes and accelerates
+  smoothly) and now and then changes lanes with the indicator on, if there is room. Hitting a car, or brushing it with
+  a speed difference of more than ~16 km/h, throws the rider off. The traffic is the same on every PC: it only depends
+  on the seed and the traffic clock, which the host shares in multiplayer (cars near a bike react to it on each PC and
+  can differ there for a while).
 - **`markers`**: the motocross stakes and start gate (default: true unless there is a generator).
 - **`racing_line`**: for maps that are a closed circuit to race on (the base motocross track and the road circuit use it).
   The game works out the racing line inside the track width (wide before a corner, the apex on the inside, wide on the
@@ -335,14 +381,22 @@ multiplies it.
   "name": "Dos tiempos 250",   // shown in the bike list
   "style": "mx",               // the parts and the rider pose (see below)
   "description": "One line under the name in the bike menu.",
-  "tuning": "dostiempos.ini"   // optional, next to the .json
+  "tuning": "dostiempos.ini",  // optional, next to the .json
+  "colors": ["#1a4ec4", "#eeeeea", "#fac812"]   // optional: main, secondary, details
 }
 ```
 
+`colors` (optional) are the bike's factory colors: main (plastics, tank, fenders), secondary (stripes and
+decals; on some styles the seat or the numbers) and details (pinstripes and small parts). Missing ones keep
+the style's own scheme. Without `colors` each player gets one of the style's four schemes, as before. Players
+can still repaint any bike in the **Colores** menu (saved per bike); "Colores de fábrica" goes back to yours.
+Numbers painted over a color (the trial mask, the race tail) switch to black or white when they would not show.
+
 Styles: `mx` (motocross), `mx2t` (motocross with a two-stroke engine: expansion chamber, 90s colors),
 `trail` (the Trilheira: street trail with an open pipe), `race` (a sport bike with fairing: the rider
-tucks in behind the screen at speed and hangs off with the knee down in corners) and `trial` (tiny
-tank, the rider always stands on the pegs). The
+tucks in behind the screen at speed and hangs off with the knee down in corners), `trial` (tiny
+tank, the rider always stands on the pegs) and `naked` (a street naked: trellis frame, twin round headlights,
+single-sided swingarm, wide bars; the rider sits more upright and hangs off a little in corners). The
 style is only the look and the pose: how the bike rides is all in `tuning`.
 
 Every bike is listed in the menu (**Moto**) with its numbers, computed from its tuning: power, weight,
@@ -371,10 +425,13 @@ Automatic gearbox: it shifts up at 9400 rpm and down at 4800, both multiplied by
 | `front_tire_loose_grip`, `rear_tire_loose_grip` | 1 | grip multiplier on dirt and grass (a racing slick: 0.35) |
 | `front_tire_paved_grip`, `rear_tire_paved_grip` | 1 | grip multiplier on asphalt, concrete and objects |
 | `lean_surface_grip` | 0 | 1 = where the tires grip sideways less than `max_lateral_accel` (ground × `*_loose/paved_grip` × `*_lat_grip`), the rider asks for that much and leans less (slicks on dirt). 0 = always asks for `max_lateral_accel` |
-| `brake_align` | 0 | braking hard, the bike lines up with where it goes, also while turning (in a straight line the front wheel also follows its own path) (1/s; the race bike uses 8, the dirt bikes 4) |
+| `brake_align` | 0 | braking hard, the bike lines up with where it goes, also while turning (in a straight line the front wheel also follows its own path) (1/s; the race bike uses 8, the dirt bikes 4; since v0.3.10 it also works in the original 450 physics, `original_031`: the 450 and the 600 use 4) |
 | `brake_align_torque` | 1500 | how hard `brake_align` lines the bike up (Nm per rad/s; the others use 2000) |
 | `brake_align_from`, `brake_align_full` | 0.2, 0.6 | front brake where `brake_align` starts and where it acts fully (the Trilheira: 0.55 and 0.95, only when braking really hard, like the S key does) |
 | `brake_align_free` | 1 | braking straight with `brake_align`, how much the front wheel is let go to follow its own path (0 = not at all: only the bike lines up) |
+| `brake_align_rear` | 0 | `brake_align` also with the rear brake alone (how much it counts: 1 = like the front). Letting go of a turn with the rear brake slammed, the braked rear tire doesn't grip sideways and the bike could stay sliding toward the turn while leaned the other way (the race bike uses 1) |
+| `flat_side_exact` | 0 | 1 = the angles measured around the vertical (the slip `brake_align` corrects, the path the free front wheel follows, the slow slide, the grau, the banking) use the true sideways direction. 0 = the bike's own right axis flattened, which is off by tan(pitch)·tan(lean) when the nose dives while leaned (braking in a turn: 0.3-1° on the race bike, several degrees in a stoppie): the free front wheel aimed outward and, braking and turning fast, the bike turned the opposite way. The race bike, the 2T and the Trial use 1 |
+| `tire_track_exact` | 0 | 1 = on one wheel (a wheelie held for 0.25-0.4 s, leaned 2-6° or more) the rear tire rolls along its real track, the line on the ground perpendicular to its axle, instead of along the bike's heading projected on the ground; and the bike yaws so that track follows its path (`wheelie_turn`; in the original 450 physics only with this key). Both are the same unless the bike is pitched against the ground and leaned at once: in a leaned wheelie (pitch 20-30°, lean 45°) they are 18-24° apart and the bike went sideways relative to its rear wheel. On both wheels nothing changes. The 450, the 600, the 2T and the Trial use 1 (the Trilheira's grau already lines up the track) |
 | `brake_yaw_comp` | 0 | braking while leaned, how much of the outward yaw from the brake force at the contact patch is cancelled (1 = all; the race bike uses 1). Without it the bike stays leaned but runs wide |
 | `brake_transition_release` | 0 | while the bike is changing lean a lot (what the rider asks vs what it has), the ABS eases the front brake by up to this much: stand it up first, then brake (the race bike uses 0.3) |
 | `lean_sweep_comp` | 0 | 1 = while the bike stands up, the tires don't feel the sideways sweep of the contact patches (the lean pivots around the center of mass here, not around the contact line like a real bike). Without it, letting go of a hard turn to brake sends the bike toward the other side (the race bike uses 1) |

@@ -43,8 +43,15 @@ struct BikeState {
     float bestLap = 0.0f;
     JPH::Mat44 parts[RiderPart::Count];   // el ragdoll, si el piloto se cayó
     // Truco (Trick::...) y cuánto está hecho (0..255). Van al final del paquete, después de todo: una versión que no los
-    // conoce los ignora (lee lo suyo y no mira lo que sobra), así que el protocolo no cambia. Ver docs/RED.md.
+    // conoce los ignora (lee lo suyo y no mira lo que sobra), así que el protocolo no cambia. Ver docs/RED.md. Los espejados
+    // (v0.3.10) van como el original (Trick::Base) y en un tercer byte el de verdad: la v0.3.9 los ve sin espejar.
     uint8_t trick = 0, trickAmt = 0;
+    // Colores a gusto (menú Colores), después del truco con una marca (v0.3.10; ver docs/RED.md): kBikeColors la moto
+    // (colors[0..2]: principal, secundario, detalles), kSuitColors el traje (colors[3..4]). Sin la marca (una versión
+    // anterior) o sin la bandera, los de siempre (el esquema del número de jugador, el traje de la textura).
+    enum ColorFlags : uint8_t { kBikeColors = 1, kSuitColors = 2 };
+    uint8_t colorFlags = 0;
+    Color colors[5]{};
 };
 
 class Multiplayer {
@@ -72,6 +79,11 @@ public:
     // lee (HostMap; vacío hasta conectarse).
     void SetLocalMap(const std::string& map) { localMap = map; rosterTimer = 1.0f; }
     const std::string& HostMap() const { return hostMap; }
+    // Reloj compartido (el del tráfico de la autopista): el anfitrión lo fija cada paso (< 0: no hay) y va al final de la
+    // lista de jugadores, cada 1 s (una versión que no lo conoce no lo lee: el protocolo no cambia, ver docs/RED.md). El
+    // invitado lo lee con la media ida y vuelta y lo que pasó desde que llegó; false si el anfitrión no manda ninguno.
+    void SetSharedClock(double t) { sharedClock = t; }
+    bool HostClock(double& t) const;
     // Moto de cada uno ("mod/archivo"): la propia se anuncia al entrar y cada vez que cambia; la de los
     // demás llega en la lista de jugadores. bikeParams devuelve los números de una moto (cargados por el
     // juego; nullptr si no la tiene: se dibuja con los propios).
@@ -168,6 +180,8 @@ private:
     float sendTimer = 0.0f, pingTimer = 0.0f, rosterTimer = 0.0f;
     float rtt = 0.0f;
     std::string localMap, hostMap, localBike;
+    double sharedClock = -1.0, hostClock = 0.0, hostClockAt = 0.0;
+    bool hasHostClock = false;
     std::string knownBike[kMaxPlayers];          // la moto de cada jugador según la última noticia
     std::vector<std::pair<int, float>> pendingPops;
     struct Delayed {                             // --net-lag: paquete esperando su hora

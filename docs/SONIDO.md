@@ -40,6 +40,11 @@ Todo el sonido es procedural (`EngineSound.cpp`, hilo de audio de raylib): no ha
   - Medido: a 8-9 mil rpm explota a ~140-150 Hz (el 4T, a ~60-67 Hz) y suena más brillante (centroide
     5.2-5.7 kHz contra 3.6-4.1).
 - `engine_cylinders`: más explosiones por vuelta (una 4 cilindros grita).
+- **Tricilíndrico** (la Naked 950, `engine_cylinders = 3`, corte a 11 500): alcanza con la clave, sin código nuevo. Las
+  tricilíndricas de calle (Triumph 120°, Yamaha CP3) explotan parejo cada 240° de cigüeñal, que es lo que hace el
+  sintetizador. Medido con `--sound-log` en `arranquea` (`prueba/plaza_asfalto_ancha`) contra la Carrera: en 1ª a ~10 000
+  rpm explota a ~249 Hz (la Carrera a ~15 000, ~494 Hz) con el centroide en 5.2 kHz (la Carrera 5.9) y el 57% arriba de
+  2 kHz (62%); en ralentí, 35 Hz (la Carrera, que regula a 3000, 200 Hz). Ni el golpe del mono ni el grito del 4.
 
 ## Cubiertas y raspado
 

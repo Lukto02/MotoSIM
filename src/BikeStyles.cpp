@@ -74,6 +74,7 @@ const BikeStyleDef& GetBikeStyle(int id)
     case BikeStyle::Race: return RaceStyleDef();
     case BikeStyle::Trial: return TrialStyleDef();
     case BikeStyle::TwoStroke: return TwoStrokeStyleDef();
+    case BikeStyle::Naked: return NakedStyleDef();
     default: return MotocrossStyleDef();
     }
 }

@@ -795,6 +795,11 @@ void RiderClearance::Frame(const Bike& bike, RiderModel& model, Renderer& r, flo
         std::atexit(PrintFrameSummary);
     }
     const int prevStyle = r.bikeStyle;
+    // MOTOSIM_HOLGURA_VOLCAR=prefijo y MOTOSIM_HOLGURA_VOLCAR_T="desde hasta": vuelca las poses de esos segundos (vista.py).
+    if (const char* win = std::getenv("MOTOSIM_HOLGURA_VOLCAR_T")) {
+        float a = 0.0f, b = 0.0f;
+        gDump.on = std::getenv("MOTOSIM_HOLGURA_VOLCAR") && std::sscanf(win, "%f %f", &a, &b) == 2 && t >= a && t <= b;
+    }
     const Result R = Measure(bike, model, r);
     r.bikeStyle = prevStyle;
     std::string line;
@@ -825,18 +830,19 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
     const BikeStyleDef& st = GetBikeStyle(style);
     const float maxSteer = mu::Rad(P ? P->maxSteerDeg : 42.0f);
     const float maxTilt = mu::Rad(P ? P->airBodyTiltDeg : 35.0f);
-    {   // el chasis del estilo de esta moto (en el juego lo arma Draw). Desde la v0.3.4 (la pose de la primera 0.3.1)
-        // RiderModel no tiene el ajuste a la forma de la moto (BikeShape, Fit): acá sólo se mide.
+    {   // el chasis del estilo de esta moto y la forma para el ajuste del piloto (en el juego la arma Draw; el ajuste, que
+        // se había perdido en la v0.3.4, volvió en la v0.3.10)
         r.bikeStyle = style;
         const Vec3 forkUp = -bike.wheels[Bike::FRONT].axisLocal;
         r.UpdateBikeBody(ToRl(bike.wheels[Bike::FRONT].mountLocal + forkUp * 0.53f), ToRl(forkUp));
         model.elbowsIn = st.tuck > 0.0f || st.hangOff > 0.0f ? 1.0f : 0.0f;   // como PoseOnBike con la moto
+        model.BuildShape(r);
     }
     FILE* csv = std::fopen(csvPath, "w");
     if (csv) {
         std::fprintf(csv, "estilo,grupo,pose,mano_lejos,alcance,sube,centro,abreI,abreD,tobI,tobD,pAsiento,pPiernaI,pPiernaD,pBotaI,pBotaD,pManubrio");
         for (int k = 0; k < kRegions; ++k) std::fprintf(csv, ",%s,%s_donde", kRegionName[k], kRegionName[k]);
-        std::fprintf(csv, "\n");
+        std::fprintf(csv, ",medio,mas_torso,mas_cadera\n");
     }
     struct Worst {
         Hit h;
@@ -861,7 +867,7 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
         }
         RiderClearance::Of(model).throttleS = b.gripThrottle;
         const double tp = Now();
-        model.PoseOnBike(b.RiderPoseLocal());
+        model.PoseOnBike(model.RacePose(RiderModel::WhipPose(b.RiderPoseLocal(), b), b));   // como en el juego (el whip y la de carreras del modelo)
         const double dp = Now() - tp;
         gTime[0] += dp;
         gPoseMax = std::max(gPoseMax, dp);
@@ -877,13 +883,15 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
         for (int k = 0; k < kRegions; ++k)
             if (R.h[k].depth > it->second[k].h.depth) it->second[k] = {R.h[k], label};
         if (csv) {
-            // Sin el ajuste (ver arriba), las columnas del ajuste (sube, centro, abre, tob) y de sus pruebas (p...) van en 0;
-            // en sube va lo que la IK corrió la cadera y en centro, lo que inclinó el torso (rad) para que las manos lleguen.
+            const RiderModel::Fit& f = model.lastFit;
             std::fprintf(csv, "%s,%s,%s,%.2f,%.3f,%.3f,%.2f,%.2f,%.2f,%.3f,%.3f", st.name, group, label.c_str(), 100.0f * RiderClearance::HandGap(model, b.RiderPoseLocal()), model.lastReach,
-                         model.lastHipShift, model.lastExtraPitch, 0.0f, 0.0f, 0.0f, 0.0f);
-            std::fprintf(csv, ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+                         f.lift, f.center, f.open[0], f.open[1], f.ankleOut[0], f.ankleOut[1]);
+            std::fprintf(csv, ",%.2f,%.2f,%.2f,%.2f,%.2f,%.2f", 100.0f * model.SeatDepth(RiderModel::ProbeDrape), 100.0f * model.SideDepth(RiderModel::ProbeLeg),
+                         100.0f * model.SideDepth(RiderModel::ProbeLeg + 1), 100.0f * model.SideDepth(RiderModel::ProbeFoot),
+                         100.0f * model.SideDepth(RiderModel::ProbeFoot + 1), 100.0f * model.ChestDepth(b.RiderPoseLocal()));
             for (int k = 0; k < kRegions; ++k) std::fprintf(csv, ",%.2f,%s", 100.0f * R.h[k].depth, Where(R.h[k]).c_str());
-            std::fprintf(csv, "\n");
+            // Lo que hizo la IK para que las manos lleguen: el cuerpo de costado hacia el medio (0..1), torso (rad) y cadera (m).
+            std::fprintf(csv, ",%.2f,%.3f,%.3f\n", f.sideIn, f.pitch, f.shift);
         }
     };
     auto base = [&]() {
@@ -997,6 +1005,21 @@ void RiderClearance::Sweep(const Bike& bike, RiderModel& model, Renderer& r, con
                         b.steerAngle = steer * maxSteer;
                         std::snprintf(label, sizeof label, "rapido roll%+.0f L%+.0f S%+.0f st%+.1f", rollDeg, lean, side, steer);
                         run("rapido", b, label);
+                    }
+    // Colgado y agachado a la vez (las curvas rápidas del circuito: a más de 25 m/s el pecho también baja sobre el tanque).
+    if (st.tuck > 0.0f && st.hangOff > 0.0f)
+        for (float rollDeg : {-60.0f, -45.0f, -30.0f, 30.0f, 45.0f, 60.0f})
+            for (float lean : {-1.0f, 0.0f, 1.0f})
+                for (float steer : {-0.1f, 0.0f, 0.1f})
+                    for (float thr : {0.0f, 1.0f}) {
+                        Bike b = base();
+                        b.forwardSpeed = 30.0f;
+                        b.roll = mu::Rad(rollDeg);
+                        b.riderLean = lean;
+                        b.steerAngle = steer * maxSteer;
+                        b.gripThrottle = thr;
+                        std::snprintf(label, sizeof label, "colgado roll%+.0f L%+.0f st%+.1f g%.0f", rollDeg, lean, steer, thr);
+                        run("colgado", b, label);
                     }
     if (csv) std::fclose(csv);
 
