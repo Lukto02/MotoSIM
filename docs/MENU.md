@@ -97,6 +97,9 @@
   arriba de PARA PROBAR con qué hace cada dirección ("solo, superman · ↑ heel clicker · ↓ no-hander · ← nac-nac · → can-can ·
   soltalo antes de tocar el piso"). Entra a 1280×720 (captura `--menu controles`). En la ayuda del HUD, "Shift / B · trucos en
   el aire (+ dirección)" (columna derecha con 6 filas). Por qué esos botones: [PILOTO.md](PILOTO.md), "Trucos en el aire".
+  Con los espejados (v0.3.10) el párrafo suma "↓+→ nac-nac a la derecha · ↑+← can-can a la izquierda" (dos flechas: la
+  fuente sólo trae ← ↑ → ↓, no las diagonales ↖ ↘) y la ayuda dice "(+ dirección o diagonal)". Ver [PILOTO.md](PILOTO.md),
+  "Nac-nac y can-can para los dos lados".
   Sin puntaje ni cartel de trucos (a pedido: el usuario no quiere puntajes).
 
 ## HUD
@@ -465,3 +468,54 @@ codigo online que se vea solo al poner pausa con esc" y "agrega un boton en paus
   Una tira con juntas en inglete hace lo mismo con dos triángulos por tramo.
 - **Lo nuevo del HUD se ve sólo jugando**: con el bot y las pruebas, apagado salvo que se pida (`--minimapa`, `--linea`), así las
   capturas de las otras áreas no cambian.
+
+## Colores de la moto y del piloto (octubre de 2026)
+
+Pedido: "no hace falta que cambien las texturas, pero que el/los colores principales se puedan cambiar a gusto".
+
+- **Qué pasaba**: cada jugador tenía uno de los cuatro esquemas del estilo según su número (el 0 rojo en la motocross,
+  el 1 azul...) y el piloto del modelo siempre el traje rojo y azul de la textura. No había forma de elegir.
+- **Dónde**: pantalla **Colores** (`Menu::Colors`), desde el principal (fila "Colores", después de "Moto", también en el
+  menú de la partida en red) y desde el selector de motos con **C** o **Y** del joystick (pinta la marcada y Esc vuelve al
+  selector con ésa marcada). Usa la vitrina del selector (misma plataforma y ancla, `showroomBlend`) con el piloto arriba
+  de la moto; la cámara se corre a 8.6 m y `screenY` 0.46 (`colorsBlend`, 0.7 s) para que entre el casco arriba del editor.
+- **Filas**: MOTO Principal / Secundario / Detalles (los `plastic`, `stripe1`, `stripe2` del `BikeLivery`); PILOTO
+  "Original / Como la moto / A gusto" y sus dos colores; "Colores de fábrica" (esta moto y el traje original). Cada fila de
+  color lleva su muestra y el nombre ("Rojo", "a gusto", "de fábrica"); las del piloto se ven apagadas si no está en "A gusto"
+  (tocarlas lo pasa a "A gusto" partiendo de lo que se ve). Debajo, la pista de la marcada.
+- **Editor** (abajo a la derecha, donde el selector tiene la ficha): paleta de 16 colores (dos filas de ocho, vivos y
+  neutros) y barras de **Tono**, **Intensidad** y **Brillo** (HSV de raylib: `ColorToHSV` / `ColorFromHSV`). Sin abrirlo,
+  ← → en una fila de color recorren la paleta. Enter (o click) lo abre: las flechas mueven el cursor por la paleta y **el
+  color sigue al cursor** (se ve en la vitrina en el momento), ↓ baja a las barras y ← → las mueven (el tono de a 6° y da la
+  vuelta, las otras de a 4%); Enter acepta, Esc **deshace** (vuelve al de antes de abrir). Mouse: click en un color lo pone,
+  las barras se arrastran; el click afuera acepta. El tono del que se edita se guarda aparte (`colorHsv`): en un gris (sin
+  intensidad) el tono no existe y volver a subir la intensidad no salta a rojo.
+- **Por moto la moto, uno solo el piloto**: cada moto tiene su diseño y sus colores de fábrica (la trilheira verde y
+  amarilla, la 2T amarilla con el asiento del color secundario...): un esquema global quedaría bien en una y raro en otra, y
+  al cambiar de moto se perderían sus colores. El traje es el mismo en todas: elegirlo una vez alcanza. "Como la moto"
+  toma el principal de la moto y, de los otros dos, el más oscuro (el traje lleva un segundo color de base, no de detalle).
+- **preferencias.ini**: `piloto_colores = original|moto|propio`, `piloto_principal = RRGGBB`, `piloto_secundario = RRGGBB`
+  y una línea por moto cambiada, `colores_moto.<mod>/<id> = RRGGBB,RRGGBB,RRGGBB`. Una moto que vuelve a sus colores de
+  fábrica se borra de la lista. Sin las claves, todo como antes. Se guarda al aceptar, al soltar una barra, al elegir con el
+  mouse y al salir (no en cada cuadro de un arrastre).
+- **Defaults**: los colores de fábrica son los del esquema del jugador (o los del `.json` de la moto, `"colors"`, ver
+  MODDING.md). Si lo elegido es igual al esquema del estilo, se dibuja con el de siempre (no se arma nada).
+- **HUD**: el color de cada jugador (minimapa, lista de pilotos, nombres sobre las motos, sala) es el principal de su moto
+  si lo cambió (`PlayerColor`).
+- **Pruebas**: `--menu colores` y `--colores "moto=RRGGBB,RRGGBB,RRGGBB;piloto=RRGGBB,RRGGBB"` (o `piloto=moto`) ponen los
+  colores por esa vez para la moto con que se arranca (no se guardan si no se toca nada; usar con `--noprefs`).
+- **Se comprobó** (exe MSVC, 1280×720, capturas en `compilaciones/build-msvc-interfaz/cap/col/`): `menu1.png` (de fábrica),
+  `menu2.png` (azul, blanco y amarillo, piloto "como la moto"), `menu3.png` (piloto verde y negro); las siete motos de fábrica
+  y con dos esquemas en la vitrina (`motos/grilla_motos.png`) y en juego (`motos/grilla_juego.png`); el piloto de cerca
+  (`rider_grilla.png`, `rider_zoom3.png`) y el generado (`gen_grilla.png`); principal (`principal.png`, entra a 720 con la
+  fila nueva) y selector con "C sus colores" (`selector.png`). Teclas de verdad (`tools	eclas.ps1` en una copia en el
+  scratchpad): principal → Colores → Enter → paleta → barra de tono → Enter → Piloto "Como la moto" (`teclas1.png`) y en su
+  `preferencias.ini` quedaron `colores_moto.base/motocross` y `piloto_colores = moto`. Mouse (PostMessage con la escala de
+  Windows): click en "Verde" y arrastre del brillo (`raton.png`). Cuadros: 60 con y sin colores (vsync, `fps.png`).
+  Regresión de la 450 idéntica contra la v0.3.9 y bot 1:04.41 / 1:04.24.
+- **Lecciones**: (1) para recolorear piezas hechas por código no hace falta un shader: se rearman con los mismos generadores
+  y otro `BikeLivery` (ver RENDER.md, "Esquemas a gusto"); (2) un número pintado sobre un color elegido puede desaparecer
+  (trial negro con el número negro): `Readable` en `BikeMeshes.cpp` lo cambia a negro o blanco sólo si contrasta menos de
+  2:1, y con los esquemas de fábrica nunca cambia; (3) guardar en cada cuadro de un arrastre escribe el archivo 60 veces por
+  segundo: guardar al soltar; (4) el editor tiene que mostrar lo que se ve: una fila "como la moto" muestra los colores
+  derivados, no los guardados de "a gusto".

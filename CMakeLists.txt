@@ -66,6 +66,7 @@ add_executable(motocross
     src/main.cpp
     src/Game.cpp
     src/Assists.cpp
+    src/GameTraffic.cpp
     src/PhysicsWorld.cpp
     src/Render.cpp
     src/BikeMeshes.cpp
@@ -95,6 +96,8 @@ add_executable(motocross
     src/Props.cpp
     src/BikeStyles.cpp
     src/Circuit.cpp
+    src/Highway.cpp
+    src/Traffic.cpp
 )
 target_link_libraries(motocross PRIVATE raylib Jolt)
 if(WIN32)

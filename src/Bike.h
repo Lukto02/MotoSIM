@@ -15,8 +15,13 @@ struct Renderer;
 
 // Trucos en el aire (con el botón de trucos; ver docs/PILOTO.md, "Trucos"). El piloto mueve el cuerpo: la moto
 // recibe la reacción (Bike::UpdateTrick) y si toca el piso sin haber vuelto, se cae.
+// NacNac: la pierna derecha pasa por arriba de la cola a la izquierda; CanCan: la izquierda cruza por delante al costado
+// derecho. NacNacRight y CanCanLeft (v0.3.10): los mismos espejados. En red viajan como el original más un byte (ver
+// Multiplayer.cpp, WriteState): una versión anterior ve el truco sin espejar.
 namespace Trick {
-enum : int { None, Superman, HeelClicker, NoHander, NacNac, CanCan, Count };
+enum : int { None, Superman, HeelClicker, NoHander, NacNac, CanCan, NacNacRight, CanCanLeft, Count };
+// El truco que conoce una versión anterior (la v0.3.9 tenía hasta CanCan): el espejado, el original.
+inline int Base(int t) { return t == NacNacRight ? (int)NacNac : (t == CanCanLeft ? (int)CanCan : t); }
 }
 
 struct BikeInput {
@@ -183,6 +188,24 @@ struct BikeParams {
     // Frenando derecho con brake_align, cuánto se suelta la delantera para que siga su camino (1 = del todo, 0 = nada:
     // sólo se alinea la moto).
     float brakeAlignFree = 1.0f;
+    // flat_side_exact (0 = como antes): el costado con que se miden los ángulos en el plano (la deriva de brake_align, el
+    // camino de la delantera libre, el derrape lento, el grau, el peralte) es el perpendicular al rumbo. Antes era el costado
+    // de la moto aplanado, que con la moto cabeceada e inclinada a la vez queda torcido tan(cabeceo)·tan(inclinación) (frenando
+    // inclinada, 0.3-1°): la delantera libre apuntaba para afuera y a 200-280 km/h la moto doblaba para el otro lado. Ver
+    // FISICA.md, "Frenando y doblando rápido, la moto doblaba para el otro lado".
+    float flatSideExact = 0.0f;
+    // brake_align_rear (0 = como antes): brake_align también con el freno de atrás solo (cuánto cuenta: 1 = como el de adelante).
+    // Soltando la curva con el trasero clavado, la trasera frenada no agarra de costado y la moto quedaba derrapando para el lado
+    // de la curva inclinada para el otro (la de carreras, 4-7 s).
+    float brakeAlignRear = 0.0f;
+    // tire_track_exact (0 = como antes): en una rueda (la trasera, con la delantera en el aire) la cubierta rueda por su huella real,
+    // la recta del piso perpendicular a su eje (n × eje), y no por el rumbo de la moto proyectado en el piso. Son lo mismo salvo
+    // con la moto cabeceada respecto del piso e inclinada a la vez: en un wheelie doblando (cabeceo 20-30°, inclinada 45°) la
+    // huella queda 18-24° cruzada respecto del rumbo, y la cubierta empujaba como si rodara por el rumbo: la moto iba de costado
+    // respecto de su rueda de atrás. La moto, además, se alinea con la huella (wheelie_turn: en la física 031 sólo con esta clave).
+    // Con las dos ruedas, como antes (en la favela, con la huella exacta siempre, la 450, la 600 y la 2T se caían en la escadaria).
+    // Ver FISICA.md, "En wheelie doblando la moto iba de costado".
+    float tireTrackExact = 0.0f;
     // Anti-levantamiento de la cola del ABS: con menos de rearLiftLoad N en la trasera afloja la delantera
     // (derecha, hasta rearLiftMitigation; inclinada, más).
     float rearLiftLoad = 300.0f;
@@ -321,6 +344,9 @@ struct RiderPose {
     float legFree[2] = {0.0f, 0.0f};                // 0..1: el pie dejó la estribera (la rodilla dobla hacia `knee`)
     JPH::Vec3 toe[2] = {JPH::Vec3::sAxisZ(), JPH::Vec3::sAxisZ()};   // con el pie suelto, hacia dónde apunta la punta
     float handFree[2] = {0.0f, 0.0f};               // 0..1: la mano soltó el manubrio (grip = dónde va la muñeca)
+    // Hacia dónde mira el piloto además de la pista (rad; el nac-nac mira atrás, por arriba del hombro): giro de los hombros
+    // sobre el eje del torso y de la cabeza (+ hacia la izquierda) y cabeza abajo (+). Sólo el modelo (RiderModel).
+    float twist = 0.0f, lookYaw = 0.0f, lookDown = 0.0f;
 };
 
 class Bike {
@@ -372,6 +398,12 @@ public:
 
     RiderPose RiderPoseLocal() const;
     RiderPose RiderPoseLocal031() const;
+    // Manubrio dibujado (moto, manos): sigue a steerAngle con un resorte crítico (kSteerShownW). La dirección de la física es un
+    // seguidor con tope de velocidad que suma tasas (derrape, freno de mano, delantera libre: hasta 22 rad/s) y el contravolante
+    // automático, que cambian de golpe; dibujado tal cual, el manubrio y las manos pegaban tirones de 10-15° por cuadro. Lo avanza
+    // Game una vez por cuadro (sólo con ventana): sin eso (sin ventana, otras motos, la vitrina) se dibuja el de la física.
+    void UpdateSteerShown(double time);
+    float DrawSteer() const { return steerShownOn ? steerShown : steerAngle; }
     // Trucos (Bike.cpp): lleva la pose al truco `t` (Trick::...) con `amount` 0..1 (la pose de la moto, o la neutra para
     // la física). TrickBody: los centros de masa de las partes del cuerpo (RiderPart, kg en kTrickMass) con la pose neutra
     // del estilo y el truco: de ahí sale la reacción sobre la moto (BikePhysics.cpp, UpdateTrick).
@@ -399,6 +431,9 @@ public:
     float pitch = 0.0f, roll = 0.0f;         // rad (+ nariz arriba, + inclinada a la derecha)
     float speed = 0.0f, forwardSpeed = 0.0f;
     float steerAngle = 0.0f, leanTarget = 0.0f, riderLean = 0.0f;
+    float steerShown = 0.0f, steerShownRate = 0.0f;   // UpdateSteerShown
+    double steerShownTime = -1.0;
+    bool steerShownOn = false;
     float riderSide = 0.0f;                  // cuerpo del piloto de costado (-1 izquierda .. +1 derecha)
     float steerBase = 0.0f, steerCaster = 0.0f;   // manubrio pedido y contravolante automático (rad)
     float leanGrip = 1.0f;                        // agarre bajo las ruedas, filtrado (lean_surface_grip)
@@ -428,6 +463,7 @@ public:
     JPH::Vec3 trickTorque = JPH::Vec3::sZero(), trickCom = JPH::Vec3::sZero();
     JPH::Mat44 trickScale = JPH::Mat44::sIdentity();   // I0·(I0 + ΔI)⁻¹: el cuerpo estirado pesa para todos los torques
     float trickHitAmount = 0.0f, trickLanded = -1.0f;
+    unsigned resetCount = 0;                // cuántas veces apareció o reapareció (Reset): el dibujo del piloto arranca de nuevo
     float slideAngle = 0.0f;                // telemetría: cola afuera en la dirección de la curva (rad)
     float rearBrakeUsed = 0.0f;              // freno trasero que queda después de que el piloto lo module
     float slideRate = 0.0f;                  // rad/s con que se abre la cola (suavizado)
@@ -479,6 +515,7 @@ private:
     JPH::Quat prevRot = JPH::Quat::sIdentity(), currRot = JPH::Quat::sIdentity();
     float crashTimer = 0.0f;
     float tailStill = 0.0f;                  // s quieta parada sobre la cola
+    float trackExactW = 0.0f;                // tire_track_exact: cuánto rueda la trasera por su huella (entra y sale en 0.15 s)
     float oneWheelTime = 0.0f;               // s con la trasera en el piso y la delantera en el aire
     float autoShiftCooldown = 0.0f;
     float reverseHold = 0.0f;        // s manteniendo el freno parado (caja automática -> R)

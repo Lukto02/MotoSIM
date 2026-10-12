@@ -280,7 +280,7 @@ void Game::DrawMiniMap(float ui)
         const Multiplayer::Remote& r = mp.Remotes()[id];
         if (!r.active || !r.hasState) continue;
         const Vec3 p = r.DisplayPos(), f = r.DisplayRot() * Vec3::sAxisZ();
-        Arrow(clampIn(P(p.GetX(), p.GetZ())), D(f.GetX(), f.GetZ()), 8.5f * ui, Livery(id).plastic);
+        Arrow(clampIn(P(p.GetX(), p.GetZ())), D(f.GetX(), f.GetZ()), 8.5f * ui, PlayerColor(id));
     }
     Arrow(clampIn(P(at.GetX(), at.GetZ())), D(std::sin(miniYaw), std::cos(miniYaw)), 11.0f * ui, kMiniAccent);
     rlDrawRenderBatchActive();

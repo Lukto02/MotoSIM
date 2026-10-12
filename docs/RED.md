@@ -26,8 +26,39 @@ paquetes, motos remotas). El funcionamiento visto desde el jugador está en el R
   estaba. Probado: nueva contra v0.3.9-beta con `tools/red.py` en los dos sentidos, y anfitrión nuevo haciendo trucos
   (`--trucos nacnac`: el bot aprieta el botón en cada salto) con un invitado v0.3.9-beta. Con dos nuevas, la línea `net`
   del invitado muestra `truco=N NN%` del otro. **Para agregar algo más sin romper**: siempre al final y leído así.
+- **Los trucos espejados** (v0.3.10: nac-nac a la derecha `NacNacRight` = 6, can-can a la izquierda `CanCanLeft` = 7):
+  el primer byte lleva el truco que conoce la v0.3.9 (`Trick::Base`: el nac-nac o el can-can de siempre), el segundo
+  cuánto, y un **tercer byte** el de verdad. La v0.3.9 lee dos y no mira el tercero: ve el truco sin espejar (mejor que
+  nada). La nueva usa el tercero si viene y es de la misma familia (`Base(tercero) == primero`); si no viene (una v0.3.9),
+  el primero. Mandar el id nuevo directo en el primer byte tampoco rompía a la v0.3.9 (lee `t < Trick::Count`, con su
+  Count de 6, y si no, lo ignora), pero no mostraba nada. Probado (anfitrión con `--trucos nacnacder` o `cancanizq`,
+  invitado `--test netduel`, línea `net`): nueva → nueva ve `truco=6` / `7`; nueva → v0.3.9 ve `truco=4`; v0.3.9 →
+  nueva (`--trucos nacnac`) ve `truco=4`; sin errores en ningún sentido.
+- **Los colores a gusto** (v0.3.10, menú Colores): después del tercer byte del truco, una marca (`kColorMark` 0xC7), las
+  banderas (`kBikeColors` 1, `kSuitColors` 2) y, si hay alguna, cinco colores RGB (principal, secundario y detalles de la moto;
+  principal y secundario del traje): 2 bytes sin colores, 17 con. Van en cada estado (60 por segundo, ~1 KB/s) y no en el
+  HELLO ni en la lista: así el anfitrión no tiene que guardar nada (reenvía el paquete tal cual, también uno v0.3.9) y quien
+  cambia de color en la partida se ve enseguida. La v0.3.9 lee hasta el segundo byte del truco y no mira el resto; la nueva
+  lee los colores sólo si vino el tercer byte y la marca, y si no, dibuja como siempre (el esquema del número de jugador, el
+  traje de la textura). Probado con `tools/red.py` (ahora acepta opciones de más en `MOTOSIM_RED_ANFITRION` /
+  `MOTOSIM_RED_CLIENTE`, p. ej. `--colores ...`): nueva ↔ nueva, la línea `net` muestra `moto=181818,FAC812,28A0E6
+  traje=...` del otro en los dos sentidos; nueva (anfitrión, con colores) ↔ v0.3.9 y v0.3.9 (anfitrión) ↔ nueva, sin errores
+  y con las correcciones de siempre. Con ventana, el remoto blanco con el traje verde (`cap/col/redv_005.png`,
+  `redv_remoto_zoom.png`). `kProtocol` sigue en 7.
+
 - PING/PONG cada 0.5 s; ROSTER (lista de jugadores, con la moto de cada uno y el mapa) cada 1 s; 5 s sin
   noticias = desconectado. Nada necesita entrega confiable: todo se repite o se refresca.
+- **Al final del ROSTER, el reloj del tráfico** (un `double`, octubre de 2026; sólo si el anfitrión está en un mapa con
+  tráfico, la autopista). Sin subir el protocolo, como el truco: una versión que no lo conoce lee la lista y no mira lo que
+  sobra; el invitado lo lee sólo si viene (si no, `HostClock` da false y su tráfico corre con su propio reloj). El invitado
+  le suma media ida y vuelta y lo que pasó desde que llegó (`Multiplayer::HostClock`) y `Traffic::SyncClock` lo sigue: si
+  está más de 2 s atrasado se pone al día de una (simula la base hasta ahí), si está más de 2 s adelantado la rehace desde
+  el reloj 0, y si no corre hasta un 5% más rápido o más lento. Como la base del tráfico es determinista (ver MAPAS.md,
+  "Autopista del Atlántico"), **los dos ven los mismos autos** salvo cerca de una moto, donde cada PC hace frenar y esperar a
+  los autos por las motos que ve (la propia y las de los demás, con la predicción de siempre) y eso se cura solo cuando la
+  moto se va. Probado: anfitrión en la autopista e invitado que entra 12 s después (headless, en una PC): la suma de la base
+  a los 30 y 60 s del reloj sale igual en los dos (`TRAFICO base t=30.0 suma=a053b719`, `t=60.0 suma=8679b8e6`); nueva
+  contra v0.3.9 con `tools/red.py` en los dos sentidos (en la motocross) sin errores. Los autos no viajan por la red.
 
 ## Motos remotas
 
@@ -179,7 +210,10 @@ internet: ida y vuelta ~2×MS.
 
 ## Trampas
 
-- Todo lo que se genera en el mapa tiene que salir igual en todas las PCs (la favela usa semilla fija).
+- Todo lo que se genera en el mapa tiene que salir igual en todas las PCs (la favela usa semilla fija). Lo que se mueve
+  solo (el tráfico de la autopista) también, con un reloj compartido: sin `sin`/`cos`/`pow` de la biblioteca, sin nada que
+  dependa de la moto propia en la parte compartida y con los órdenes desempatados (un `std::sort` con claves iguales no
+  ordena igual en MSVC y en clang).
 - Los objetos sueltos los simula cada PC por su cuenta (no viajan).
 - Wifi de invitados o routers con aislamiento de clientes no dejan que las PCs se vean; el firewall de
   Windows pregunta la primera vez (red privada y pública).

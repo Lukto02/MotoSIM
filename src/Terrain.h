@@ -174,6 +174,8 @@ private:
     bool grassOffRoad = false;             // calles de asfalto entre pasto (circuito), no tierra roja
     bool guide = false;                    // la pista es sólo una vuelta guía: no se estampa en el terreno
     bool sand = false;                     // arena (ground_textures "sand"): tono, polvo y pocas matas secas
+    // Calles (MapDef): promedio de la altura a lo largo (m, 0 = el de siempre), banquina y peralte (autopista).
+    float streetSmooth = 0.0f, streetShoulder = 2.5f, superElev = 0.0f, superRadius = 600.0f;
     std::vector<Shape> shapes;             // terrain.shapes, listas para evaluar
     float duneDirX = 0.0f, duneDirZ = 1.0f, duneSeedX = 0.0f, duneSeedZ = 0.0f;
     MapTerrain def;                        // qué terreno natural es

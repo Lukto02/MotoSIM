@@ -77,6 +77,8 @@ public:
     std::atomic<bool> scraping{false}, scrapeTerrain{false};
     std::atomic<float> scrapeX{0.0f}, scrapeY{0.0f}, scrapeZ{0.0f}, scrapeDX{0.0f}, scrapeDZ{0.0f}, scrapeSpeed{0.0f};
     std::atomic<float> impactSpeed{0.0f}, impactNormalY{0.0f};   // golpe contra algo fijo (ver LastImpact)
+    std::atomic<float> carSpeed{0.0f}, carNormal{0.0f};          // toque con un auto del tráfico (ver LastCarHit)
+    std::atomic<int> carIndex{-1};
     std::atomic<float> hardLandingSpin{1.0f};                    // ver PhysicsWorld::SetHardLandingSpin
 
 private:
@@ -130,6 +132,19 @@ private:
         if (other.GetObjectLayer() != Layers::REMOTE) {
             if (other.GetObjectLayer() == Layers::STATIC && hardLandingSpin.load() < 1.0f) HardLanding(me, other, m, s, aMine);
             touched = true;
+            // Un auto del tráfico (cinemático): la diferencia de velocidad entera en el punto de contacto, porque rozarlo de
+            // costado a 40 km/h más que él también es un golpe (en la normal casi no se acercan).
+            if ((other.GetUserData() & kTrafficTagMask) == kTrafficTag) {
+                const Vec3 n = aMine ? m.mWorldSpaceNormal : -m.mWorldSpaceNormal;   // de la moto hacia el auto
+                const RVec3 p = aMine ? m.GetWorldSpaceContactPointOn1(0) : m.GetWorldSpaceContactPointOn2(0);
+                const Vec3 rel = me.GetPointVelocity(p) - other.GetPointVelocity(p);
+                const float sp = rel.Length();
+                if (sp > carSpeed.load()) {
+                    carSpeed = sp;
+                    carNormal = rel.Dot(n);
+                    carIndex = (int)(other.GetUserData() & ~kTrafficTagMask);
+                }
+            }
             // Golpe contra algo fijo (no la cola raspando): la velocidad con que se acercaban al tocarse.
             if (added && other.GetObjectLayer() == Layers::STATIC &&
                 me.GetShape()->GetSubShapeUserData(aMine ? m.mSubShapeID1 : m.mSubShapeID2) != kTailSkidTag) {
@@ -234,6 +249,9 @@ void PhysicsWorld::Step(float dt)
     filters->contacts.scrapeSpeed = 0.0f;
     filters->contacts.impactSpeed = 0.0f;
     filters->contacts.impactNormalY = 0.0f;
+    filters->contacts.carSpeed = 0.0f;
+    filters->contacts.carNormal = 0.0f;
+    filters->contacts.carIndex = -1;
     system->Update(dt, 1, temp.get(), jobs.get());
 }
 
@@ -247,6 +265,15 @@ PhysicsWorld::Impact PhysicsWorld::LastImpact() const
     i.speed = filters->contacts.impactSpeed.load();
     i.normalY = filters->contacts.impactNormalY.load();
     return i;
+}
+
+PhysicsWorld::CarHit PhysicsWorld::LastCarHit() const
+{
+    CarHit h;
+    h.speed = filters->contacts.carSpeed.load();
+    h.normal = filters->contacts.carNormal.load();
+    h.car = filters->contacts.carIndex.load();
+    return h;
 }
 
 PhysicsWorld::BikeHit PhysicsWorld::LastBikeHit() const

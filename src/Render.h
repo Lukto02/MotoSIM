@@ -136,14 +136,34 @@ struct Renderer {
     int bikeStyle = 0;
     Mesh bikeParts[BikeStyle::Count][BikeMesh::Count]{};
     Mesh liveryParts[BikeStyle::Count][kLiveries][3]{};
+    // Colores a gusto (menú Colores; los de otro jugador llegan por red): un esquema propio por lugar (los jugadores y la
+    // vitrina), armado con los mismos generadores del estilo. Se dibuja con livery = kCustomLivery + lugar; UpdateBikeBody lo
+    // rearma si cambian los colores, el estilo o la pipa. Hasta que se arma (o con otro estilo) sale con el esquema 0.
+    static constexpr int kCustomLivery = 100, kCustomSlots = 6;
+    void SetCustomLivery(int slot, const BikeLivery& colors);
     const Mesh& BikePart(BikeMesh::Id id, int livery) const
     {
-        const int l = ((livery % kLiveries) + kLiveries) % kLiveries;
-        if (id == BikeMesh::Body) return liveryParts[bikeStyle][l][0];
-        if (id == BikeMesh::FrontFender) return liveryParts[bikeStyle][l][1];
-        if (id == BikeMesh::ForkUpper) return liveryParts[bikeStyle][l][2];
+        const Mesh* own = liveryParts[bikeStyle][0];
+        if (livery >= kCustomLivery) {
+            const int c = livery - kCustomLivery;
+            if (c < kCustomSlots && custom[c].built && custom[c].style == bikeStyle) own = custom[c].parts;
+        } else {
+            own = liveryParts[bikeStyle][((livery % kLiveries) + kLiveries) % kLiveries];
+        }
+        if (id == BikeMesh::Body) return own[0];
+        if (id == BikeMesh::FrontFender) return own[1];
+        if (id == BikeMesh::ForkUpper) return own[2];
         return bikeParts[bikeStyle][id];
     }
+    // Traje del piloto con otros colores (kLitFS, suitOn): mode 1 el modelo (mask: R y G = cuánto de cada color de la textura,
+    // por su brillo / 2; ver RiderModel::BuildSuitMask), 2 el piloto generado (por el color de vértice). ref: los colores de
+    // fábrica; paint: los elegidos. Vale para lo que se dibuje hasta el próximo SetSuit (SetSuit({}) lo apaga).
+    struct Suit {
+        int mode = 0;
+        Texture2D mask{};
+        Color ref[2]{}, paint[2]{};
+    };
+    void SetSuit(const Suit& s);
     // Luz, cielo y texturas del suelo del mapa (el "look" de su archivo: día, atardecer o colores propios).
     void SetLook(const MapLook& look);
 
@@ -204,7 +224,8 @@ struct Renderer {
     // Caja unitaria (1x1x1 centrada) / cilindro unitario (radio 1, eje Y de -0.5 a 0.5)
     // transformados por una matriz de Jolt.
     // El chasis depende de dónde queda la pipa de dirección (tuning.ini): se rearma si cambia.
-    void UpdateBikeBody(Vector3 steerHead, Vector3 forkUp);
+    // livery: el que se va a dibujar (si es uno a gusto, se arma o se rearma su esquema).
+    void UpdateBikeBody(Vector3 steerHead, Vector3 forkUp, int livery = 0);
 
     void Box(const JPH::Mat44& world, Color c) { DrawMeshColored(box, ToRl(world), c); }
     void Cylinder(const JPH::Mat44& world, Color c) { DrawMeshColored(cylinder, ToRl(world), c); }
@@ -228,6 +249,15 @@ private:
     int skidPixelLoc = -1;
     int glossLoc = -1, skyTimeLoc = -1, grassTimeLoc = -1, grassOriginLoc = -1, grassSizeLoc = -1, pavedTintLoc = -1;
     int riderSurfaceLoc = -1, postFxaaLoc = -1, postGradeLoc = -1, sheenOnLoc = -1;
+    int suitOnLoc = -1, suitRefLoc[2] = {-1, -1}, suitPaintLoc[2] = {-1, -1};
+    struct CustomLivery {
+        BikeLivery want{}, have{};               // pedido y con el que se armaron las mallas
+        bool built = false;
+        int style = -1;
+        Vector3 steerHead{}, forkUp{};
+        Mesh parts[3]{};                         // Body, FrontFender, ForkUpper
+    };
+    CustomLivery custom[kCustomSlots];
     int anisoApplied = 0, anisoRevision = 0;           // nivel aplicado a las texturas propias (0 = ninguno todavía)
     int shadowResolution = 0, shadowResolution1 = 0;   // lado de cada mapa (la lejana: min(cercana, 3072))
     RenderTexture2D shadowMap{}, shadowMap1{}, sceneRT{};

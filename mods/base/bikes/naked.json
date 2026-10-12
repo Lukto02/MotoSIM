@@ -1,0 +1,10 @@
+// Street naked (streetfighter): inline triple with lots of midrange, wide bars, street tyres and strong brakes.
+// Made for the highway map: fast, stable flat out and quick to flick from lane to lane between the cars.
+// "tuning" is read AFTER tuning.ini and overrides only the keys it contains. F5 in game reloads both.
+{
+  "name": "Naked 950 (3 cilindros)",
+  "style": "naked",
+  "description": "Naked de calle tricilíndrica: 145 hp, manubrio ancho y frenos fuertes para pasar entre los autos.",
+  "tuning": "naked.ini",
+  "colors": ["#404248", "#ff6a12", "#f0f0ea"]
+}

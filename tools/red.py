@@ -6,7 +6,10 @@
 # La salida del anfitrión va a un archivo en la carpeta temporal (nunca dentro de un paquete): con un pipe
 # que nadie lee mientras corre el cliente, se llena, el anfitrión se traba en el printf y parece un
 # problema de red.
-import os, re, subprocess, sys, tempfile, time
+import os, re, shlex, subprocess, sys, tempfile, time
+# Opciones de más para cada uno (p. ej. colores): MOTOSIM_RED_ANFITRION='--colores moto=181818,FAC812,28A0E6' y MOTOSIM_RED_CLIENTE.
+hextra = shlex.split(os.environ.get('MOTOSIM_RED_ANFITRION', ''))
+cextra = shlex.split(os.environ.get('MOTOSIM_RED_CLIENTE', ''))
 
 if len(sys.argv) != 5:
     sys.exit(__doc__ or 'uso: python tools/red.py <exe anfitrión> <moto> <exe cliente> <moto>')
@@ -15,7 +18,7 @@ hexe, hbike, cexe, cbike = (os.path.abspath(a) if i % 2 == 0 else a for i, a in 
 log = os.path.join(tempfile.gettempdir(), 'motosim_red_anfitrion.txt')
 with open(log, 'wb') as hout:
     host = subprocess.Popen([hexe, '--headless', '--host', '--bot', '--bike', hbike, '--test', 'netduel',
-                             '--telemetry', '--time', '28'], cwd=os.path.dirname(hexe),
+                             '--telemetry', '--time', '28'] + hextra, cwd=os.path.dirname(hexe),
                             stdout=hout, stderr=subprocess.STDOUT)
     code, t0 = None, time.time()
     while code is None and time.time() - t0 < 15:
@@ -27,7 +30,7 @@ with open(log, 'wb') as hout:
         host.kill()
         sys.exit('el anfitrión no dio código de invitación')
     client = subprocess.run([cexe, '--headless', '--join', code, '--bot', '--bike', cbike, '--test', 'netduel',
-                             '--telemetry', '--time', '20'], cwd=os.path.dirname(cexe),
+                             '--telemetry', '--time', '20'] + cextra, cwd=os.path.dirname(cexe),
                             capture_output=True).stdout.decode('utf-8', 'replace').splitlines()
     host.wait()
 hlines = open(log, 'rb').read().decode('utf-8', 'replace').splitlines()

@@ -8,8 +8,8 @@ import csv
 import os
 import sys
 
-BIKES = ['motocross', 'carrera', 'trial', 'trilheira', 'dostiempos']
-GROUPS = ['suelo', 'pata afuera', 'aire', 'cola', 'aterrizaje', 'trucos', 'rapido']
+BIKES = ['motocross', 'motocross600', 'carrera', 'trial', 'trilheira', 'dostiempos', 'naked']
+GROUPS = ['suelo', 'pata afuera', 'aire', 'cola', 'aterrizaje', 'trucos', 'rapido', 'colgado']
 ZONES = [('casco', ['casco']), ('torso', ['torso']), ('cadera', ['cadera']), ('brazo', ['brazoI', 'brazoD']),
          ('antebrazo', ['antebrI', 'antebrD']), ('mano', ['manoI', 'manoD']), ('muslo', ['musloI', 'musloD']),
          ('canilla', ['canillaI', 'canillaD']), ('bota', ['botaI', 'botaD'])]

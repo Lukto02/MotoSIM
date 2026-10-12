@@ -58,6 +58,22 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     const Vec3 fwdFlat = Vec3(fwd.GetX(), 0.0f, fwd.GetZ()).NormalizedOr(Vec3::sAxisZ());
     const float v = std::max(0.0f, linVel.Dot(fwdFlat));
     const bool wasInAir = !wheels[FRONT].grounded && !wheels[REAR].grounded;
+    // brake_align (BikePhysics.cpp; en la 031 desde la v0.3.10, a pedido: la 450 y la 600 hacían un trompo frenando con la S y un
+    // poco de dirección): cuánto gira la dirección de marcha y el costado en el plano, perpendicular al rumbo. Sin la clave, nada.
+    const Vec3 sideFlat(-fwdFlat.GetZ(), 0.0f, fwdFlat.GetX());
+    if (P->brakeAlign > 0.0f || P->tireTrackExact > 0.0f) {
+        const float velYaw = std::atan2(linVel.GetX(), linVel.GetZ());
+        float turn = 0.0f;
+        if (v > 1.0f && pathYawValid) {
+            turn = velYaw - pathYawPrev;
+            if (turn > mu::kPi) turn -= 2.0f * mu::kPi;
+            if (turn < -mu::kPi) turn += 2.0f * mu::kPi;
+            turn /= dt;
+        }
+        pathRate += (turn - pathRate) * std::min(1.0f, dt * 15.0f);
+        pathYawPrev = velYaw;
+        pathYawValid = v > 1.0f;
+    }
 
     // Caída: demasiado inclinada o volcada un instante MIENTRAS toca el suelo (ruedas, chasis o
     // piloto, del paso anterior). En el aire el contador no cambia: un flip no suma nada, y una moto
@@ -257,6 +273,19 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         steerTarget = HandbrakeSteer(steerTarget, linVel, angVel.GetY(), rot * wheels[FRONT].AxleLocal(), fwdFlat, mu::Rad(P->maxSteerDeg));
         steerRate += 6.0f * hbW;
     }
+    // brake_align: frenando fuerte y derecho la delantera es libre y sigue su camino (BikePhysics.cpp).
+    float brakeFree = 0.0f;
+    if (P->brakeAlign > 0.0f && !wasInAir && v > 5.0f) {
+        brakeFree = mu::Smoothstep(P->brakeAlignFrom, P->brakeAlignFull, in.frontBrake) * (1.0f - mu::Smoothstep(0.1f, 0.3f, std::fabs(in.steer))) *
+                    P->brakeAlignFree;
+        if (brakeFree > 0.0f) {
+            const Vec3 frontAxle = com + rot * wheels[FRONT].AxleLocal();
+            const Vec3 vf = linVel + angVel.Cross(frontAxle - com);
+            const float frontPath = std::atan2(vf.Dot(sideFlat), std::max(vf.Dot(fwdFlat), 0.5f));   // + = va a la derecha del rumbo
+            steerTarget = mu::Lerp(steerTarget, mu::Clamp(frontPath + steerTarget, -maxSteer, maxSteer), brakeFree);
+            steerRate += 6.0f * brakeFree;
+        }
+    }
     steerBase = mu::MoveTowards(steerBase, steerTarget, steerRate * dt);
 
     // Autoalineación (trail): cuando la trasera se cruza, la rueda delantera tiende a apuntar hacia
@@ -272,6 +301,7 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         casterTarget = mu::Clamp(excess * P->casterAlign, -mu::Rad(30.0f), mu::Rad(30.0f)) * mu::Smoothstep(1.5f, 4.0f, v);
         // Freno de mano: el piloto deja salir la cola en vez de contravolantear (ver UpdateHandbrake).
         if (hbW > 0.0f) casterTarget *= 1.0f - hbW;
+        if (brakeFree > 0.0f) casterTarget *= 1.0f - brakeFree;   // frenando derecho ya sigue su camino (arriba)
     }
     steerCaster = mu::MoveTowards(steerCaster, casterTarget, 10.0f * dt);
     const float steerStop = mu::Rad(std::max(35.0f, P->maxSteerDeg));   // topes de dirección
@@ -282,6 +312,16 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     // ------------------------------------------------------------------ motor
     float reflectedInertia = 0.0f;
     const float driveTorque = engine.Update(wheels[REAR].omega, engineThrottle, dt, reflectedInertia);
+
+    // tire_track_exact: en una rueda de verdad (la delantera en el aire y la trasera apoyada hace más de 0.25-0.4 s, como
+    // wheelie_turn; no el instante de un bache o de aterrizar) e inclinada (la huella se aparta del rumbo tan(cabeceo)·sen(incl.):
+    // derecha son lo mismo), la trasera rueda por su huella. Entra y sale en 0.15 s.
+    if (P->tireTrackExact > 0.0f) {
+        const float want = (wheels[REAR].grounded && !wheels[FRONT].grounded)
+                               ? mu::Smoothstep(0.25f, 0.4f, oneWheelTime) * mu::Smoothstep(mu::Rad(2.0f), mu::Rad(6.0f), std::fabs(roll))
+                               : 0.0f;
+        trackExactW = mu::MoveTowards(trackExactW, want, dt / 0.15f);
+    }
 
     // ------------------------------------------------------------------ ruedas
     const JPH::IgnoreSingleBodyFilter ignoreSelf(b.GetID());
@@ -440,6 +480,8 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
             // -------------------------------------------------------------- neumático
             Vec3 fwdG = (fwd - n * fwd.Dot(n)).NormalizedOr(fwdFlat);
             if (i == FRONT) fwdG = Quat::sRotation(n, -steerAngle) * fwdG;
+            // tire_track_exact: en una rueda, la trasera por su huella (n × eje), no por el rumbo proyectado (Bike.h).
+            if (i == REAR && trackExactW > 0.0f) fwdG = (fwdG + (left.Cross(n).NormalizedOr(fwdG) - fwdG) * trackExactW).NormalizedOr(fwdG);
             const Vec3 latG = n.Cross(fwdG);                        // hacia la izquierda
             const Vec3 pointVel = b.GetPointVelocity(contactPoint);
             w.longVel = pointVel.Dot(fwdG);
@@ -561,6 +603,20 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
         }
         if (flying && P->whipAir <= 0.0f) totalTorque -= fwd * (P->airBodyInertia * (bodyTiltRate - prevRate) / dt);
     }
+    // tire_track_exact: doblando en una rueda (más de 0.3 s, inclinada o cruzada unos grados) la moto se inclina alrededor de la
+    // línea del piso y gira a la par de su trayectoria con la huella de la trasera alineada (wheelie_turn, como en BikePhysics.cpp).
+    // Sin esto la 450 y la 600 hacían un trompo en un wheelie doblando fuerte.
+    float wheelieTurning = 0.0f, trackBeta = 0.0f;
+    if (P->tireTrackExact > 0.0f && P->wheelieTurn > 0.0f) {
+        const bool oneWheel = wheels[REAR].grounded && !wheels[FRONT].grounded;
+        oneWheelTime = oneWheel ? oneWheelTime + dt : 0.0f;
+        const Vec3 flatVel(linVel.GetX(), 0.0f, linVel.GetZ());
+        const Vec3 trackSide = Vec3(right.GetX(), 0.0f, right.GetZ()).NormalizedOr(sideFlat);
+        const Vec3 track(trackSide.GetZ(), 0.0f, -trackSide.GetX());
+        trackBeta = v > 1.0f ? std::atan2(flatVel.Dot(trackSide), std::max(flatVel.Dot(track), 0.2f)) : 0.0f;
+        if (oneWheel)
+            wheelieTurning = mu::Smoothstep(0.25f, 0.4f, oneWheelTime) * mu::Smoothstep(mu::Rad(2.0f), mu::Rad(6.0f), std::max(std::fabs(roll), std::fabs(trackBeta)));
+    }
     if (!crashed) {
         const float rollRate = angVel.Dot(fwd);
         if (grounded) {
@@ -590,7 +646,10 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
                 dampRate = rollRate - leanTargetRate * fast;
             }
             const float t = (loadLean ? leanErr : leanTarget - roll) * K - dampRate * D;
-            totalTorque += fwd * mu::Clamp(t, -P->balanceMaxTorque, P->balanceMaxTorque);
+            if (wheelieTurning > 0.0f)                   // en una rueda, alrededor de la línea del piso (tire_track_exact)
+                totalTorque += (fwd + (fwdFlat - fwd) * wheelieTurning).Normalized() * mu::Clamp(t, -P->balanceMaxTorque, P->balanceMaxTorque);
+            else
+                totalTorque += fwd * mu::Clamp(t, -P->balanceMaxTorque, P->balanceMaxTorque);
 
             // Lo que haría el piloto con el freno trasero cuando el wheelie se pasa: bajar la nariz.
             if (wheelieCut > 0.0f) totalTorque -= right * (wheelieCut * P->wheelieAssistTorque);
@@ -608,6 +667,30 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
 
             // Freno de mano: el piloto saca la cola y la sostiene (UpdateHandbrake).
             if (handbrakeTorque != 0.0f) totalTorque += Vec3::sAxisY() * handbrakeTorque;
+
+            if (wheelieTurning > 0.0f) {                 // tire_track_exact: gira a la par de su trayectoria (wheelie_turn)
+                const float leanYaw = -kG * std::tan(mu::Clamp(roll, -1.0f, 1.0f)) / std::max(v, 2.0f);
+                const float follow = mu::Smoothstep(1.5f, 4.0f, v);
+                const float wantYaw = mu::Lerp(leanYaw, pathRate - P->wheelieAlign * trackBeta, follow);
+                const float tq = mu::Clamp((wantYaw - angVel.GetY()) * P->wheelieTurn, -900.0f, 900.0f);
+                totalTorque += Vec3::sAxisY() * (tq * wheelieTurning);
+            }
+
+            // brake_align: frenando fuerte la moto vuelve a apuntar hacia donde va; sólo frena el giro que sobra respecto del
+            // camino (BikePhysics.cpp). Con la S la cola va en el aire (stoppie) y nada sostiene la guiñada: la cola se iba
+            // 20° de costado y al apoyar el contravolante la terminaba de cruzar (trompo de 140-150°).
+            if (P->brakeAlign > 0.0f && wheels[FRONT].grounded && v > 5.0f) {
+                float alignBrake = in.frontBrake;
+                if (P->brakeAlignRear > 0.0f) alignBrake = std::max(alignBrake, P->brakeAlignRear * in.rearBrake);
+                const float amount = mu::Smoothstep(P->brakeAlignFrom, P->brakeAlignFull, alignBrake);
+                if (amount > 0.0f) {
+                    const Vec3 flatVel(linVel.GetX(), 0.0f, linVel.GetZ());
+                    const float slipBeta = std::atan2(flatVel.Dot(sideFlat), std::max(flatVel.Dot(fwdFlat), 0.2f));   // + = va a la derecha
+                    const float wantYaw = pathRate - P->brakeAlign * slipBeta;
+                    const float tq = mu::Clamp((wantYaw - angVel.GetY()) * P->brakeAlignTorque, -2000.0f, 2000.0f);
+                    totalTorque += Vec3::sAxisY() * (tq * amount);
+                }
+            }
         } else {
             // Efecto giroscópico de las ruedas: girando rápido, sus ejes resisten cambiar de dirección
             // y el chasis recibe L x w. Rolar la moto la hace guiñar y guiñar la hace rolar: acostada

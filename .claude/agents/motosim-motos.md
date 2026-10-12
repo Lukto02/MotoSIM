@@ -41,7 +41,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 (render, audio, input) y Jol
 ## Cómo probás
 - `--headless --test bikestats`: la ficha de todas (potencia, peso, velocidad, 0-100, agarre, suspensión, giro).
 - Mirarla (con el modelo del piloto y sin él), de los dos lados:
-  - `--size 1280 720 --nohud --test pose --flat --side --view 0 0 0.3 --norider`: costado izquierdo;
+  - `--size 1280 720 --nohud --test pose --flat --side --view 0 0 0.3 --norider`: costado derecho (el izquierdo, `--view 270 4 0.5`);
   - `--view 90 15 0.5`: derecho.
   - `--screenshot T archivo.png`, `--shots-every DT`; grilla con `python tools/grilla.py salida.png columnas escala [crop x0 y0 x1 y1] archivos...`.
 - Andarla:

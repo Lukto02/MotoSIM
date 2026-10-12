@@ -17,6 +17,256 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### La 450 y la 600: el trompo frenando con la S (a pedido, v0.3.10; cambia la física de la 450)
+- **Pedido**: "arreglá el trompo de la 450 y la 600": frenando fuerte con la S y un poco de dirección hacían un trompo (igual en
+  la v0.3.8). Que frenar fuerte doblando abra la curva o haga un derrape controlable, y que la frenada recta y la sensación de
+  la 450 se mantengan.
+- **Cómo se midió**: `tools/alreves.py` en `prueba/plaza_tierra` y `prueba/plaza_asfalto` a 60, 90 y 120 km/h (129 casos: el
+  stick fijo de 0.06 a 1 y los guiones de teclado), contando además los casos con la deriva máxima de más de 30° (sin los del
+  freno de mano, `trasero*`, que derrapan a propósito); `frenacurva90xS` con `--flat`; las frenadas rectas `frenadaN`
+  (`tools/frenada.py`); la telemetría cada 0.02 s.
+- **Qué pasaba** (`frenacurva90x0.1`, la 450 en `plaza_tierra`): a los 0.3 s de clavar la S la trasera se levanta (stoppie,
+  `rN` 0, cabeceo −12°); apoyada sólo en la delantera la moto gira sola (la deriva pasa de −5 a −22° en 0.45 s; el
+  `stoppie_yaw_damping` sólo frena la velocidad de giro, no la corrige); la trasera vuelve a apoyar cruzada 24°, el
+  contravolante automático (`caster_align`) clava el manubrio a −31° y la cola sigue hasta 150°. `alreves.py`: la 450 88 de
+  129 casos malos en la tierra y 84 en el asfalto (86 de 108 con más de 30° de deriva, hasta 164°); la 600, 83 y 82 (81, hasta
+  162°). Con la S, 140-168° en `frenacurva90x0.1`; con el teclado, soltando la D y clavando, 100-150°.
+- **Por qué**: lo mismo que "La motocross: frenando fuerte hacía un trompo" (abajo): con la trasera descargada frenar es
+  inestable de guiñada. Se había arreglado con `brake_align`, pero la física 031 (`original_031`, la 450 y la 600 desde la
+  v0.3.1 recuperada) no lo tiene.
+- **Qué se hizo**: `brake_align` portado a `BikePhysics031.cpp`, igual que en `BikePhysics.cpp` (la moto vuelve a apuntar hacia
+  donde va frenando fuerte, sólo el giro que sobra respecto del camino; frenando derecho la delantera sigue su camino y no
+  contravolantea), detrás de `brake_align > 0` (la 031 no lo leía: sin la clave, idéntica). El costado para medir la deriva y el
+  camino de la delantera es el perpendicular al rumbo (lo de `flat_side_exact`, ver "Frenando y doblando rápido..."; en la 031
+  es código nuevo, no hay un "antes"). `motocross.ini` y `motocross600.ini`: `brake_align` 4, `brake_align_torque` 2000, como
+  las otras de tierra.
+- **Se comprobó** (con lo de "En wheelie doblando la moto iba de costado", abajo, también prendido):
+  - `alreves.py`: **la 450 88 → 1 de 129 en la tierra y 84 → 1 en el asfalto** (el que queda: soltar la D y clavar sólo el
+    trasero a 120 km/h, −4.7° de camino, igual que antes: el freno de mano); deriva de más de 30°: 86 → 0, la máxima 7.5°. **La
+    600, 83 → 5 y 82 → 5** (los del trasero solo, iguales que antes, y uno nuevo: a 60 km/h, con gas y la D 1.5 s antes de
+    frenar, la 600 hace un wheelie alto doblando y al clavar el freno de mano se cruza; antes ese wheelie terminaba en caída);
+  - `frenacurva90x0.1` con `--flat`: cola 168° → 0.4° (450) y 163° → 0.3° (600), y frena 0.67 g, lo mismo que derecho (antes
+    0.79 g contaba el trompo); `x0.2`: camino −24° → +4°, 0.79 → 0.87 g; `x0.5`, 0.88 → 0.86 g y el camino +5° → +30°: dobla;
+    con el teclado (la 450 en la tierra), clavando la S sin soltar la D, camino +64 a +86° con 5-7° de cola (antes −22 a +13°
+    con 84-132°); soltando la D y clavando, se endereza y sigue derecho: camino −1 a +3°, cola 1-7° (antes −24 a +16° con
+    12-153°);
+  - la frenada recta, idéntica: `frenada60/90/120` en la tierra y el asfalto, 6.6-7.3 m/s², cola 0°, 77-94% en el aire;
+  - `accel` (la frenada recta del final): antes la moto se cruzaba 15.6° (17.5° de máxima) al final; ahora 0°;
+  - bots: la 450 en la pista **1:04.41 / 1:04.24, idéntica** (150 s; 900 s, 13 vueltas, iguales al centésimo); la 600
+    **1:04.52 / 1:04.34 → 1:04.23 / 1:04.34**; la favela, 4 muestras de 45 min de la 450 (la masa corrida 0.01-0.04 kg) y 30 min
+    de la 600: 0 caídas antes y después, las mismas vueltas;
+  - `tools/regresion.sh` contra la v0.3.9: idénticas `brakeslide`, `cuerpo`, `flip`, `wheelie`, el bot de 40 y 150 s, `airrot`,
+    `circle12` y `brakestraight` (el bot de la 450 en la pista nunca entra en lo nuevo: no frena tan fuerte con la delantera
+    apoyada ni dobla en una rueda), y la 600 en `brakestraight` y `wheelie`; distintas a propósito `accel` (la frenada del final), `whip` (aterriza en la
+    trasera cruzado: lo de abajo) y el bot de la 600. Sin las claves (los `.ini` de la v0.3.9), todo idéntico.
+- **La Trilheira (probado, no se tocó)**: sus 61 de 129 casos (60/90/120 km/h; 38 de 86 a 60/90) son otra cosa: en el stoppie,
+  soltando la D y clavando, queda 1-2 s inclinada 8-12° hacia la curva con el camino yendo para el otro lado a 5-15°/s. El
+  `--wheel-log` muestra la trasera trabada y casi sin carga (130 N) derrapando de costado, la delantera apuntando 3.6° a la
+  derecha del rumbo (lo que pide la inclinación) pero rodando 4° a la derecha (la moto cangrejea 3°): empuja a la izquierda y
+  sostiene la inclinación. Su `brake_align_free` 0 (puesto por la favela) no deja que la delantera siga su camino.
+  - `brake_align_free` 1 sola: 69 casos (peor); con `flat_side_exact` 1: **18** (la delantera libre necesita el costado
+    exacto: en un stoppie, con cabeceo de −6 a −20°, el aplanado está torcido grados). Pero en la favela (6 muestras de 45 min,
+    la masa corrida, `--map favela --bike ...`) las caídas pasan de 1-3 a 16-23, todas en la pared de s≈253;
+  - `flat_side_exact` 1 sola: 67 casos y 13-20 caídas; la delantera libre con el costado exacto sólo para `brake_align` (una
+    clave aparte, probada y sacada): 19 casos y 17-21 caídas; con eso y el alineado sólo frenando a más del 85%
+    (`brake_align_from` 0.85, `full` 1): 15 casos y 10-12 caídas; con `flat_side_exact`: 15 y 6-9;
+  - `brake_yaw_comp` 1 / 0.5: 70 / 66 casos: cancelar el giro que mete el freno en el contacto la pasa al otro lado (cruzada
+    igual, inclinada para el otro lado).
+  Lo que la arregla en la plaza (que la delantera siga su camino frenando fuerte) hace que el bot de la favela, que frena fuerte
+  y dobla poco antes de la pared de s≈253, llegue más abierto. Queda pendiente: habría que mirar ese tramo del bot.
+- **Lecciones**:
+  - **Un arreglo de una física no está en la otra**: la 031 se recuperó de la v0.3.1, antes de `brake_align`; el `.ini` de la
+    450 de la v0.2.7 tenía `brake_align` 4, el de la v0.3.1 no, y la 031 tampoco lo leía. Antes de buscar la causa de algo que
+    "se había arreglado", fijarse si el código que lo arreglaba corre para esa moto.
+  - **La "g" de una frenada con trompo engaña**: de costado la moto frena más (0.79 contra 0.67 g); comparar con la frenada
+    recta, no con el número de antes.
+  - **El bot de la favela de la Trilheira es la vara de cualquier cambio en la frenada fuerte**: en la plaza todo mejora y en la
+    favela se cae 5-10 veces más; medirlo con varias muestras de 45 min (ver "La Trilheira: frenando fuerte hacía un trompo").
+
+### En wheelie doblando la moto iba de costado (a pedido, v0.3.10; la 450, la 600, la 2T y la Trial)
+- **Pedido**: "cuando hacés wheelie y doblás fuerte, no parecería que la moto dobla para donde la rueda apunta"; aclarado: la
+  rueda de atrás, la que va apoyada: la trayectoria no coincide con hacia dónde apunta la cubierta, la moto parece ir de costado.
+- **Cómo se midió**: con el teclado, `--flat --test teclas:W+15,Wv0.6,WvD3,W1` (arranca, se tira atrás con gas hasta levantar la
+  rueda y dobla con la D 3 s), lo mismo desde 25 km/h y con la A desde 20. Un `printf` de prueba (sacado) en la cubierta trasera:
+  el ángulo entre la velocidad del contacto y **la huella real de la rueda** (la recta del piso perpendicular a su eje,
+  `n × eje`; es lo que se ve: un disco inclinado visto desde arriba es una elipse a lo largo de esa recta) y entre la velocidad y
+  el rumbo de la moto proyectado en el piso, que es por donde la física hacía rodar la cubierta. Mediana y percentil 90 en los
+  pasos con cabeceo de más de 8° e inclinación de más de 15°.
+- **Qué pasaba** (deriva contra la huella, mediana / p90):
+
+  | moto | desde 15 km/h, D | desde 25, D | desde 20, A |
+  |---|---|---|---|
+  | 2T | 21.0 / 23.1° | 19.2 / 21.9° | 20.5 / 22.6° |
+  | Trial | 18.5 / 20.3° | 19.4 / 19.8° | 16.2 / 20.1° |
+  | 450 | 15.2 / 20.9° (y trompo) | 13.6 / 17.0° (trompo, 79°) | 12.8 / 17.7° (trompo, 82°) |
+  | 600 | 36.9 / 41.3°, caída | 30.3 / 37.6°, caída | 31.4 / 38.4°, caída |
+  | Trilheira (grau) | 3.1 / 8.3° | 5.0 / 13.0° | |
+
+  Contra el rumbo, en cambio, la 2T y la Trial daban 2°: para la física la cubierta rodaba casi derecha. (La columna `beta` de
+  la telemetría, con los ejes 3D de la moto cabeceada, daba 15-19°: tampoco es la deriva de la rueda.)
+- **Por qué**: la cubierta usaba como dirección de rodadura el eje de la moto proyectado en el piso
+  (`fwd - n·(fwd·n)`). Es lo mismo que la huella sólo si la moto no está cabeceada respecto del piso o no está inclinada; en un
+  wheelie inclinado se separan tan(cabeceo)·sen(inclinación): con 26° de cabeceo y 44° de inclinación, 23°. La física hacía
+  rodar la cubierta por el rumbo (y `wheelie_turn`, en la 2T y la Trial con `flat_side_exact`, alineaba ese rumbo con el camino),
+  así que la rueda que se ve iba 20° de costado. La 450 y la 600 (física 031) no tenían ni `wheelie_turn`: nada orientaba la
+  moto y se cruzaban hasta el trompo. La Trilheira no: su grau alinea con el costado aplanado de la moto, que es perpendicular a
+  la huella, así que la rueda que se ve rodaba derecha (y la física la veía cruzada 30-40°, patinando: en el grau no importa).
+- **Qué se hizo** (`tire_track_exact`, 0 por defecto = como antes, guardada con `if`; `BikePhysics.cpp` y `BikePhysics031.cpp`):
+  - en una rueda de verdad (la trasera apoyada y la delantera en el aire hace más de 0.25-0.4 s, como `wheelie_turn`) e
+    inclinada (2-6° o más: derecha la huella y el rumbo coinciden), la cubierta trasera rueda por su huella (`left × n`); la mezcla
+    entra y sale en 0.15 s (`trackExactW`);
+  - `wheelie_turn` alinea la huella con el camino (la deriva medida contra el costado aplanado de la moto, como el grau);
+  - en la física 031, con la clave, `wheelie_turn` y el equilibrio alrededor de la línea del piso en una rueda, como en
+    `BikePhysics.cpp` (la 450 y la 600 heredan `wheelie_turn` 900 de `tuning.ini`; la 031 no lo leía);
+  - `tire_track_exact` 1 en `motocross.ini`, `motocross600.ini`, `dostiempos.ini` y `trial.ini`. La Trilheira no: ya rodaba por
+    su huella y con la clave se cae en el wheelie rápido doblando (la cubierta agarra de golpe lo que antes patinaba).
+- **Probado y descartado**: la huella exacta **siempre** (también con las dos ruedas y en la delantera): en la favela la 450, la
+  600 y la 2T se caían en la escadaria (0 → 4, 0 → 5 y 0 → 6 caídas en 20-30 min; las normales de los escalones, de costado,
+  giran la huella) y la 450 perdía 0.5 s por vuelta en la pista (los whoops). Y sin el umbral de inclinación cambiaban los
+  floats de todos los wheelies derechos (el arranque de cada prueba): `cuerpo`, `circle12`, `brakestraight` daban distintas.
+- **Se comprobó** (deriva contra la huella, mediana / p90):
+
+  | moto | desde 15 km/h, D | desde 25, D | desde 20, A |
+  |---|---|---|---|
+  | 2T | 21.0 → 8.0 / 12.4° | 19.2 → 5.7 / 7.3° | 20.5 → 7.7 / 12.9° |
+  | Trial | 18.5 → 2.7 / 3.3° | 19.4 → 2.6 / 2.7° | 16.2 → 2.6 / 3.0° |
+  | 450 | 15.2 → 9.8° (el trompo sigue, después de apoyar: abajo) | 13.6 → 5.5 / 7.6°, sin trompo | 12.8 → 8.9 / 15.8°, sin trompo |
+  | 600 | 36.9 → 7.5 / 33.3°, sin caída | 30.3 → 31.0°, trompo sin caída | 31.4 → 48.7°, trompo sin caída |
+
+  - la inclinación medida sube de 43-46 a 51-56° (la moto dobla con la huella, el ángulo `roll` es el del eje levantado);
+  - bots, sin caídas y las mismas vueltas: la 2T y la Trial en la pista (9 vueltas), el parque (11) y el valle (14), la Trial en
+    el circuito de obstáculos; la favela 20-30 min: la 2T 0 → 0 caídas, la Trial 4 → 1, la 450 y la 600 0 → 0; la 450 en la
+    pista idéntica (150 y 900 s);
+  - `tools/regresion.sh` contra la v0.3.9 (con lo de la frenada, arriba): sólo cambia `whip` de la 450 (aterriza en la trasera
+    cruzado 50° e inclinado 16° y rueda en una rueda más de 0.25 s: la guiñada de ese momento pasa de 3.1 a 2.7 rad/s; después,
+    la misma maniobra con 0.2-0.3 km/h de diferencia); la 2T y la Trial, idénticas al exe de antes en `brakeslide`, `wheelie`, `circle12` y sus bots.
+- **Pendiente**: a fondo en un wheelie doblando, la 450 y sobre todo la 600 patinan la trasera (`rSlip` 0.2-0.5, `rUse` 5-16) y
+  se acuestan de más (la 600, a 55° de cabeceo, hasta 70°): se cruzan como un derrape con gas (antes la 600 se caía). Eso sí es
+  "derrapar la cola con gas", pero llega solo con la W apretada; si molesta, el límite de wheelie o el control de tracción en
+  una rueda.
+- **Lecciones**:
+  - **La dirección de rodadura de una rueda es perpendicular a su eje, no el eje de la moto proyectado**: coinciden con la moto
+    sin cabecear respecto del piso; en un wheelie o un stoppie inclinados se separan tan(cabeceo)·sen(inclinación). Es la otra
+    cara de "Aplanar un vector de la moto no da el perpendicular al rumbo" (arriba): la referencia correcta depende de qué se
+    mide; para lo que se ve de la rueda, su huella.
+  - **Medir lo que se ve**: la `beta` de la telemetría y la deriva de la física decían 2° y 17° del mismo instante; la rueda que
+    se dibuja iba 20° de costado. Antes de tocar nada, calcular el ángulo con la geometría de lo que se dibuja.
+  - **Lo nuevo, sólo donde hace falta**: la huella exacta siempre es más "correcta" pero cambia todo (las escaleras, los whoops);
+    limitada a una rueda inclinada arregla el pedido y deja idénticas las pruebas de siempre.
+
+### El manubrio dibujado saltaba 10-15° por cuadro (v0.3.10; sólo el dibujo)
+- **Pasaba** (detector de saltos del piloto, ver [PILOTO.md](PILOTO.md), "Saltos de la pose"): manos y antebrazos 4-12 cm por
+  cuadro cuando el manubrio saltaba (la Trial derrapando en el bot: `steer -5.6>-15.2>-24.7>-10.3`).
+- **Por qué**: la dirección de la física (`steerBase`) es un seguidor con tope de velocidad (`MoveTowards`): la velocidad pasa de
+  0 al tope en un paso, y el tope suma tasas (4 rad/s de base, +6 con el derrape lento, +6 con el freno de mano, +6 con la
+  delantera libre de `brake_align`: hasta 22 rad/s, 10° por paso); el contravolante automático (`steerCaster`, 10 rad/s) cambia
+  de objetivo cuando la trasera toca o se despega. Continua en posición, no en velocidad: en el bot de la Trial (60 s, cada
+  0.01 s) la velocidad del manubrio cambia hasta 7.5°/cuadro de un cuadro al otro (4.2° el percentil 99.9).
+- **Qué se hizo**: no se tocó la física (cambiaría todas las motos y la 450). Lo que se dibuja (el manubrio, la rueda delantera y
+  las manos de la pose) sigue a `steerAngle` con un resorte crítico de 40 rad/s (`Bike::UpdateSteerShown`, `DrawSteer`), que
+  `Game::Draw` avanza una vez por cuadro con el tiempo de simulación. Sin ventana, las otras motos (red) y la vitrina, el de la
+  física. Simulado sobre la telemetría del bot de la Trial: 7.5 → 1.1°/cuadro de cambio de velocidad, atrás de la física como
+  mucho 4.6°. Con 20-30 rad/s, 0.4-0.8° pero hasta 6° atrás.
+- **Se comprobó**: la física idéntica (no la lee); el detector, en PILOTO.md.
+
+### Frenando y doblando rápido, la moto doblaba para el otro lado (a pedido; la Carrera, la 2T y la Trial)
+- **Pedido**: "a veces cuando frenás y doblás la moto dobla para el lado contrario en ciertas situaciones"; después: "suele pasar
+  cuando vas muy rápido, y frenás y doblás al mismo tiempo, la moto termina doblando para el lado contrario del que está
+  inclinada" (la de carreras; "pasa hace bastante").
+- **Cómo se midió**: `tools/alreves.py` (nuevo, ver [PRUEBAS.md](PRUEBAS.md)): `frenacurvaNxS` (frena a fondo y dobla con el
+  manubrio fijo en S, como un stick) de 100 a 280 km/h con S de 0.06 a 1, y guiones de teclado (`teclas:`) con la frenada partida
+  en pasos de 0.1 s: la S sin soltar la D, soltándola, esperando 0.15-0.6 s y clavando, sólo el trasero (Espacio), la D a medias
+  con toques, todo a la vez desde derecho; entrando (0.3 s de curva), a mitad (0.7) y adentro (1.5). En cada paso, cuánto giró el
+  camino y la inclinación: "AL REVES" si el camino va para el otro lado de la D, "CRUZADA" si queda más de 0.3 s inclinada para un
+  lado con el camino girando para el otro. Después la telemetría cada 0.02 s y `--wheel-log` (con un `printf` de prueba, sacado)
+  en un caso.
+- **Qué pasaba** (la Carrera de la v0.3.9; la v0.3.4, antes del rework, igual: no lo trajo el equilibrio por la carga):
+  - frenando con poco manubrio a 150-280 km/h la moto se acostaba 12-23° para la derecha y el camino se iba para la izquierda:
+    `frenacurva250x0.2`, camino −44° y 63 m corrida para afuera; `280x0.15`, −21° y 68 m; aun con 0.06, 19-25 m para afuera. En
+    el estado de régimen (250x0.2): inclinada 22.5° a la derecha (pedía 12), manubrio 3° a la derecha, la delantera saturada
+    empujando 2550 N a la **izquierda**, la trompa 4.6° a la izquierda del camino, girando a la izquierda a 1.2 g, 5 s;
+  - con el teclado, la D a medias frenando desde 200-280: −5 a −11°; soltando la D y clavando sólo el trasero (Espacio) desde
+    60-280: inclinada 11° a la izquierda y derrapando hacia la derecha a 46°/s durante 4-7 s (+90 a +230° de camino);
+  - en total, 34 de 258 casos de `alreves.py` (60-280 km/h, `plaza_asfalto_ancha`); en tierra (lisas), 53 de 129.
+- **Por qué** (el `--wheel-log` daba a la delantera una deriva de −0.3°, empujando a la izquierda, mientras el manubrio "libre"
+  creía seguir su camino +0.035° hacia la derecha):
+  - los ángulos alrededor de la vertical (la deriva que corrige `brake_align`, el camino que sigue la delantera libre de
+    `brake_align`, el derrape lento, el grau, el peralte) se medían con `atan2(v · rightFlat, v · fwdFlat)`, y `rightFlat` era el
+    costado de la moto con la Y en cero. Con la moto **cabeceada e inclinada a la vez** ese vector no es perpendicular a `fwdFlat`:
+    queda torcido tan(cabeceo)·tan(inclinación). Frenando, la trompa se hunde (−2.5° en la Carrera, −20° en el stoppie de las de
+    tierra) y con 10-25° de inclinación el error es 0.3-1° (en un stoppie, varios grados);
+  - frenando fuerte con `brake_align`, la delantera "libre" (`brakeFree`) apunta a su camino más el manubrio que pide la curva. A
+    250 km/h la curva pide décimas de grado de manubrio (`kLean`: 0.05-0.3°), así que el error manda: la delantera apunta para
+    afuera de su camino y empuja para el otro lado. Esa fuerza, adelante del centro de masa, gira la trompa para afuera; con la
+    trasera descargada nada la sostiene, `brake_align` sigue al camino (`pathRate`) y la cubierta empujando hacia afuera, debajo
+    del centro de masa, acuesta la moto **más** hacia adentro: el balance la sostiene y queda el estado cruzado. Despacio, el
+    manubrio que pide la curva (grados) tapa el error: por eso "cuando vas muy rápido";
+  - el caso del trasero solo es otro: la trasera frenada no agarra de costado, al enderezarse la cola sale y las dos cubiertas
+    saturadas sostienen el derrape (el estado de "soltar la curva sin frenar" de "La de carreras: rework de la frenada");
+    `brake_align`, que lo cortaría, sólo miraba el freno de adelante.
+- **Qué se hizo** (claves nuevas, 0 por defecto = como antes, guardadas con `if`; `BikePhysics.cpp`; la física 031 de la 450 y la
+  600 no tiene `brake_align` ni la delantera libre):
+  - **`flat_side_exact`**: el costado en el plano es el perpendicular a `fwdFlat` (`sideFlat`, una vez por paso, para todos esos
+    usos). 1 en la Carrera, la 2T y la Trial;
+  - **`brake_align_rear`**: `brake_align` también con el freno de atrás solo (`max(delantero, brake_align_rear × trasero)`; con la
+    S, que frena atrás a la mitad, no cambia nada). 1 en la Carrera.
+- **Probado y descartado**:
+  - apagar de a una las claves de la frenada de la Carrera: con `brake_align` 0 nunca dobla al revés pero la cola sale 12-16° (lo
+    que `brake_align` arregló); `brake_yaw_comp`, `brake_stand_up`, `brake_transition_release`, `lean_sweep_comp`,
+    `balance_fast_*` y `lean_load` en 0 no lo cambian (el equilibrio por la carga no tenía que ver);
+  - que la guiñada que busca `brake_align` nunca doble menos hacia el lado de la inclinación que lo que da esa inclinación: con
+    S 0.1-0.15 seguía al revés y con la D a fondo derrapaba 28°;
+  - `flat_side_exact` en la Trilheira: no mejora (38 → 42 casos; con `brake_align_free` 0 no suelta la delantera): lo suyo es
+    otra cosa (abajo).
+- **Se comprobó**:
+
+  | Carrera, `frenacurvaNxS` (camino / costado) | S 0.06 | S 0.1 | S 0.15 | S 0.2 | S 0.3 | S 1 |
+  |---|---|---|---|---|---|---|
+  | 150 km/h, antes → después | +9° / −2 m → +18° / +2 m | +14 / −4 → +28 / +4 | +14 / −7 → +40 / +8 | +74 / +21 → +86 / +27 | +104 / +30 → +102 / +29 | +151 / +36 → +151 / +36 |
+  | 200 km/h | +4 / −10 → +18 / +3 | +6 / −15 → +28 / +5 | −4 / −28 → +41 / +11 | −29 / −37 → +104 / +49 | +124 / +53 → +121 / +51 | +168 / +56 → +166 / +61 |
+  | 250 km/h | −1 / −19 → +18 / +3 | 0 / −28 → +29 / +5 | −16 / −53 → +42 / +12 | −44 / −63 → +115 / +71 | +136 / +76 → +133 / +74 | +177 / +77 → +178 / +85 |
+  | 280 km/h | −3 / −25 → +18 / +3 | −3 / −36 → +29 / +6 | −21 / −69 → +41 / +13 | −50 / −78 → +121 / +85 | +142 / +90 → +138 / +88 | +184 / +89 → +187 / +98 |
+
+  - inclinada como mucho 3-12° con S 0.06-0.2 (antes 9-23°, más que lo pedido), deriva ≤ 6.6° (antes ≤ 6.4°), la misma g;
+  - `alreves.py`, la Carrera en `plaza_asfalto_ancha` a 60-280: **34 → 2 de 258** (los dos que quedan: a 60 km/h, soltar la D,
+    esperar 0.35 s y clavar: la moto se pasa a −7° al enderezarse y el camino la sigue −3°; y el trasero solo a 100 km/h, 0.3 s
+    cruzada a 6° y 9°/s); el trasero solo desde 100: +190° → +12° de camino; en `plaza_tierra` (lisas) 53 → 18 de 129 (con la D
+    a fondo en la tierra antes iba −19 a −26° al revés; ahora +24 a +31°). 2T: 43 → 5 de 86 (tierra) y 44 → 5 (asfalto), a 60-90;
+    la Trial: 54 → 18 y 53 → 18;
+  - `tools/maniobras.py` de la Carrera (100-250 km/h): igual salvo los décimos (derecho 1.12-1.23 g igual; doblando y clavando
+    sin soltar 151-185°, antes 149-179°);
+  - bots, 900 s: la Carrera en el circuito **idéntico** (2:10.86 / 2:09.19 / 2:09.19 / 2:09.21 / 2:09.66 / 2:09.66, 0 caídas), en
+    la pista de motocross 10 → 11 vueltas sin caídas, en la favela 3 → 1 golpes (caótico); la 2T y la Trial con la clave en la
+    pista, el parque, el valle, la favela (2T) y el circuito de obstáculos (Trial): las mismas vueltas, al centésimo, y 0 caídas;
+  - sin las claves todo idéntico: `tools/regresion.sh` contra la v0.3.9 en las 9 de siempre más `accel` y la 600 (`brakestraight`
+    y el bot), **idéntico**; la 2T, la Trilheira y la Trial sin la clave (`brakeslide`, `brakeslide2.5`, `cuerpo`, `whip`,
+    `wheelie`, `circle12`, `brakestraight`, `accel`, `frenacurva90x0.3` y el bot de 60 s), idénticas al exe sin el cambio. Con la
+    clave, en la 2T y la Trial cambian sólo `brakeslide` (cola máx. 32.2 → 35.0° la 2T, 34.4 → 34.7° la Trial), `brakeslide2.5`
+    (42.7 → 42.9°, 60.0 → 60.4°) y `accel` (en los decimales); en la Carrera, `brakestraight`, `accel` y el bot de 60 s en los
+    decimales; `circle12`, `wheelie` y `cuerpo`, idénticos.
+- **Pendientes** (no se tocaron; `alreves.py --map prueba/plaza_tierra --vel 60,90,120`):
+  - **resuelto en la v0.3.10** (arriba, "La 450 y la 600: el trompo frenando con la S"). Era: **la 450 y la 600 (física 031) hacen un trompo frenando con la S y un poco de dirección**: `frenacurva90x0.1` cola a 146-149°,
+    `x0.2` 155° (la v0.3.8 igual); con el teclado, soltando la D y clavando, 100-145°: 88 y 83 de 129 casos. Es "La motocross:
+    frenando fuerte hacía un trompo" (abajo): se arregló con `brake_align` en la física de entonces y la 031 no lo tiene. Cambia
+    la física de la 450: a pedido;
+  - la Trilheira (38 de 86; lo probado en la v0.3.10, arriba, en la entrada de la 450 y la 600) y lo que queda de la Trial (18): en el stoppie, soltando la D y clavando, la moto queda 1-2 s inclinada
+    8-12° hacia el lado de la curva con el camino yendo para el otro a 7-10°/s; la Trial frenando con la D, 0.4-1.3 s inclinada
+    20-30° con −6 a −9°/s. No es el costado torcido (con la clave, igual): la delantera con la trasera en el aire;
+  - el trasero solo (Espacio) soltando la D en la 2T, la Trial y la Trilheira: −4 a −8° de camino (el freno de mano).
+- **Lecciones**:
+  - **Aplanar un vector de la moto no da el perpendicular al rumbo**: con la moto cabeceada e inclinada, el costado aplanado queda
+    torcido tan(cabeceo)·tan(inclinación). Para medir ángulos alrededor de la vertical, el perpendicular de `fwdFlat`
+    (`(-z, 0, x)`), como ya hacían `HandbrakeSteer` y el freno de mano.
+  - **Un error chico importa cuando lo que se pide es más chico**: a 250 km/h la curva pide décimas de grado de manubrio; un sesgo
+    de medio grado en "su camino" invierte la fuerza de la delantera. Despacio no se ve. Barrer la velocidad hasta la máxima y el
+    manubrio desde casi nada (0.06), no sólo la D a fondo.
+  - **El `--wheel-log` contra lo que cree el código**: la deriva de la cubierta (`latV`) contra el ángulo con que el código apunta
+    la rueda mostró la diferencia en un paso; antes de seguir apagando ayudas (se probaron siete claves), comparar las dos
+    mediciones del mismo ángulo.
+  - **Medir el síntoma que describe el usuario**: "dobla para el lado contrario del que está inclinada" es la inclinación contra
+    hacia dónde gira el camino, paso a paso; el resumen de toda la frenada (camino total) escondía los 4-7 s cruzada del trasero
+    solo, que terminaba girando para el lado "correcto".
+
 ### Salir del whip (a pedido: "cuesta salir del whip, inicia bien pero al intentar salir la moto no se endereza del todo")
 - **Cómo se midió**: `whipkickN...rT` (nuevo en `Game.cpp`): el whip armado en el labio, suelto en el aire y desde los T s de
   vuelo el stick al otro lado **hasta tocar** (el `cT` de antes lo tira 0.35 s fijos). En `prueba/salto_whip` (50 km/h, ~1.05-1.12
@@ -1318,6 +1568,10 @@ física en sí:
   `trucosupermanp9`), cabeceo y rolido cada 0.1 s: superman, la trompa +4.5° al estirarse y +3° al terminar; heel
   clicker +3.4 / +0.4; no-hander -2.1 / +1.4; nac-nac rolido +2.1° al salir y -3.0° al volver; can-can -2.0° / +3.0°.
   Nada corre sin el botón (todo detrás de `trickAmt > 0` o `in.trick`): regresión idéntica y bots iguales (PILOTO.md).
+- **v0.3.10**: la pose del truco (`ApplyTrickPose`, la que usa `TrickBody`) cambió para sacar tirones del dibujo (el tope del
+  alcance de la pierna suave y el pie del nac-nac por atrás del guardabarros; ver [PILOTO.md](PILOTO.md), "Saltos de la pose"):
+  la reacción sobre la moto cambia un poco (la 450: cabeceo neto del heel clicker +3.9 → +7.0°, del nac-nac +5.1 → +9.8°; los
+  tiempos de volver no cambian y tocar el piso con el truco entero sigue siendo caída).
 
 ### Ragdoll que se doblaba para cualquier lado
 - Ver [PILOTO.md](PILOTO.md): los ejes del swing-twist estaban cruzados, y después los límites no

@@ -20,3 +20,6 @@ Low_Poly_Motorcycle_Racer_rigged_deps/
 
 # Copias de trabajo de los agentes (git worktree): no van al repo
 .claude/worktrees/
+
+# Caché de Python de las herramientas
+__pycache__/

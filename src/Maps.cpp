@@ -187,6 +187,14 @@ bool ModRegistry::LoadBike(const std::string& path, const std::string& mod, cons
     b.description = j.Str("description", "");
     b.style = Lower(j.Str("style", "mx"));
     if (BikeStyleFromName(b.style) < 0) errors.push_back(shown + ": \"style\" desconocido \"" + b.style + "\" (mx, trail, race o trial)");
+    if (const Json& colors = j["colors"]; colors.IsArray())   // colores de fábrica: principal, secundario y detalles
+        for (size_t i = 0; i < colors.Size() && b.colorCount < 3; ++i) {
+            if (!ReadColor(colors[i], b.colors[b.colorCount])) {
+                errors.push_back(shown + ": \"colors\" lleva colores \"#rrggbb\" (principal, secundario y detalles)");
+                break;
+            }
+            ++b.colorCount;
+        }
     const std::string tuning = j.Str("tuning", "");
     if (!tuning.empty()) {
         b.tuning = (fs::path(path).parent_path() / tuning).string();
@@ -225,8 +233,8 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
     m.generator = Lower(j.Str("generator", ""));
     m.markers = j.Bool("markers", m.generator.empty());
     m.racingLine = j.Bool("racing_line", false);   // la línea ideal en el suelo (Assists.cpp): sólo en los circuitos
-    if (!m.generator.empty() && m.generator != "favela" && m.generator != "circuit")
-        warn("generator desconocido \"" + m.generator + "\" (\"favela\" o \"circuit\")");
+    if (!m.generator.empty() && m.generator != "favela" && m.generator != "circuit" && m.generator != "highway")
+        warn("generator desconocido \"" + m.generator + "\" (\"favela\", \"circuit\" o \"highway\")");
     m.botSpeed = j.Num("bot_speed", m.botSpeed);
     m.botLateral = j.Num("bot_lateral", m.botLateral);
     m.botBrake = j.Num("bot_brake", m.botBrake);
@@ -338,6 +346,10 @@ bool ModRegistry::LoadMap(const std::string& path, const std::string& mod, const
     m.banking = tr.Bool("banking", m.roadStyle == "track");
     m.bankHeight = std::clamp(tr.Num("bank_height", 1.9f), 0.0f, 4.0f);
     m.bankGain = std::clamp(tr.Num("bank_gain", 34.0f), 0.0f, 100.0f);
+    m.streetSmooth = std::clamp(tr.Num("smooth", 0.0f), 0.0f, 400.0f);
+    m.streetShoulder = std::clamp(tr.Num("shoulder", 2.5f), 0.5f, 30.0f);
+    m.superelevation = std::clamp(tr.Num("superelevation", 0.0f), 0.0f, 0.12f);
+    m.superRadius = std::clamp(tr.Num("superelevation_radius", 600.0f), 20.0f, 5000.0f);
     if (m.roadStyle == "guide") m.markers = j.Bool("markers", false);   // la guía no se ve: sin estacas ni pórtico
     if (m.track[0].surface == Surface::Keep) m.track[0].surface = m.roadStyle == "street" ? Surface::Concrete : Surface::Track;
 

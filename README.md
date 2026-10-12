@@ -60,7 +60,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.3.9, `dist/v0.3.9/MotoSim-v0.3.9.zip`, que se publica en
+**Versión para compartir** (la v0.4.0, `dist/v0.4.0/MotoSim-v0.4.0.zip`, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
 cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
 release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
@@ -88,7 +88,7 @@ el cuerpo de la release. La versión está en `src/Version.h` y el protocolo de 
 | Dirección / inclinación | Stick izq. X | A / D |
 | Piloto adelante / atrás | Stick izq. Y | ↑ / ↓ |
 | Cuerpo a los costados (sólo la Carrera 1000) | Stick der. X (con el ajuste en Cámara, la cruz ← / →) | ← / → |
-| Trucos en el aire (solo: superman; + ↑ heel clicker, ↓ no-hander, ← nac-nac, → can-can; soltá antes de tocar el piso) | B | Shift o Ctrl (+ A D ↑ ↓); con el foco en el juego, Windows no abre las Teclas especiales con Shift |
+| Trucos en el aire (solo: superman; + ↑ heel clicker, ↓ no-hander, ← nac-nac, → can-can; en diagonal la pierna sale para ese lado: ↘ nac-nac a la derecha, ↖ can-can a la izquierda; soltá antes de tocar el piso) | B | Shift o Ctrl (+ A D ↑ ↓; diagonal: ↓ + D, ↑ + A); con el foco en el juego, Windows no abre las Teclas especiales con Shift |
 | Bajar / subir marcha | LB / RB | Q / E |
 | Reaparecer (caído no reaparece solo; en la pista, en la pista; en un mapa libre, donde quedaste, mirando para donde ibas) | Y | R |
 | Volver a empezar (a la largada, y los objetos sueltos a su lugar) | Back | Retroceso |
@@ -550,7 +550,7 @@ motocross.exe --headless --test accel --telemetry          :: tests: idle, accel
 motocross.exe --headless --test idle --drop 2.5 --telemetry :: aterrizaje desde 2.5 m a 12 m/s
 motocross.exe --headless --flat --test flip --drop 5        :: mortal atrás (frontflip: adelante); imprime el giro y si hubo caída
 motocross.exe --headless --flat --test launch --telemetry  :: terreno plano; launch / launchfwd / launchlate
-motocross.exe --headless --flat --drop 3 --test trucosuperman --telemetry :: trucos: superman, heel, nohander, nacnac, cancan
+motocross.exe --headless --flat --drop 3 --test trucosuperman --telemetry :: trucos: superman, heel, nohander, nacnac, cancan, nacnacder, cancanizq
                                                            :: (pP aprieta a los P s, sS suelta a los S, x no suelta); líneas TRUCO
 motocross.exe --bot --debug --side --screenshot 5 shot.png :: con ventana, vectores + cámara lateral, captura
 ```
@@ -650,6 +650,9 @@ src/
   BikeStyles.cpp/.h      estilos de moto: piezas, pose del piloto y escape de cada uno (BikeStyleDef.h)
   BikeMeshes.cpp         piezas de las motos (cada estilo: primitivas, tubos barridos, placas, números)
   Circuit.cpp/.h         circuito de velocidad ("generator": "circuit"): pianos, boxes, tribunas, barreras, carteles
+  Highway.cpp/.h         autopista ("generator": "highway"): líneas, separador, guardarraíles, pórticos, puentes, campo
+  Traffic.cpp/.h         tráfico de la autopista: base determinista (IDM, cambios de carril), reacción a las motos, cuerpos
+  GameTraffic.cpp        ganchos de la autopista en Game: paso del tráfico (reloj compartido en red) y carril del bot
   MeshBuilder.h          armado de mallas y combinación de primitivas transformadas
   Coplanar.h             diagnóstico de caras que se pisan en las mallas del circuito y la favela (MOTOSIM_COPLANARES)
   Net.cpp/.h             socket UDP, direcciones IPv4 y código de invitación

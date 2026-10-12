@@ -787,3 +787,51 @@ suaves apoyada en la pista, unos 35-180 m adelante de la moto, verde, amarilla o
   lote en el cuadro es donde la CPU se queda esperando a que la placa termine lo que ya tenía encolado (la escena), y eso se paga
   igual en otro lado (en el `SwapBuffers`). El cuadro medio no cambió (16.7 ms con vsync a 60 Hz, con y sin). **Para medir el costo
   de un dibujo con un reloj de CPU, dibujarlo dos veces y mirar la diferencia**.
+
+## Autos de la autopista: una malla por cuadro y luces encendidas (octubre de 2026)
+
+Los autos del tráfico (MAPAS.md, "Autopista del Atlántico"; `Traffic::Draw`) son cientos y se mueven: no van como mallas fijas.
+- **Una malla para todos**, rearmada en la CPU cada cuadro (cuando cambia el paso de física o el `alpha`): cada pieza de cada tipo
+  de auto en triángulos sueltos (sin índices, así no hay que reescribir un búfer de índices) se transforma con la pose
+  interpolada del auto y se escribe con `UpdateMeshBuffer`; se dibuja con `DrawMeshColored` cambiando `vertexCount` en una
+  copia del `Mesh` (como las marcas de goma). Los autos van de los más cerca a los más lejos: la pasada de sombras dibuja
+  sólo los primeros (los de menos de 70 m) y la cascada lejana, en caché, no los lleva. 15-35 mil vértices por cuadro; las
+  ruedas, paragolpes y espejos sólo a menos de 110 m, y las ruedas con 6 caras y la tapa de afuera.
+- **Tres mallas que se turnan** cuadro a cuadro (para no reescribir la que la placa todavía puede estar dibujando). Es
+  precaución: no se midió diferencia (las mediciones de esta PC tienen mucho ruido; ver "Línea de frenada" arriba: allí
+  turnar búferes tampoco cambió nada).
+- **Luces encendidas**: modo nuevo del shader iluminado, `v` de la UV = 7 (`kLitFS`): el color del vértice × 2.6 sin
+  sombrear (ni sol ni sombra ni especular), con la niebla y el tono de siempre. Ninguna otra malla usa `v` > 6.5 (la favela
+  usa 3 y 4, las piezas armadas 2, lo texturado 0..1). Los faros, las luces de freno cuando el auto frena y el guiño cuando
+  cambia de carril (parpadea a 1.6 Hz, con un desfasaje por auto). La luz de atrás apagada es un rojo oscuro sombreado.
+- **Trampa**: el guiño de adelante quedaba detrás del paragolpes (que sale 3 cm de la trompa y lo tapaba entero); va al
+  costado del faro, más un repetidor en cada guardabarros.
+- **Se comprobó**: capturas con el bot entre los autos, un camión y un utilitario de cerca, un auto cambiando de carril
+  (`--test pose --view 150 6 1.4`), el choque contra un utilitario; fps en MAPAS.md (la autopista, igual que el autódromo en
+  Bajo, Medio y Alto en la Intel de esta PC).
+
+## Esquemas a gusto y traje recoloreado (octubre de 2026)
+
+Para el menú Colores (MENU.md, "Colores de la moto y del piloto").
+
+- **La moto**: las piezas pintadas (`Body`, `FrontFender`, `ForkUpper`) llevan el color en los vértices y se arman una vez
+  por esquema (`liveryParts[estilo][4]`). Un esquema a gusto es un lugar más (`Renderer::custom[kCustomSlots]`: uno por
+  jugador y la vitrina) que se arma con **los mismos generadores del estilo** y otro `BikeLivery`: `SetCustomLivery(lugar,
+  colores)` dice qué se quiere y `UpdateBikeBody(pipa, horquilla, livery)` (desde `Bike::Draw`) lo rearma si cambiaron los
+  colores, el estilo o la pipa. Se dibuja con `livery = kCustomLivery + lugar`; `BikePart` cae al esquema 0 si todavía no
+  está armado o es de otro estilo. Así cada diseño queda como lo pensó su generador (franjas, calcos, el asiento de la 2T,
+  sombras de los paneles) sin reconocer colores en un shader. Sin colores a gusto no se arma nada: se dibuja igual que antes.
+- **El traje del modelo** (`kLitFS`, `suitOn` 1): la textura no se toca. `RiderModel::BuildSuitMask` arma al cargar, desde
+  el nivel 0 de la textura, una máscara del mismo tamaño (R = principal, G = secundario) con **los mismos mipmaps y el
+  mismo filtro trilineal**; cada canal guarda cuánto del color de fábrica hay en el texel por su brillo, dividido 2 (hasta
+  el doble de claro). En el shader: `color + máscara.r·(elegido₀ − fábrica₀) + máscara.g·(elegido₁ − fábrica₁)`. Como la
+  cuenta es lineal y la máscara se filtra igual que la textura, un texel ya filtrado de un borde rojo y blanco cambia
+  exactamente su mitad roja: **no hay halos** a ninguna distancia (lo que pasaría con un "si es rojo, pintalo" sobre el
+  color filtrado). Las sombras pintadas se conservan (el brillo relativo) y los detalles también (lo que el texel se aparta
+  del color medio queda sumado). La máscara la enlaza el material en el lugar `MATERIAL_MAP_HEIGHT` (raylib la ata en cada
+  `DrawMesh` si tiene textura) sólo mientras se dibuja el traje (`Renderer::SetSuit`).
+- **El piloto generado** (`suitOn` 2): por el color de vértice; la camiseta y su panel oscuro (`kJersey`, `kJerseyDark`, éste
+  con su brillo relativo) pasan al principal y el naranja de los detalles (`kKitOrange`) al secundario.
+- **Costo**: nada en el cuadro (un `if` en el shader y una textura más sólo en el traje). Armar un esquema de moto lleva lo
+  que el chasis de un estilo (se nota sólo al arrastrar una barra en el menú); la máscara, una vez por archivo de modelo
+  (las copias de los otros jugadores la comparten, `SuitMasks`). 60 cuadros por segundo con y sin colores.

@@ -27,6 +27,20 @@ const Mat kPlasticWhite = {{238, 238, 234, 255}, 0.5f};
 const Mat kPlasticBlue = {{30, 70, 170, 255}, 0.55f};
 const Mat kPlasticBlack = {{30, 30, 34, 255}, 0.35f};
 const Mat kNumber = {{22, 22, 26, 255}, 0.4f};
+// Un número que se lea sobre `bg` (con los colores a gusto del menú el fondo puede ser cualquiera): `fg` si contrasta (2:1 de
+// luminancia o más); si no, negro o blanco, el que más contraste. Con los esquemas de fábrica queda siempre `fg`.
+float RelLum(Color c)
+{
+    auto lin = [](unsigned char v) { const float s = v / 255.0f; return s <= 0.04045f ? s / 12.92f : std::pow((s + 0.055f) / 1.055f, 2.4f); };
+    return 0.2126f * lin(c.r) + 0.7152f * lin(c.g) + 0.0722f * lin(c.b);
+}
+Color Readable(Color fg, Color bg)
+{
+    auto ratio = [](float a, float b) { return (std::max(a, b) + 0.05f) / (std::min(a, b) + 0.05f); };
+    const float lb = RelLum(bg);
+    if (ratio(RelLum(fg), lb) >= 2.0f) return fg;
+    return ratio(RelLum(kNumber.c), lb) >= ratio(RelLum(kPlasticWhite.c), lb) ? kNumber.c : kPlasticWhite.c;
+}
 const Mat kSeat = {{24, 24, 27, 255}, 0.12f};
 const Mat kAlu = {{178, 180, 186, 255}, 0.6f};               // chasis y basculante
 const Mat kAluBright = {{200, 202, 206, 255}, 0.7f};         // tijas, manubrio, levas
@@ -1925,7 +1939,7 @@ Mesh GenRaceBody(Vector3 SH, Vector3 up, const BikeLivery& L)
         float x = 0.0f;                                                                       // afuera de toda la zona del número
         for (float dz = -0.05f; dz <= 0.051f; dz += 0.025f)
             for (float dy = -0.5f * h; dy <= 0.5f * h + 1e-4f; dy += 0.25f * h) x = std::max(x, RingX(tail, z + dz, y + dy));
-        AddNumber(p, L.number, stripeA, {s * (x + 0.003f), y, z}, {0.0f, 0.0f, -s}, {0.0f, 1.0f, 0.0f}, h);
+        AddNumber(p, L.number, {Readable(L.stripe1, L.plastic), stripeA.gloss}, {s * (x + 0.003f), y, z}, {0.0f, 0.0f, -s}, {0.0f, 1.0f, 0.0f}, h);
     }
 
     // ------------------------------------------------------------------ carenado
@@ -2221,7 +2235,7 @@ MeshBuilder BuildTrialMask(const BikeLivery& L)
     p.Add(Panel(mask, 0.007f, curve), Mat{L.plastic, 0.55f});
     const Profile field = {{-0.07f, 0.255f}, {0.07f, 0.255f}, {0.078f, 0.19f}, {0.07f, 0.16f}, {-0.07f, 0.16f}, {-0.078f, 0.19f}};
     p.Add(Panel(field, 0.002f, [curve](float u, float v) { return curve(u, v) + 0.0025f; }, 2), kTrialWhite);
-    p.Add(Digits(L.number), kNumber, MatrixMultiply(MatrixScale(0.07f, 0.07f, 0.07f), MatrixTranslate(0.0f, 0.207f, 0.089f)));
+    p.Add(Digits(L.number), {Readable(kNumber.c, L.plastic), kNumber.gloss}, MatrixMultiply(MatrixScale(0.07f, 0.07f, 0.07f), MatrixTranslate(0.0f, 0.207f, 0.089f)));
     p.RBox({0.0f, 0.11f, 0.086f}, {0.075f, 0.03f, 0.012f}, kTrialBlack, kNoRot, 0.3f);           // faro LED
     p.RBox({0.0f, 0.11f, 0.091f}, {0.062f, 0.018f, 0.006f}, kLens, kNoRot, 0.3f);
     for (float s : {-1.0f, 1.0f}) p.Bar({s * 0.07f, 0.23f, 0.02f}, {s * 0.07f, 0.23f, 0.068f}, 0.008f, 0.012f, kTrialBlack);   // soportes
@@ -2470,3 +2484,532 @@ const BikeStyleDef& TrialStyleDef()
     return d;
 }
 // ==== END TRIAL ====
+
+
+// ==== BEGIN NAKED (naked deportiva de calle: su sección, ver NakedStyleDef) ====
+// Naked / streetfighter de calle (diseño propio, en la línea de una Speed Triple o una MT-09): chasis multitubular
+// (trellis) de acero pintado a la vista, tres cilindros en línea con los tres colectores al frente y un escape corto
+// debajo del motor que sale a la derecha, tanque musculoso con aletas sobre el radiador, colín corto y alto con el
+// asiento del acompañante escalonado, doble faro redondo con anillo de luz diurna, manubrio ancho de aluminio con
+// espejos, basculante monobrazo a la izquierda (del lado del escape la rueda trasera se ve entera) con el porta patente
+// colgado de él, horquilla invertida con barras doradas, dos discos de 320 mm con pinzas radiales rojas y llantas de
+// 17" de tres rayos en Y con cubiertas de calle (con dibujo). Usa las láminas, los anillos, los números y los discos de
+// la sección RACE (Shell, Ring, Decal, AddNumber, AddRaceDisc, BuildRaceFenderParts). Las medidas son las de
+// mods/base/bikes/naked.ini: lanzamiento 24.5°, cubiertas de 0.30 / 0.315 m, 1.44 m entre ejes y el piso en y ~ -0.63
+// con la moto parada.
+namespace {
+
+constexpr float kNakedRakeDeg = 24.5f;                        // el de naked.ini (faros, tablero, guardabarros)
+constexpr float kNakedRake = kNakedRakeDeg * DEG2RAD;
+constexpr float kNakedFrontR = 0.30f, kNakedRearR = 0.315f;   // radios reales de las cubiertas
+// Basculante real (del pivote al eje trasero con la moto parada): se arma a medida real y se achica en z al de la malla
+// (Bike::Draw lo vuelve a estirar hasta el eje de verdad).
+constexpr float kNakedArmReal = 0.6466f;
+constexpr float kNakedArmStretch = kNakedArmReal / BikeMesh::kSwingarmLength;
+
+const Mat kNakedBlack = {{34, 34, 38, 255}, 0.55f};           // anodizado negro: tijas, pies de la horquilla, masas
+const Mat kNakedCaliper = {{198, 36, 30, 255}, 0.65f};        // pinzas monobloque rojas
+const Mat kNakedEngine = {{38, 39, 44, 255}, 0.4f};           // motor negro
+const Mat kNakedCover = {{84, 86, 92, 255}, 0.55f};           // tapas de magnesio oscuro
+const Mat kNakedBronze = {{176, 120, 58, 255}, 0.7f};         // tapa de válvulas
+const Mat kNakedCast = {{112, 116, 122, 255}, 0.55f};          // aluminio fundido: basculante, placas del pivote
+const Mat kNakedTitan = {{74, 76, 82, 255}, 0.75f};           // barras de arriba de la horquilla
+
+// ------------------------------------------------------------------------ ruedas
+// Llanta de 17" con tres rayos en Y (seis brazos en el aro), negra con el borde mecanizado. Adelante dos discos de
+// 320 mm; atrás, con el monobrazo a la izquierda, disco y corona del mismo lado y del otro la tuerca grande del eje.
+MeshBuilder BuildNakedWheel(bool front)
+{
+    MeshBuilder real;
+    Parts p{real};
+    const Color body = {30, 30, 34, 255}, lip = {206, 208, 212, 255};
+    const float hw = front ? 0.046f : 0.072f, rr = 0.216f;           // 3.5" / 5.5"
+    const Profile rim = {{-hw, 0.228f}, {-hw, 0.219f}, {-hw + 0.007f, 0.214f}, {-hw * 0.45f, 0.205f},
+                         {hw * 0.45f, 0.205f}, {hw - 0.007f, 0.214f}, {hw, 0.219f}, {hw, 0.228f}};
+    p.Add(Revolve(rim, 72, [&](int, int j) { return (j <= 1 || j >= 6) ? lip : body; }), {WHITE, 0.6f});
+    const float hx = front ? 0.062f : 0.085f;
+    const Profile hub = {{-hx, 0.014f}, {-hx, 0.034f}, {-hx * 0.6f, 0.052f}, {hx * 0.6f, 0.052f}, {hx, 0.034f}, {hx, 0.014f}};
+    p.Add(Revolve(hub, 32), kNakedBlack);
+    auto at = [](float r, float a) { return Vector3{0.0f, r * std::cos(a), r * std::sin(a)}; };
+    for (int i = 0; i < 3; ++i) {
+        const float a = kTau * (float)i / 3.0f;
+        p.Bar(at(0.045f, a), at(0.128f, a), front ? 0.022f : 0.03f, 0.022f, {body, 0.6f});           // tronco
+        for (float d : {-0.40f, 0.40f}) {
+            const float th = front ? 0.016f : 0.022f;
+            p.Bar(at(0.122f, a), at(rr - 0.013f, a + d), th, 0.014f, {body, 0.6f});                          // brazos
+            for (float xs : {-1.0f, 1.0f})                                                                   // filo mecanizado en las dos caras
+                p.Bar(Vector3Add(at(0.13f, a + 0.3f * d), {xs * 0.5f * th, 0.0f, 0.0f}), Vector3Add(at(rr - 0.016f, a + d), {xs * 0.5f * th, 0.0f, 0.0f}), 0.002f, 0.005f, {lip, 0.85f});
+        }
+    }
+    if (front) {
+        AddRaceDisc(p, 0.078f, 0.112f, 0.160f, 24);
+        AddRaceDisc(p, -0.078f, 0.112f, 0.160f, 24);
+    } else {
+        AddRaceDisc(p, 0.082f, 0.075f, 0.110f, 18);                   // disco a la izquierda, adentro del monobrazo
+        const float x = 0.105f, h = 0.0025f;                         // corona de 43 dientes (izquierda)
+        const Profile ring = {{x - h, 0.058f}, {x - h, 0.082f}, {x - h, 0.108f}, {x + h, 0.108f}, {x + h, 0.082f}, {x + h, 0.058f}};
+        p.Add(Revolve(ring, 172, [](int s, int j) { return ((j == 1 || j == 4) && s % 43 < 18) ? Color{40, 40, 44, 255} : WHITE; },
+                      [](float a, int j) { return (j == 2 || j == 3) ? 1.0f + 0.03f * std::cos(43.0f * a) : 1.0f; }),
+              {{60, 60, 66, 255}, 0.6f});
+        // Del lado derecho no hay brazo: la masa termina en la tuerca grande del eje, con su tapa roja.
+        const Profile nut = {{-hx - 0.022f, 0.0f}, {-hx - 0.022f, 0.026f}, {-hx - 0.004f, 0.034f}, {-hx, 0.034f}, {-hx, 0.0f}};
+        p.Add(Revolve(nut, 6), {{196, 198, 204, 255}, 0.85f});      // seis caras: tuerca
+        p.DiscX({-hx - 0.024f, 0.0f, 0.0f}, 0.016f, 0.004f, kNakedCaliper);
+    }
+    MeshBuilder b;
+    const float k = front ? BikeMesh::kFrontRadius / kNakedFrontR : BikeMesh::kRearRadius / kNakedRearR;
+    b.Append(real, MatrixScale(k, k, k));
+    return b;
+}
+
+// Cubierta deportiva de calle: banda redonda de radio rc (el "roundness" de la física), flancos sobre la llanta y el
+// dibujo: surcos en diagonal (más largos en el hombro) alternados de cada lado, pintados en la banda.
+MeshBuilder BuildNakedTire(bool front)
+{
+    const float R = front ? kNakedFrontR : kNakedRearR, rc = front ? 0.06f : 0.09f;
+    const float maxDeg = front ? 80.0f : 64.0f, hwMax = front ? 0.061f : 0.092f, bead = front ? 0.047f : 0.073f;
+    Profile prof;
+    const int tread = 24;
+    for (int i = 0; i <= tread; ++i) {
+        const float ph = (-maxDeg + 2.0f * maxDeg * i / tread) * DEG2RAD;
+        prof.push_back({rc * std::sin(ph), R - rc + rc * std::cos(ph)});
+    }
+    const float yEdge = R - rc + rc * std::cos(maxDeg * DEG2RAD);
+    const Profile side = {{hwMax, yEdge - 0.012f}, {hwMax - 0.002f, 0.234f}, {bead + 0.004f, 0.224f}, {bead - 0.004f, 0.216f}};
+    for (const Vector2& q : side) prof.push_back(q);
+    for (int i = (int)side.size() - 1; i >= 0; --i) prof.insert(prof.begin(), {-side[i].x, side[i].y});
+    const int first = (int)side.size(), last = first + tread, segs = 216, period = 12;
+    MeshBuilder real;
+    Parts p{real};
+    p.Add(Revolve(prof, segs, [=](int s, int j) {
+              if (j < first || j > last) return Color{38, 37, 38, 255};                       // flancos
+              const float u = 2.0f * (float)(j - first) / (float)tread - 1.0f;             // -1..1 a lo ancho de la banda
+              const float au = std::fabs(u);
+              if (au > 0.16f && au < 0.86f) {
+                  const int shift = (int)std::lround(7.0f * au) + (u > 0.0f ? 0 : period / 2);
+                  if ((s + shift) % period == 0) return Color{16, 16, 17, 255};          // surco
+              }
+              return Color{52, 50, 50, 255};                                                 // banda
+          }),
+          {WHITE, 0.1f});
+    MeshBuilder b;
+    const float k = (front ? BikeMesh::kFrontRadius : BikeMesh::kRearRadius) / R;
+    b.Append(real, MatrixScale(k, k, k));
+    return b;
+}
+
+// ------------------------------------------------------------------------ basculante monobrazo
+// Brazo de aluminio fundido a la izquierda (x > 0) con la excéntrica en la punta, puente al otro lado del pivote, pinza
+// trasera abajo del brazo, guardabarros (hugger) y el porta patente con los guiños colgado del brazo detrás de la rueda.
+// Se arma a medida real (eje en z = -kNakedArmReal) y se achica en z al largo de la malla.
+MeshBuilder BuildNakedSwingarm()
+{
+    MeshBuilder real;
+    Parts p{real};
+    const float L = kNakedArmReal, ax = 0.152f;
+    Sweep arm;
+    arm.path = {{0.07f, 0.0f, 0.02f}, {0.125f, 0.006f, -0.10f}, {ax, 0.01f, -0.28f}, {ax, 0.004f, -(L - 0.06f)}, {ax, 0.0f, -(L - 0.02f)}};
+    arm.profile = Superellipse(0.024f, 0.062f, 4.0f, 20);
+    arm.scale = [](float t) { return Vector2{1.0f, 1.0f - 0.32f * t}; };
+    p.Add(BuildSweep(arm), kNakedCast);
+    p.Rod({ax - 0.045f, 0.0f, -L}, {ax + 0.03f, 0.0f, -L}, 0.066f, kNakedCast);                    // excéntrica
+    p.Rod({ax + 0.03f, 0.0f, -L}, {ax + 0.034f, 0.0f, -L}, 0.05f, kNakedBlack);
+    for (int i = 0; i < 2; ++i) p.Rod({ax + 0.01f, 0.07f, -L + (i ? -0.03f : 0.03f)}, {ax + 0.035f, 0.07f, -L + (i ? -0.03f : 0.03f)}, 0.007f, kSteel);
+    p.Rod({0.0f, 0.0f, -L}, {ax - 0.04f, 0.0f, -L}, 0.024f, kSteel);                               // eje (entra a la masa)
+    p.RBox({0.0f, 0.0f, -0.02f}, {0.27f, 0.07f, 0.075f}, kNakedCast, kNoRot, 0.4f);                // puente del pivote
+    p.RBox({-0.105f, 0.0f, 0.0f}, {0.05f, 0.075f, 0.08f}, kNakedCast, kNoRot, 0.4f);               // del lado derecho, sólo el buje
+    // Pinza (izquierda, abrazando el disco por abajo) con su soporte.
+    p.RBox({0.084f, -0.088f, -L + 0.04f}, {0.034f, 0.05f, 0.078f}, kNakedCaliper, kNoRot, 0.35f);
+    p.Bar({0.11f, -0.02f, -L + 0.02f}, {0.09f, -0.075f, -L + 0.05f}, 0.012f, 0.03f, kNakedBlack);
+    // Guardabarros: arco sobre la parte de adelante de la rueda, con dos soportes al brazo.
+    Sweep hug;
+    for (int i = 0; i <= 8; ++i) {
+        const float a = (20.0f + 80.0f * i / 8.0f) * DEG2RAD, r = 0.345f;
+        hug.path.push_back({0.0f, r * std::sin(a), -L + r * std::cos(a)});
+    }
+    hug.profile = Arch(0.105f, 0.025f, 0.005f);
+    p.Add(BuildSweep(hug), kPlasticBlack);
+    p.Bar({ax - 0.01f, 0.03f, -L + 0.30f}, {0.09f, 0.20f, -L + 0.26f}, 0.008f, 0.025f, kPlasticBlack);
+    p.Bar({ax - 0.01f, 0.03f, -L + 0.12f}, {0.09f, 0.31f, -L + 0.11f}, 0.008f, 0.025f, kPlasticBlack);
+    // Porta patente: brazo que sale de la punta del basculante, rodea la rueda por la izquierda y cuelga la patente atrás.
+    const float pz = -L - 0.37f;
+    p.Tube({{ax, 0.05f, -L + 0.03f}, {ax + 0.006f, 0.20f, -L - 0.12f}, {0.135f, 0.275f, -L - 0.28f}, {0.06f, 0.27f, pz + 0.01f}}, 0.011f, kNakedBlack);
+    p.Rod({-0.115f, 0.27f, pz + 0.012f}, {0.115f, 0.27f, pz + 0.012f}, 0.007f, kNakedBlack);        // travesaño de los guiños
+    for (float s : {-1.0f, 1.0f}) {
+        p.Rod({s * 0.115f, 0.27f, pz + 0.012f}, {s * 0.142f, 0.27f, pz + 0.012f}, 0.012f, kNakedBlack);
+        p.RBox({s * 0.152f, 0.27f, pz + 0.008f}, {0.022f, 0.016f, 0.03f}, kAmber, kNoRot, 0.4f);      // guiños
+    }
+    const Matrix toBack = Basis({-1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, -1.0f}, {0.0f, 0.195f, pz});
+    const Profile plate = {{-0.095f, -0.065f}, {0.095f, -0.065f}, {0.1f, -0.06f}, {0.1f, 0.06f}, {0.095f, 0.065f}, {-0.095f, 0.065f}, {-0.1f, 0.06f}, {-0.1f, -0.06f}};
+    p.Add(Panel(plate, 0.004f, {}, 2), {{236, 236, 230, 255}, 0.4f}, toBack);                      // patente
+    p.Add(Panel(plate, 0.006f, [](float, float) { return -0.004f; }, 2), kNakedBlack, MatrixMultiply(MatrixScale(1.06f, 1.08f, 1.0f), toBack));
+    p.RBox({0.0f, 0.268f, pz - 0.004f}, {0.05f, 0.012f, 0.014f}, {{240, 240, 236, 255}, 0.8f}, kNoRot, 0.3f);   // luz de patente
+
+    MeshBuilder b;
+    b.Append(real, MatrixScale(1.0f, 1.0f, 1.0f / kNakedArmStretch));
+    Parts q{b};
+    // Bieleta (en medidas de la malla: el amortiguador común se toma en kShockLow) y el brazo que la une al monobrazo.
+    q.RBox(BikeMesh::kShockLow, {0.05f, 0.04f, 0.05f}, kNakedEngine, kNoRot, 0.4f);
+    q.Bar(BikeMesh::kShockLow, {0.12f, -0.01f, -0.12f}, 0.035f, 0.03f, kNakedCast);
+    q.Bar(BikeMesh::kShockLow, {0.0f, -0.035f, -0.04f}, 0.04f, 0.02f, kNakedEngine);
+    // Cadena a la izquierda, adentro del brazo (corona de 0.105 m en el eje).
+    const float cx = 0.105f, rf = 0.036f, rr = 0.105f, Lm = BikeMesh::kSwingarmLength;
+    const Vector3 sprocket = {cx, -0.02f, 0.075f};
+    q.Bar({cx, sprocket.y + rf, sprocket.z}, {cx, rr, -Lm}, 0.012f, 0.012f, kChain);
+    q.Bar({cx, sprocket.y - rf, sprocket.z}, {cx, -rr, -Lm}, 0.012f, 0.012f, kChain);
+    q.DiscX(sprocket, rf, 0.012f, kHub);
+    return b;
+}
+
+// ------------------------------------------------------------------------ horquilla invertida
+// Abajo (en el eje, +Y a lo largo de la horquilla): barras doradas, pies negros con las pinzas radiales rojas, eje y
+// guardabarros corto negro (sube y baja con la rueda). Medidas reales.
+MeshBuilder BuildNakedForkLower()
+{
+    MeshBuilder b;
+    Parts p{b};
+    const float legX = 0.105f;
+    for (float s : {-1.0f, 1.0f}) {
+        p.Rod({s * legX, 0.04f, 0.0f}, {s * legX, 0.34f, 0.0f}, 0.0245f, kGold);                       // barras (nitruro)
+        p.RBox({s * legX, 0.035f, -0.006f}, {0.056f, 0.13f, 0.072f}, kNakedBlack, kNoRot, 0.35f);    // pies
+        p.RBox({s * legX, 0.105f, -0.004f}, {0.054f, 0.016f, 0.058f}, kNakedBlack, kNoRot, 0.35f);
+        const float ang = 122.0f * DEG2RAD, r = 0.137f;                                             // pinza radial
+        const Vector3 c = {s * 0.078f, r * std::sin(ang), r * std::cos(ang)};
+        const Quaternion q = RotX(-(122.0f - 90.0f));
+        p.RBox(c, {0.05f, 0.042f, 0.10f}, kNakedCaliper, q, 0.35f);
+        p.RBox(Vector3Add(c, {s * 0.018f, 0.0f, 0.0f}), {0.016f, 0.048f, 0.085f}, kNakedCaliper, q, 0.4f);
+        p.Bar(Vector3Add(c, {s * 0.02f, 0.0f, 0.0f}), {s * legX, 0.05f, -0.03f}, 0.02f, 0.03f, kNakedBlack);
+        p.Tube({Vector3Add(c, {s * 0.02f, 0.025f, 0.02f}), {s * (legX + 0.02f), 0.16f, -0.035f}, {s * (legX + 0.022f), 0.30f, -0.03f}}, 0.0045f, kPlasticBlack);
+    }
+    p.Rod({-0.128f, 0.0f, 0.0f}, {0.128f, 0.0f, 0.0f}, 0.011f, kSteel);
+    p.DiscX({-0.132f, 0.0f, 0.0f}, 0.019f, 0.01f, kSteel);
+    p.DiscX({0.132f, 0.0f, 0.0f}, 0.015f, 0.01f, kSteel);
+    Sweep f;                                                                                          // guardabarros corto
+    for (int i = 0; i <= 10; ++i) {
+        const float bikeDeg = 22.0f + 92.0f * (float)i / 10.0f, a = bikeDeg * DEG2RAD - kNakedRake, r = 0.33f;
+        f.path.push_back({0.0f, r * std::sin(a), r * std::cos(a)});
+    }
+    f.profile = Arch(0.068f, 0.026f, 0.005f);
+    f.scale = [](float t) { return Vector2{0.8f + 0.2f * std::sin(kPi * std::min(1.0f, t * 1.1f)), 1.0f}; };
+    p.Add(BuildSweep(f), kPlasticBlack);
+    for (float s : {-1.0f, 1.0f}) p.Bar({s * 0.066f, 0.19f, 0.24f}, {s * (legX - 0.02f), 0.12f, 0.025f}, 0.006f, 0.03f, kPlasticBlack);
+    return b;
+}
+
+// Arriba (desde la pipa, +Y a lo largo de la horquilla, +Z hacia adelante): tijas negras, botellas de titanio con el aro del
+// color del esquema, el doble faro redondo con su anillo de luz diurna, la ceja y la cupulita del color del esquema, el
+// tablero (pantalla mirando al piloto) y los guiños de adelante. Todo gira con la dirección.
+MeshBuilder BuildNakedForkUpper(const BikeLivery& L)
+{
+    MeshBuilder b;
+    Parts p{b};
+    const Mat plastic = {L.plastic, 0.62f};
+    p.RBox({0.0f, 0.03f, 0.0f}, {0.29f, 0.03f, 0.10f}, kNakedBlack, kNoRot, 0.3f);
+    p.RBox({0.0f, -0.21f, 0.0f}, {0.30f, 0.045f, 0.11f}, kNakedBlack, kNoRot, 0.3f);
+    p.Rod({0.0f, 0.045f, 0.0f}, {0.0f, 0.056f, 0.0f}, 0.018f, kSteel);
+    for (float s : {-1.0f, 1.0f}) {
+        p.Rod({s * 0.105f, 0.07f, 0.0f}, {s * 0.105f, -0.40f, 0.0f}, 0.029f, kNakedTitan);              // botellas
+        p.Rod({s * 0.105f, -0.39f, 0.0f}, {s * 0.105f, -0.405f, 0.0f}, 0.031f, kHub);
+        p.Rod({s * 0.105f, 0.07f, 0.0f}, {s * 0.105f, 0.076f, 0.0f}, 0.024f, Mat{L.stripe1, 0.6f});   // aro del color del chasis
+        p.Rod({s * 0.105f, 0.076f, 0.0f}, {s * 0.105f, 0.086f, 0.0f}, 0.021f, kHub);
+    }
+    // Faros: el eje de cada uno apunta adelante de la moto (no a lo largo de la perpendicular a la horquilla).
+    const Vector3 aim = {0.0f, -std::sin(kNakedRake), std::cos(kNakedRake)};
+    auto along = [&](Vector3 c, float d) { return Vector3Add(c, Vector3Scale(aim, d)); };
+    for (float s : {-1.0f, 1.0f}) {
+        const Vector3 c = {s * 0.062f, -0.125f, 0.115f};
+        p.Rod(along(c, -0.05f), along(c, 0.022f), 0.061f, {{24, 24, 27, 255}, 0.8f});               // carcasa
+        p.Rod(along(c, 0.022f), along(c, 0.027f), 0.057f, {{250, 250, 246, 255}, 0.98f});          // anillo de luz diurna
+        p.Rod(along(c, 0.027f), along(c, 0.031f), 0.045f, {{214, 216, 222, 255}, 0.95f});          // reflector
+        p.Rod(along(c, 0.031f), along(c, 0.034f), 0.021f, {{30, 36, 46, 255}, 0.98f});             // lente del proyector
+        p.Bar(along({s * 0.11f, -0.125f, 0.09f}, -0.01f), {s * 0.105f, -0.125f, 0.03f}, 0.012f, 0.03f, kNakedBlack);   // soporte
+    }
+    // Cejas (del color del esquema) sobre cada faro, con la punta de adentro más baja: la cara "enojada" de la moto. Arriba,
+    // la cupulita ahumada. Los ángulos son contra la moto, no contra la horquilla.
+    for (float s : {-1.0f, 1.0f}) {
+        const Quaternion brow = QuaternionMultiply(RotX(kNakedRakeDeg - 30.0f), QuaternionFromAxisAngle({0.0f, 0.0f, 1.0f}, s * 16.0f * DEG2RAD));
+        p.RBox({s * 0.07f, -0.066f, 0.152f}, {0.13f, 0.028f, 0.014f}, plastic, brow, 0.3f);
+        p.RBox({s * 0.07f, -0.075f, 0.143f}, {0.12f, 0.02f, 0.02f}, kNakedBlack, brow, 0.3f);
+    }
+    p.RBox({0.0f, -0.035f, 0.136f}, {0.05f, 0.05f, 0.012f}, plastic, RotX(kNakedRakeDeg - 30.0f), 0.3f);   // puente entre las cejas
+    p.RBox({0.0f, 0.012f, 0.126f}, {0.17f, 0.085f, 0.006f}, kTint, RotX(kNakedRakeDeg - 55.0f), 0.3f);
+    // Tablero TFT, mirando al piloto.
+    const Quaternion dashQ = RotX(kNakedRakeDeg + 48.0f);
+    p.Bar({0.0f, 0.035f, 0.03f}, {0.0f, 0.07f, 0.055f}, 0.03f, 0.012f, kNakedBlack);
+    p.RBox({0.0f, 0.075f, 0.06f}, {0.135f, 0.085f, 0.024f}, kNakedBlack, dashQ, 0.3f);
+    p.RBox(Vector3Add({0.0f, 0.075f, 0.06f}, Vector3RotateByQuaternion({0.0f, 0.0f, -0.013f}, dashQ)), {0.112f, 0.064f, 0.004f}, {{40, 74, 92, 255}, 0.95f}, dashQ, 0.2f);
+    // Guiños de adelante, en las tijas de abajo.
+    for (float s : {-1.0f, 1.0f}) {
+        p.Rod({s * 0.15f, -0.20f, 0.02f}, {s * 0.185f, -0.205f, 0.045f}, 0.006f, kNakedBlack);
+        p.RBox({s * 0.19f, -0.205f, 0.05f}, {0.03f, 0.016f, 0.022f}, kAmber, kNoRot, 0.4f);
+    }
+    return b;
+}
+
+// Manubrio ancho de aluminio cónico sobre torretas, puños, levas (freno a la derecha con su bomba y depósito, embrague a
+// la izquierda), comandos y espejos. Ejes de la moto desde la pipa. Centro de los puños: (±0.355, 0.0956, -0.106)
+// desde la pipa (NakedStyleDef: barOffset + gripX).
+MeshBuilder BuildNakedCockpit()
+{
+    MeshBuilder b;
+    Parts p{b};
+    Sweep bar;
+    bar.path = {{-0.425f, 0.0975f, -0.109f}, {-0.30f, 0.0950f, -0.104f}, {-0.17f, 0.090f, -0.090f}, {0.0f, 0.086f, -0.078f},
+                {0.17f, 0.090f, -0.090f}, {0.30f, 0.0950f, -0.104f}, {0.425f, 0.0975f, -0.109f}};
+    bar.profile = Circle(0.011f, 10);
+    bar.scale = [](float t) {
+        const float k = 1.0f + 0.3f * Smooth(0.25f, 0.6f, 1.0f - std::fabs(2.0f * t - 1.0f));   // 22 mm en las puntas, 28 al medio
+        return Vector2{k, k};
+    };
+    p.Add(BuildSweep(bar), kAluBright);
+    for (float s : {-1.0f, 1.0f}) {
+        p.Bar({s * 0.04f, 0.04f, -0.02f}, {s * 0.04f, 0.078f, -0.07f}, 0.032f, 0.032f, kNakedBlack);      // torretas
+        p.RBox({s * 0.04f, 0.086f, -0.078f}, {0.042f, 0.034f, 0.04f}, kNakedBlack, kNoRot, 0.4f);       // abrazaderas
+        p.Rod({s * 0.295f, 0.0950f, -0.1035f}, {s * 0.415f, 0.0973f, -0.1083f}, 0.0175f, kGrip);       // puños
+        p.Rod({s * 0.415f, 0.0973f, -0.1083f}, {s * 0.433f, 0.0976f, -0.1088f}, 0.019f, kAluBright);  // contrapesos
+        p.Rod({s * 0.433f, 0.0976f, -0.1088f}, {s * 0.437f, 0.0976f, -0.109f}, 0.014f, kNakedCaliper);
+        p.RBox({s * 0.255f, 0.097f, -0.098f}, {0.034f, 0.034f, 0.04f}, kPlasticBlack, kNoRot, 0.4f);   // comandos
+        const Vector3 perch = {s * 0.235f, 0.098f, -0.078f};                                            // leva
+        p.RBox(perch, {0.03f, 0.022f, 0.03f}, kAluBright, kNoRot, 0.4f);
+        p.Tube({perch, {s * 0.30f, 0.098f, -0.052f}, {s * 0.385f, 0.094f, -0.056f}}, 0.0055f, kAluBright);
+        // Espejo: brazo largo que sube y se abre desde la leva, carcasa negra y el vidrio mirando atrás. Alto (~1.2 m del piso):
+        // más abajo, con la dirección a fondo el antebrazo lo atravesaba (tools/holgura, 3.4 cm).
+        const Vector3 mirror = {s * 0.36f, 0.345f, -0.03f};
+        p.Tube({{s * 0.225f, 0.11f, -0.078f}, {s * 0.265f, 0.24f, -0.055f}, {s * 0.325f, 0.33f, -0.036f}}, 0.0065f, kNakedBlack);
+        const Quaternion mq = QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, -s * 0.15f);
+        p.RBox(mirror, {0.125f, 0.066f, 0.024f}, kNakedBlack, mq, 0.45f);
+        p.RBox(Vector3Add(mirror, Vector3RotateByQuaternion({0.0f, 0.0f, -0.0125f}, mq)), {0.11f, 0.052f, 0.003f}, kChrome, mq, 0.3f);
+    }
+    p.Rod({-0.272f, 0.0945f, -0.1025f}, {-0.295f, 0.0950f, -0.1035f}, 0.023f, kPlasticBlack);         // acelerador
+    p.RBox({-0.205f, 0.112f, -0.082f}, {0.04f, 0.024f, 0.036f}, kPlasticBlack, kNoRot, 0.4f);          // bomba de freno
+    p.Rod({-0.20f, 0.125f, -0.075f}, {-0.198f, 0.165f, -0.066f}, 0.014f, {{60, 56, 52, 255}, 0.9f});  // depósito ahumado
+    return b;
+}
+
+// ------------------------------------------------------------------------ chasis, motor y carrocería
+// Tanque: secciones casi cuadradas (musculoso), alto adelante, con el borde de atrás bajando hacia el asiento.
+const RingDef& NakedTankDef()
+{
+    static const RingDef d = {{{-0.08f, 0.115f}, {0.0f, 0.150f}, {0.10f, 0.176f}, {0.22f, 0.186f}, {0.30f, 0.168f}, {0.35f, 0.130f}},
+                              {{-0.08f, 0.238f}, {0.0f, 0.272f}, {0.10f, 0.314f}, {0.22f, 0.334f}, {0.30f, 0.322f}, {0.35f, 0.292f}},
+                              {{-0.08f, 0.150f}, {0.10f, 0.118f}, {0.25f, 0.128f}, {0.35f, 0.17f}}, 3.2f};
+    return d;
+}
+// Colín corto y alto: arranca angosto bajo el asiento y termina en una punta que sube atrás del acompañante.
+const RingDef& NakedTailDef()
+{
+    static const RingDef d = {{{-0.745f, 0.026f}, {-0.70f, 0.052f}, {-0.62f, 0.078f}, {-0.50f, 0.10f}, {-0.36f, 0.115f}, {-0.20f, 0.108f}},
+                              {{-0.745f, 0.336f}, {-0.69f, 0.338f}, {-0.63f, 0.300f}, {-0.50f, 0.272f}, {-0.40f, 0.242f}, {-0.30f, 0.222f}, {-0.20f, 0.212f}},
+                              {{-0.745f, 0.292f}, {-0.64f, 0.242f}, {-0.50f, 0.180f}, {-0.34f, 0.118f}, {-0.20f, 0.100f}}, 4.0f};
+    return d;
+}
+
+} // namespace
+
+void GenNakedMeshes(Mesh* out)
+{
+    out[BikeMesh::Swingarm] = BuildNakedSwingarm().Build();
+    out[BikeMesh::ShockBody] = BuildShockBody().Build();
+    out[BikeMesh::ShockSpring] = BuildShockSpring().Build();
+    out[BikeMesh::ShockLower] = BuildShockLower().Build();
+    out[BikeMesh::ForkLower] = BuildNakedForkLower().Build();
+    out[BikeMesh::Cockpit] = BuildNakedCockpit().Build();
+    out[BikeMesh::WheelFront] = BuildNakedWheel(true).Build();
+    out[BikeMesh::WheelRear] = BuildNakedWheel(false).Build();
+    out[BikeMesh::TireFront] = BuildNakedTire(true).Build();
+    out[BikeMesh::TireRear] = BuildNakedTire(false).Build();
+}
+
+void GenNakedLiveryMeshes(const BikeLivery& livery, Mesh* out)
+{
+    out[0] = BuildRaceFenderParts(livery).Build();     // el repartidor de los frenos bajo la tija (el guardabarros va en la horquilla)
+    out[1] = BuildNakedForkUpper(livery).Build();
+}
+
+// Chasis de la naked: trellis de acero pintado del color 1 del esquema (vigas de arriba y de abajo con diagonales en zigzag
+// de la pipa al pivote, y el subchasis), placas del pivote de aluminio fundido, motor de 3 cilindros con la tapa de
+// válvulas bronce, radiador con las aletas del tanque, los tres colectores al frente, la caja bajo el motor y el silenciador
+// corto a la derecha, estriberas, tanque, asientos escalonados y colín con la luz.
+Mesh GenNakedBody(Vector3 SH, Vector3 up, const BikeLivery& L)
+{
+    MeshBuilder b;
+    Parts p{b};
+    const Mat plastic = {L.plastic, 0.62f}, frame = {L.stripe1, 0.55f}, accent = {L.stripe2, 0.55f};
+    auto onAxis = [&](float d) { return Vector3Add(SH, Vector3Scale(up, d)); };
+
+    // ------------------------------------------------------------------ chasis trellis
+    p.Rod(onAxis(0.01f), onAxis(-0.215f), 0.034f, frame);                                              // pipa
+    for (float s : {-1.0f, 1.0f}) {
+        const Vector3 A = Vector3Add(onAxis(-0.035f), {s * 0.03f, 0.0f, -0.025f}), B = {s * 0.13f, 0.10f, 0.20f},
+                      C = {s * 0.145f, 0.10f, -0.02f}, D = {s * 0.14f, 0.06f, -0.16f};
+        const Vector3 E = Vector3Add(onAxis(-0.185f), {s * 0.03f, 0.0f, -0.02f}), F = {s * 0.155f, 0.0f, 0.25f},
+                      G = {s * 0.158f, -0.08f, 0.03f}, H = {s * 0.145f, -0.17f, -0.12f};
+        p.Tube({A, B, C, D}, 0.0135f, frame);                                                          // viga de arriba
+        p.Tube({E, F, G, H}, 0.0135f, frame);                                                          // viga de abajo
+        const Vector3 zig[] = {E, B, F, C, G, D, H};                                                   // diagonales
+        for (int i = 0; i + 1 < 7; ++i) p.Rod(zig[i], zig[i + 1], 0.0105f, frame);
+        p.RBox({s * 0.142f, -0.255f, -0.135f}, {0.036f, 0.20f, 0.115f}, kNakedCast, kNoRot, 0.3f);    // placas del pivote
+        p.DiscX({s * 0.162f, -0.27f, -0.13f}, 0.02f, 0.012f, kSteel);
+        // Subchasis (también trellis): de las vigas hasta la punta del colín.
+        const Vector3 S0 = {s * 0.143f, 0.095f, -0.06f}, S1 = {s * 0.10f, 0.205f, -0.36f}, S2 = {s * 0.072f, 0.262f, -0.63f};
+        const Vector3 T0 = D, T1 = {s * 0.10f, 0.15f, -0.42f}, T2 = {s * 0.075f, 0.24f, -0.60f};
+        p.Tube({S0, S1, S2}, 0.011f, frame);
+        p.Tube({T0, T1, T2}, 0.010f, frame);
+        p.Rod(T0, S1, 0.009f, frame);
+        p.Rod(T1, S2, 0.009f, frame);
+    }
+    p.Rod({-0.14f, -0.27f, -0.13f}, {0.14f, -0.27f, -0.13f}, 0.012f, kSteel);                         // eje del basculante
+    p.Rod({-0.14f, 0.04f, -0.17f}, {0.14f, 0.04f, -0.17f}, 0.012f, frame);                            // travesaño del amortiguador
+    p.RBox({0.0f, 0.03f, -0.17f}, {0.05f, 0.03f, 0.045f}, frame);
+    p.Rod({-0.09f, 0.20f, -0.48f}, {0.09f, 0.20f, -0.48f}, 0.009f, frame);                            // travesaños del subchasis
+    p.Rod({-0.075f, 0.255f, -0.62f}, {0.075f, 0.255f, -0.62f}, 0.009f, frame);
+
+    // ------------------------------------------------------------------ motor de 3 cilindros
+    p.RBox({0.0f, -0.355f, 0.04f}, {0.30f, 0.20f, 0.38f}, kNakedEngine);                               // cárter
+    p.RBox({0.0f, -0.46f, 0.0f}, {0.22f, 0.03f, 0.20f}, kNakedCover, kNoRot, 0.3f);                     // cubrecárter
+    const Quaternion tilt = RotX(25.0f);
+    const Vector3 cylAxis = Vector3RotateByQuaternion({0.0f, 1.0f, 0.0f}, tilt);
+    const Vector3 block = {0.0f, -0.20f, 0.16f};
+    p.RBox(block, {0.28f, 0.17f, 0.13f}, kNakedEngine, tilt, 0.3f);
+    for (int k = 0; k < 4; ++k)                                                                          // aletas
+        p.RBox(Vector3Add(block, Vector3Scale(cylAxis, -0.05f + 0.03f * k)), {0.29f, 0.006f, 0.136f}, kNakedCover, tilt, 0.3f);
+    p.RBox(Vector3Add(block, Vector3Scale(cylAxis, 0.12f)), {0.27f, 0.07f, 0.14f}, kNakedEngine, tilt, 0.3f);   // tapa de cilindros
+    p.RBox(Vector3Add(block, Vector3Scale(cylAxis, 0.165f)), {0.25f, 0.04f, 0.12f}, kNakedBronze, tilt, 0.45f); // tapa de válvulas
+    for (int k = -1; k <= 1; ++k) {                                                                     // bobinas (una por cilindro)
+        const Vector3 c = Vector3Add(block, Vector3Add(Vector3Scale(cylAxis, 0.19f), {0.085f * k, 0.0f, 0.0f}));
+        p.Rod(c, Vector3Add(c, Vector3Scale(cylAxis, 0.02f)), 0.016f, kPlasticBlack);
+    }
+    p.DiscX({-0.155f, -0.33f, -0.02f}, 0.085f, 0.03f, kNakedCover);                                      // embrague
+    p.DiscX({-0.172f, -0.33f, -0.02f}, 0.03f, 0.008f, kNakedBronze);
+    p.DiscX({0.155f, -0.31f, 0.10f}, 0.07f, 0.03f, kNakedCover);                                        // alternador
+    p.RBox({0.15f, -0.30f, -0.09f}, {0.02f, 0.09f, 0.10f}, kNakedCover, kNoRot, 0.4f);                  // tapa del piñón
+    p.RBox({0.0f, 0.06f, -0.02f}, {0.22f, 0.13f, 0.24f}, kPlasticBlack, kNoRot, 0.4f);                  // caja de aire (bajo el tanque)
+    p.RBox({0.0f, 0.12f, -0.47f}, {0.13f, 0.10f, 0.18f}, kPlasticBlack, RotX(-10.0f), 0.4f);           // batería y electrónica
+    p.RBox({0.0f, 0.165f, -0.56f}, {0.12f, 0.012f, 0.24f}, kPlasticBlack, RotX(-14.0f), 0.3f);         // guardabarros interno
+
+    // ------------------------------------------------------------------ radiador y aletas del tanque
+    p.RBox({0.0f, -0.09f, 0.37f}, {0.34f, 0.30f, 0.045f}, kRadiator, RotX(12.0f), 0.2f);
+    for (float s : {-1.0f, 1.0f}) {
+        p.RBox({s * 0.172f, -0.09f, 0.37f}, {0.012f, 0.31f, 0.06f}, kNakedBlack, RotX(12.0f), 0.3f);   // marco
+        p.Tube({{s * 0.12f, 0.05f, 0.365f}, {s * 0.11f, 0.0f, 0.30f}, {s * 0.09f, -0.06f, 0.27f}}, 0.012f, kPlasticBlack);   // mangueras
+        const Matrix toSide = Basis({0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {s, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f});
+        auto bulge = [](float u, float v) {
+            const float q = (v - 0.06f) / 0.19f;
+            return 0.172f + 0.04f * std::max(0.0f, 1.0f - q * q) - 0.08f * std::max(0.0f, u - 0.40f);
+        };
+        const Profile shroud = {{0.36f, 0.245f}, {0.43f, 0.17f}, {0.47f, 0.03f}, {0.44f, -0.10f}, {0.33f, -0.115f}, {0.25f, 0.02f}, {0.27f, 0.17f}};
+        p.Add(Panel(shroud, 0.008f, bulge, 4), plastic, toSide);
+        const Profile slash = {{0.30f, 0.045f}, {0.44f, 0.105f}, {0.452f, 0.075f}, {0.312f, 0.012f}};          // franja del color 2
+        p.Add(Panel(slash, 0.003f, [&](float u, float v) { return bulge(u, v) + 0.0025f; }, 2), accent, toSide);
+        const float nz = 0.37f, ny = -0.035f;                                                            // el modelo en las aletas
+        // Sobre el color principal: con colores a gusto (menú Colores) pasa a negro o blanco si no se leería (Readable).
+        AddNumber(p, L.number, {Readable(L.stripe2, L.plastic), 0.5f},{s * (bulge(nz, ny) + 0.004f), ny, nz}, {0.0f, 0.0f, -s}, {0.0f, 1.0f, 0.0f}, 0.036f);
+    }
+
+    // ------------------------------------------------------------------ escape: 3 colectores al frente, caja abajo, silenciador corto
+    for (int k = -1; k <= 1; ++k) {
+        const float x = 0.085f * k;
+        Sweep h;
+        h.path = {{x, -0.125f, 0.272f}, {x * 0.95f, -0.20f, 0.300f}, {x * 0.8f, -0.33f, 0.292f}, {x * 0.5f, -0.46f, 0.24f}, {x * 0.2f, -0.497f, 0.12f}, {x * 0.1f, -0.497f, 0.08f}};
+        h.profile = Circle(0.02f, 10);
+        h.transport = true;
+        h.caps = false;
+        h.color = [](float t, int) { return Mix({188, 132, 72, 255}, {92, 82, 128, 255}, t * 1.5f); };   // acero que tomó color
+        p.Add(BuildSweep(h), {WHITE, 0.75f});
+    }
+    p.RBox({0.0f, -0.495f, -0.02f}, {0.23f, 0.075f, 0.24f}, {{58, 60, 64, 255}, 0.6f}, kNoRot, 0.3f);   // caja bajo el motor
+    Sweep can;
+    can.path = {{-0.06f, -0.50f, -0.10f}, {-0.14f, -0.468f, -0.21f}, {-0.178f, -0.432f, -0.33f}};
+    can.profile = Superellipse(0.052f, 0.046f, 5.0f, 20);
+    can.scale = [](float t) { const float k = 0.7f + 0.3f * Smooth(0.0f, 0.25f, t); return Vector2{k, k}; };
+    can.edges = {0.86f};
+    can.color = [](float t, int) { return t > 0.86f ? Color{150, 152, 158, 255} : Color{54, 56, 60, 255}; };   // cuerpo y tapa cepillada
+    p.Add(BuildSweep(can), {WHITE, 0.7f});
+    for (float dx : {-0.016f, 0.016f})                                                                   // dos bocas
+        p.Rod({-0.178f + dx, -0.432f, -0.33f}, {-0.184f + dx, -0.426f, -0.345f}, 0.013f, {{28, 28, 30, 255}, 0.4f});
+    p.RBox({-0.19f, -0.455f, -0.235f}, {0.012f, 0.05f, 0.13f}, {{170, 172, 176, 255}, 0.8f}, QuaternionFromAxisAngle({0.0f, 1.0f, 0.0f}, -0.32f), 0.3f);   // protector de calor
+
+    // ------------------------------------------------------------------ estriberas y comandos
+    for (float s : {-1.0f, 1.0f}) {
+        const Matrix toSide = Basis({0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {s, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f});
+        const Profile hanger = {{-0.10f, -0.15f}, {-0.135f, -0.15f}, {-0.255f, -0.29f}, {-0.20f, -0.33f}, {-0.14f, -0.27f}};
+        p.Add(Panel(hanger, 0.008f, [](float, float) { return 0.15f; }, 2), kNakedCast, toSide);           // soportes con taloneras
+        p.Rod({s * 0.13f, -0.30f, -0.18f}, {s * 0.21f, -0.30f, -0.18f}, 0.011f, kAluBright);              // estribera
+        p.Rod({s * 0.15f, -0.30f, -0.18f}, {s * 0.205f, -0.30f, -0.18f}, 0.0135f, kRubber);
+        const float px = s * 0.16f;                                                                        // freno (der.) / cambios (izq.)
+        p.Tube({{px, -0.29f, -0.165f}, {px, -0.31f, -0.09f}, {s * 0.172f, -0.322f, -0.03f}}, 0.006f, kAluBright);
+        p.RBox({s * 0.176f, -0.322f, -0.025f}, {0.03f, 0.012f, 0.022f}, kAluBright, kNoRot, 0.3f);
+        p.Rod({s * 0.10f, -0.21f, -0.43f}, {s * 0.17f, -0.21f, -0.43f}, 0.009f, kNakedBlack);             // estriberas del acompañante
+        p.Bar({s * 0.10f, -0.21f, -0.43f}, {s * 0.10f, 0.14f, -0.40f}, 0.012f, 0.025f, kNakedBlack);
+    }
+
+    // ------------------------------------------------------------------ tanque, asientos y colín
+    const RingDef& tank = NakedTankDef();
+    p.Add(Shell(Ring(tank, 0.35f, -0.08f, 0.05f, 0.04f), 22, 48, 0.006f, 0.2f, {}, true), plastic);
+    {   // franja doble al medio del tanque (color 2)
+        const Surf2 top = [&tank](Vector2 zx) {
+            const float t = Tab(tank.top, zx.x), bo = Tab(tank.bottom, zx.x), w = Tab(tank.w, zx.x);
+            const float q = std::min(std::fabs(zx.y) / w, 1.0f);
+            return Vector3{zx.y, 0.5f * (t + bo) + 0.5f * (t - bo) * std::pow(std::max(0.0f, 1.0f - std::pow(q, tank.n)), 1.0f / tank.n), zx.x};
+        };
+        for (float x0 : {-0.042f, 0.022f})
+            p.Add(Shell(Decal(top, 0.2f, {0.335f, x0}, {-0.06f, x0}, {-0.06f, x0 + 0.02f}, {0.335f, x0 + 0.02f}, 0.002f), 16, 2, 0.003f, 0.2f), accent);
+    }
+    for (float s : {-1.0f, 1.0f}) {                                                                       // rodilleras de goma
+        const Surf2 tg = [&tank, s](Vector2 zy) { return Vector3{s * RingX(tank, zy.x, zy.y), zy.y, zy.x}; };
+        p.Add(Shell(Decal(tg, 0.2f, {0.12f, 0.15f}, {-0.04f, 0.165f}, {-0.04f, 0.215f}, {0.12f, 0.245f}, 0.002f), 6, 4, 0.004f, 0.2f), kRubber);
+    }
+    p.Rod({0.0f, 0.332f, 0.235f}, {0.0f, 0.338f, 0.233f}, 0.036f, kAluBright);                           // tapa del tanque
+    Sweep seat;                                                                                            // asiento del piloto
+    seat.path = {{0.0f, 0.212f, -0.03f}, {0.0f, 0.216f, -0.18f}, {0.0f, 0.22f, -0.33f}, {0.0f, 0.235f, -0.405f}};
+    seat.profile = Superellipse(0.118f, 0.025f, 4.0f, 24);
+    seat.scale = [](float t) { return Vector2{0.55f + 0.45f * Smooth(0.0f, 0.45f, t), 1.0f}; };   // angosto adelante: las piernas bajan derecho
+    seat.color = [&L](float, int j) { return (j == 0 || j == 12) ? L.stripe2 : Color{34, 34, 38, 255}; };   // ribete del color 2
+    p.Add(BuildSweep(seat), {WHITE, 0.12f});
+    Sweep pillion;                                                                                         // el del acompañante, escalonado
+    pillion.path = {{0.0f, 0.292f, -0.475f}, {0.0f, 0.300f, -0.55f}, {0.0f, 0.31f, -0.625f}};   // atrás de la cola del piloto tirado atrás
+    pillion.profile = Superellipse(0.088f, 0.021f, 4.0f, 20);
+    pillion.scale = [](float t) { return Vector2{1.0f - 0.35f * t, 1.0f}; };
+    p.Add(BuildSweep(pillion), {{34, 34, 38, 255}, 0.12f});
+    const RingDef& tail = NakedTailDef();
+    p.Add(Shell(Ring(tail, -0.20f, -0.745f, 0.0f, 0.03f), 28, 40, 0.006f, 0.2f,
+                [&](Vector3 q, float, float) {
+                    const float band = q.y - (0.20f + 0.17f * Clamp01((-q.z - 0.40f) / 0.34f));   // franja que sube hacia la punta
+                    if (std::fabs(q.x) > 0.04f && band > -0.009f && band < 0.009f) return L.stripe2;
+                    return L.plastic;
+                },
+                true),
+          {WHITE, 0.62f});
+    p.RBox({0.0f, 0.302f, -0.745f}, {0.058f, 0.02f, 0.012f}, kTailRed, kNoRot, 0.3f);                      // luz de atrás (led)
+    for (float s : {-1.0f, 1.0f})                                                                           // tapas laterales (atrás del trellis)
+        p.Add(Panel({{0.0f, 0.10f}, {-0.02f, 0.19f}, {-0.20f, 0.205f}, {-0.25f, 0.11f}, {-0.12f, 0.035f}}, 0.006f, [](float, float) { return 0.11f; }, 2),
+              kPlasticBlack, Basis({0.0f, 0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {s, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}));
+    return b.Build();
+}
+
+const BikeLivery& NakedLivery(int i)
+{
+    // Tanque, colín y ceja; color 1 (el chasis trellis y los aros de la horquilla); color 2 (franjas, ribete y el modelo).
+    static const BikeLivery kTable[kLiveries] = {
+        {{64, 66, 72, 255}, {255, 106, 18, 255}, {240, 240, 234, 255}, "950"},    // grafito con el chasis naranja flúor
+        {{236, 236, 232, 255}, {204, 26, 34, 255}, {28, 28, 32, 255}, "950"},     // blanca con el chasis rojo
+        {{22, 52, 142, 255}, {228, 184, 40, 255}, {240, 240, 236, 255}, "950"},   // azul con el chasis dorado
+        {{28, 28, 32, 255}, {150, 222, 30, 255}, {150, 222, 30, 255}, "950"},     // negra mate con verde ácido
+    };
+    return kTable[((i % kLiveries) + kLiveries) % kLiveries];
+}
+
+const BikeStyleDef& NakedStyleDef()
+{
+    static const BikeStyleDef d = {
+        "naked", GenNakedMeshes, GenNakedLiveryMeshes, GenNakedBody, NakedLivery,
+        JPH::Vec3(0.0f, 0.09f, -0.10f), 0.355f,                       // manubrio ancho, alto y atrás (más erguido que la Carrera)
+        JPH::Vec3(0.17f, -0.30f, -0.18f),                            // estriberas a media altura
+        JPH::Vec3(0.0f, 0.30f, -0.30f), JPH::Vec3(0.0f, 0.71f, -0.08f), JPH::Vec3(0.20f, 0.065f, 0.08f),
+        0.10f, 0.18f, 0.0f, 0.3f,                                    // se agacha un poco atrás del tablero a velocidad
+        JPH::Vec3(-0.187f, -0.426f, -0.348f), JPH::Vec3(-0.25f, 0.30f, -0.92f).Normalized(), false,
+        0.5f,                                                        // se cuelga a medias en las curvas
+    };
+    return d;
+}
+// ==== END NAKED ====

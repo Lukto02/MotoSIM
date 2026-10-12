@@ -5,10 +5,12 @@
 #include "Bike.h"
 #include "Circuit.h"
 #include "Favela.h"
+#include "Highway.h"
 #include "Maps.h"
 #include "Props.h"
 #include "Terrain.h"
 #include "Track.h"
+#include "Traffic.h"
 #include "Tuning.h"
 #include "Rider.h"          // incluye Jolt y después raylib
 #include "RiderModel.h"
@@ -76,6 +78,7 @@ struct GameOptions {
     std::string stickMode;           // --stick camara|cuerpo: el ajuste "Stick derecho" por esa vez (no se guarda)
     std::string miniMap;             // --minimapa norte|gira|no: el minimapa por esa vez (no se guarda; se ve también con el bot)
     std::string brakeLine;           // --linea si|no: la línea de frenada por esa vez (no se guarda; se ve también con el bot)
+    std::string colors;              // --colores "moto=RRGGBB,RRGGBB,RRGGBB;piloto=RRGGBB,RRGGBB|moto": los colores por esa vez (no se guardan)
 };
 
 class Game {
@@ -156,6 +159,33 @@ private:
     static BikeStats ComputeStats(const BikeParams& p);
     void ChooseBike(const std::string& id);         // "" = la del mapa; rearma el mapa
     void OpenBikeMenu();
+    // Colores a gusto (menú Colores, ver docs/MENU.md). La moto: por moto (cada una tiene su diseño y sus colores de fábrica),
+    // sólo las que se cambiaron (colores_moto.<id> en preferencias.ini). El piloto: uno solo para todas las motos (es el mismo
+    // traje), con el original de la textura, "como la moto" o a gusto.
+    struct BikeColors { Color c[3]; };
+    std::map<std::string, BikeColors> bikeColors;
+    enum class SuitMode { Original, Bike, Custom };
+    SuitMode suitMode = SuitMode::Original;
+    Color suitColors[2] = {{205, 55, 45, 255}, {35, 48, 88, 255}};   // los de "a gusto" (arrancan como los de la textura)
+    BikeColors FactoryColors(const std::string& id) const;          // los de fábrica para este jugador (el .json o el estilo)
+    BikeColors ColorsOf(const std::string& id) const;               // los que lleva (los elegidos o los de fábrica)
+    bool CustomColors(const std::string& id) const;                 // distintos de los del estilo (hay que armar su esquema)
+    int LiveryFor(const std::string& id, int slot);                 // el livery para Bike::Draw (arma el esquema si hace falta)
+    bool SuitPaintOf(Color out[2]) const;                           // el traje propio de ahora (false: el original)
+    Color PlayerColor(int id) const;                                // el color de un jugador en el HUD (minimapa, listas)
+    void DrawGeneratedRider(const Bike& b, float alpha, bool paint, const Color* colors);   // el piloto generado (F9) con su traje
+    // Pantalla Colores: qué moto se pinta, de dónde se vino, y el editor de un color (paleta, tono, intensidad y brillo).
+    void OpenColors(const std::string& bike, bool fromBikes);
+    void SetEditedColor(Color c, bool keepHsv = false);
+    Color EditedColor() const;
+    void ColorChanged();                                             // guarda y avisa a la partida
+    std::string colorBike;
+    bool colorFromBikes = false, colorEditing = false;
+    int colorCell = 0, colorDrag = -1, colorCol = 0;
+    float colorHsv[3] = {0.0f, 0.0f, 0.0f};                          // tono (grados), intensidad y brillo (0..1) del que se edita
+    Color colorBefore{};                                             // para deshacer con Esc
+    float colorsBlend = 0.0f;                                        // cámara: 0 la vitrina del selector, 1 la de Colores
+    std::vector<Rectangle> colorCellRects;                           // la paleta y las tres barras (mouse)
     static std::string StyleLabel(const std::string& style);
     static EngineSound::Character SoundCharacter(const BikeParams& p);
     // Cámara del menú (plano de cine) y la moto del selector girando en su plataforma.
@@ -168,6 +198,7 @@ private:
     std::string previewBikeId;
     float previewLift = 0.0f;
     JPH::Vec3 previewPos = JPH::Vec3::sZero();
+    JPH::Quat PreviewRotation() const;              // la moto de la vitrina girando
     static constexpr float kPlatformHeight = 0.08f;
     void PrintTelemetry() const;
     void ShowMessage(const std::string& text, float seconds = 2.0f);
@@ -254,6 +285,12 @@ private:
     Props props;
     Favela favela;
     Circuit circuit;
+    // Autopista (generator "highway") y su tráfico; los ganchos de Step, BotInput y DrawScene están en GameTraffic.cpp.
+    Highway highway;
+    Traffic traffic;
+    void TrafficStep();                             // antes de la física: reloj (en red, el del anfitrión), motos, cuerpos
+    void BotLane(float s, float v, float& lat, float& speed);   // bot: lateral del carril elegido y el auto de adelante
+    float trafficLog = -1.0f;
     Bike parkedBike;                                // para dibujar las motos estacionadas de la favela
     bool mapLoaded = false;
     int mapLoadIn = -1;                             // frames hasta cargar el mapa pedido (se muestra "Cargando")
@@ -395,7 +432,7 @@ private:
     std::vector<std::string> riderPaths;
     // Menú (Esc): principal, código para unirse, sala de la partida y nombre. La carrera sigue de fondo
     // con la cámara girando alrededor de la moto.
-    enum class Menu { None, Main, Join, Lobby, Name, Maps, Bikes, Settings, Controls };
+    enum class Menu { None, Main, Join, Lobby, Name, Maps, Bikes, Settings, Controls, Colors };
     struct MenuItem {
         std::string label, hint;
         std::function<void()> action;

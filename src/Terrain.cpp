@@ -289,6 +289,10 @@ void Terrain::Build(const Track& track, const MapDef& map, bool flat)
     guide = map.roadStyle == "guide";
     grassOffRoad = map.look.groundTextures == "circuit";
     sand = map.look.groundTextures == "sand";
+    streetSmooth = map.streetSmooth;
+    streetShoulder = map.streetShoulder;
+    superElev = map.superelevation;
+    superRadius = map.superRadius;
     Heading(def.wind, duneDirX, duneDirZ);
     duneSeedX = (float)def.seed * 37.13f;
     duneSeedZ = (float)def.seed * -23.71f;
@@ -470,20 +474,56 @@ void Terrain::StampStreets(const Track& track)
     // Altura de cada punto de la línea central: la ladera, apenas suavizada a lo largo de la calle.
     std::vector<float> base(M), tmp(M);
     for (int i = 0; i < M; ++i) base[i] = Ground(pts[i].x, pts[i].z);
-    for (int pass = 0; pass < 2; ++pass) {
-        const int r = 6;
-        for (int i = 0; i < M; ++i) {
-            float sum = 0.0f;
-            for (int k = -r; k <= r; ++k) sum += base[(i + k + M) % M];
-            tmp[i] = sum / (float)(2 * r + 1);
+    // Promedio corrido con vuelta (radio r muestras, passes pasadas), en O(M) por pasada.
+    auto runningBlur = [&](std::vector<float>& v, int r, int passes) {
+        r = std::min(r, (M - 1) / 2);
+        for (int pass = 0; pass < passes; ++pass) {
+            double sum = 0.0;
+            for (int k = -r; k <= r; ++k) sum += v[(k + M) % M];
+            for (int i = 0; i < M; ++i) {
+                tmp[i] = (float)(sum / (double)(2 * r + 1));
+                sum += v[(i + r + 1) % M] - v[(i - r + M) % M];
+            }
+            v.swap(tmp);
         }
-        base.swap(tmp);
+    };
+    if (streetSmooth > 0.0f) {
+        // Autopista: la rasante sigue al terreno de lejos (curvas verticales largas, sin lomos a 250 km/h).
+        runningBlur(base, std::max(6, (int)std::lround(streetSmooth / track.Spacing())), 3);
+    } else {
+        for (int pass = 0; pass < 2; ++pass) {
+            const int r = 6;
+            for (int i = 0; i < M; ++i) {
+                float sum = 0.0f;
+                for (int k = -r; k <= r; ++k) sum += base[(i + k + M) % M];
+                tmp[i] = sum / (float)(2 * r + 1);
+            }
+            base.swap(tmp);
+        }
     }
 
     ApplyTerraces(track, base);
 
+    // Peralte de la calzada (superelevation): pendiente de costado hacia adentro de la curva, que llega a superElev con
+    // radio superRadius o menos y entra y sale en ~±60 m (tres pasadas de promedio de ±25 m). Con signo: + baja la derecha.
+    std::vector<float> cross;
+    if (superElev > 0.0f) {
+        cross.resize(M);
+        for (int i = 0; i < M; ++i) {
+            const float k = pts[i].curvature;
+            cross[i] = (k > 0.0f ? 1.0f : -1.0f) * superElev * std::min(1.0f, superRadius * std::fabs(k));
+        }
+        runningBlur(cross, (int)std::lround(25.0f / track.Spacing()), 3);
+    }
+    auto crossAt = [&](float s) {
+        const float f = track.Wrap(s) / track.Spacing();
+        const int i0 = (int)f % M, i1 = (i0 + 1) % M;
+        return mu::Lerp(cross[i0], cross[i1], f - std::floor(f));
+    };
+
     // Por vértice, las dos calles más cercanas que no sean el mismo tramo (distintas en s).
     const float hw = track.HalfWidth();
+    const float kFavelaShoulder = streetShoulder;   // 2.5 salvo que el mapa diga otra (la autopista: banquina ancha)
     const float influence = hw + kFavelaShoulder + 3.0f;
     struct Near { float d = 1e9f, s = 0.0f, lat = 0.0f; };
     std::vector<Near> n1(N * N), n2(N * N);
@@ -540,7 +580,11 @@ void Terrain::StampStreets(const Track& track)
             return (1.0f - mu::Smoothstep(hw * 0.7f, hw + kFavelaShoulder, n.d)) / (0.03f + gradeAt(n.s)) + 1e-3f;
         };
         const float wa = weight(a), wb = weight(b);
-        const float ha = baseAt(a.s) + track.Profile(a.s), hb = b.d < 1e8f ? baseAt(b.s) + track.Profile(b.s) : ha;
+        float ha = baseAt(a.s) + track.Profile(a.s), hb = b.d < 1e8f ? baseAt(b.s) + track.Profile(b.s) : ha;
+        if (!cross.empty()) {                          // peralte: de costado, sobre la línea central de cada calle
+            ha -= crossAt(a.s) * std::clamp(a.lat, -hw, hw);
+            hb = b.d < 1e8f ? hb - crossAt(b.s) * std::clamp(b.lat, -hw, hw) : ha;
+        }
         const float surface = (ha * wa + hb * wb) / (wa + wb);
         const float edge = a.d - hw;
         const float blend = 1.0f - mu::Smoothstep(0.3f, kFavelaShoulder, edge);

@@ -32,6 +32,7 @@ recalculan con F5):
 | `base/motocross` Motocross 450 | `mx` | 47 | 105 | 133 | 4.5 s | 0.97 | 310 mm | 1.8 m | la referencia: `tuning.ini`, más `motocross.ini` (la frenada con la S, la suspensión más viva al aterrizar y el equilibrio por la carga y el whip, ver FISICA.md) |
 | `base/motocross600` Motocross 600 | `mx600` | 58 | 110 | 133 | 4.3 s | 0.97 | 310 mm | 1.8 m | geometria y estilo de la 450, motor con mas fuerza |
 | `base/carrera` Carrera 1000 | `race` | 245 | 160 | 329 | 3.7 s* | 1.33 | 125 mm | 2.8 m | 4 cilindros, rodilla al piso |
+| `base/naked` Naked 950 | `naked` | 145 | 185 | 248 | 3.8 s* | 1.22 | 135 mm | 2.4 m | 3 cilindros, para la autopista: rápida de tirar de un lado al otro, frenos fuertes |
 | `base/trilheira` Trilheira 450 | `trail` | 64 | 120 | 121 | 4.3 s | 1.02 | 310 mm | 1.5 m | grau (ver README, Morro do Grau), escape aberto |
 | `base/trial` Trial 300 | `trial` | 28 | 70 | 91 | - ** | 1.02 | 220 mm | 1.2 m | piloto de pie, 48° de manubrio |
 | `sandbox/dostiempos` Dos tiempos 250 | `mx2t` | 46 | 100 | 140 | 4.5 s | 0.97 | 310 mm | 1.8 m | la de ejemplo del mod; motor que gira arriba |
@@ -43,7 +44,8 @@ pasado el corte.
 Medido andando (no la ficha), cada una contra una moto real del mismo tipo: ver "Las motos contra las de verdad".
 
 Colores del jugador 1 (el que se ve solo): motocross roja 21, carreras roja, blanca y negra 27,
-trilheira verde y amarilla 22, trial roja 3, dos tiempos amarilla con asiento azul 92. **Elegir el esquema 0 de una moto nueva distinto de los que
+trilheira verde y amarilla 22, trial roja 3, dos tiempos amarilla con asiento azul 92, motocross 600 celeste 600, naked
+grafito con el chasis naranja flúor ("950"; además son sus `"colors"` de fábrica en el `.json`). **Elegir el esquema 0 de una moto nueva distinto de los que
 ya hay**: si no, en el selector parecen la misma.
 
 ## Estilos
@@ -64,7 +66,7 @@ una `BikeStyleDef`:
 | `leanHipsZ`, `leanShouldersZ` | cuánto van cadera y hombros adelante/atrás con el piloto tirado |
 | `stand` | 0..1 de pie siempre. **Ver trampa abajo: para una moto de pie, poner la pose de pie en hips/shoulders/knee y dejar `stand = 0`** |
 | `tuck` | 0..1 agachado detrás del parabrisas a velocidad (de 8 a 25 m/s) |
-| `hangOff` | 0..1 colgado en las curvas: de 12° a 45° de inclinación la cadera sale ~14 cm hacia adentro, el torso y el casco se meten y la rodilla de adentro baja casi al piso (la de carreras: 1; las demás 0, que deja la pose idéntica) |
+| `hangOff` | 0..1 colgado en las curvas: de 12° a 45° de inclinación la cadera sale ~14 cm hacia adentro, el torso y el casco se meten y la rodilla de adentro baja casi al piso (la de carreras: 1; la naked 0.5, a medias; las demás 0, que deja la pose idéntica) |
 | `exhaustTip`, `exhaustDir`, `openExhaust` | boca del escape (llamarada) y si petardea mucho |
 
 Para agregar uno: sumarlo al enum antes de `Count`, escribir su `BikeStyleDef` (en `BikeStyles.cpp` o en
@@ -74,7 +76,8 @@ Los arreglos del renderer van por estilo (`[BikeStyle::Count]`): **después de t
 todo** (ver [PRUEBAS.md](PRUEBAS.md): ninja no sigue bien los headers en esta PC).
 
 Estilos que hay: `mx` (motocross), `trail` (trilheira), `race` (pista: carenado y piloto agachado),
-`trial` (de pie, tanque chico, sin asiento de verdad) y `mx2t` (la de motocross con motor dos tiempos).
+`trial` (de pie, tanque chico, sin asiento de verdad), `mx2t` (la de motocross con motor dos tiempos), `mx600` (las piezas
+de la `mx` con otros colores) y `naked` (naked de calle: trellis, doble faro redondo, monobrazo, piloto más erguido).
 
 ## Piezas (BikeMeshes.cpp)
 
@@ -92,6 +95,22 @@ Estilos que hay: `mx` (motocross), `trail` (trilheira), `race` (pista: carenado 
   caño de expansión de la 2T: se hizo de acero pavonado oscuro y el silenciador de carbono).
 - **Discos y plataformas grandes**: el cilindro común tiene 16 caras; a más de ~1 m de radio se ve
   octogonal. Para eso está `Renderer::Disc` (72 caras).
+- **Reusar las herramientas de otra sección**: las de la sección RACE (`Shell`, `Ring`/`RingDef`, `Decal`, `Tab`,
+  `AddNumber`, `AddRaceDisc`, `BuildRaceFenderParts`) están en un `namespace {}` del mismo archivo: una sección que viene
+  después (la NAKED) las usa directo, sin copiarlas. Cambiarlas cambia las dos motos.
+- **Basculante armado a medida real**: `Bike::Draw` estira la malla del basculante en z hasta el eje de verdad (largo / 0.56).
+  Lo redondo en la punta (una excéntrica, el guardabarros que abraza la rueda, el porta patente) se deforma si se arma en
+  medidas de la malla. La naked lo arma todo a medida real (eje en z = -0.6466) y lo achica en z al final
+  (`MatrixScale(1, 1, 1/estirado)`); lo que se engancha a puntos comunes (`kShockLow`, la cadena) se agrega después, en
+  medidas de la malla. La Carrera divide sólo el guardabarros (`/ kRaceArmStretch`).
+- **Faros, tablero y cejas van en `ForkUpper`** (giran con la dirección): sus ejes son los de la horquilla (+Y a lo largo de
+  la horquilla). Para que un faro mire adelante de la moto, su eje es (0, -sen rake, cos rake) en esos ejes; una placa con
+  un ángulo φ contra la moto lleva `RotX(rake - φ)`.
+- **Números con colores a gusto**: el menú Colores rearma las piezas con otro `BikeLivery`; un número pintado sobre el color
+  principal va con `Readable(color, fondo)` (pasa a negro o blanco si no se leería). Probado en la naked con
+  `--colores "moto=F2F2F0,1A5AE0,F4F4F2"`: el "950" blanco sobre blanco sale negro.
+- **Espejos y codos**: con la dirección a fondo el espejo del lado que gira se acerca al antebrazo. Los de la naked están
+  altos (~1.2 m del piso) y adelante de los puños; más bajos, `tools/holgura` daba 3.4 cm de antebrazo adentro.
 
 ## Pose del piloto
 
@@ -262,6 +281,62 @@ corte a 16500, 330 km/h, frenos, geometría). Lo que más importó:
   del cilindro, y colores de los 90 con el **asiento del color de la franja** (amarilla con azul).
 - Sonido de dos tiempos (`engine_two_stroke = 1`): ver [SONIDO.md](SONIDO.md).
 
+### Naked 950 (naked)
+A pedido: "una moto deportiva de calle ideal para el mapa nuevo de autopista, con su propio estilo". Física en `naked.ini`
+(sobre la base de la Carrera: el mismo esqueleto de moto de asfalto), estilo `naked` en su sección de `BikeMeshes.cpp`.
+- **La idea**: una naked tricilíndrica tipo Speed Triple / MT-09 / Street Triple: 145 hp a ~10 800 rpm y 102 Nm a ~8400
+  (`engine_rpm_scale` 1.2, `engine_torque_scale` 2.17: la curva de la 450 apenas estirada, llena en medios), 185 kg, corte a
+  11 500, 5 marchas de 115 a 250 km/h (el aire, con `drag_area` 0.50 sin carenado y el piloto erguido, la deja en 248),
+  cubiertas de calle (1.45-1.55 de agarre, `max_lateral_accel` 12: ~1.2 g), 1.44 m entre ejes y 24.5° de lanzamiento,
+  130 / 140 mm de suspensión, frenos de 860 / 140 Nm con el ABS y el alineado de la Carrera (`brake_align`, `brake_yaw_comp`,
+  `rear_lift_*`, `flat_side_exact`, `brake_align_rear`, `lean_sweep_comp`, `lean_load`).
+- **Rápida de tirar de un lado al otro** (cambiar de carril entre los autos): con el balance de la Carrera (K 6000, D 1600)
+  tardaba lo mismo que ella en pasar de +20° a -20° en un slalom con el teclado (0.28-0.30 s). Lo que la frena es la
+  amortiguación: con 24 kg·m² de rolido el lazo queda sobreamortiguado (D / 2·√(K·I) ≈ 2.1; el polo lento, ~K/D = 4/s). Bajar
+  D (1000-1200) la hacía más rápida pero se pasaba de la inclinación pedida 10-15° (59-66° con 50 pedidos); subir K con D
+  casi igual (12000 / 1800, tope 10000) la acelera sin pasarse: 0.23-0.25 s de +20° a -20° a 120-180 km/h (la Carrera
+  0.27-0.28), rolido máximo 200°/s (175) y se tira a la curva (63% de la inclinación) en 0.16 s a 120 km/h (la Carrera 0.26).
+  `balance_fast_lead` (1.5 o 3) no cambió nada: en el slalom la inclinación se aparta más de 5-12° de la pedida y la ayuda
+  "rápida" no actúa.
+- **El freno motor y el trasero solo**: con `engine_brake` 24 (un freno motor "de calle", más que los 10 de la Carrera),
+  `tools/alreves.py` daba 10 de 172 casos cruzados: soltando la curva con el trasero clavado (Espacio) la trasera, frenada
+  por el freno y por el motor, no agarraba de costado y la moto quedaba 1-2.5 s inclinada 8-13° para un lado y doblando
+  para el otro. Se buscó cambiando de a una las claves que la separaban de la Carrera (masa, centro de masa, geometría,
+  cubiertas, frenos, dirección): sólo el freno motor lo movía (24: 10 casos; 20: 7 de 16 del trasero; 14: 3; 10: 0). Quedó
+  en 10: 1 de 172, el mismo caso y la misma cantidad que la Carrera. Soltando todo a 85 km/h en 1ª frena 0.15 g (el motor
+  ~0.07, el resto el aire).
+- **En la tierra**: con `*_tire_loose_grip` 0.5 el bot daba la vuelta a la pista de motocross más rápido que la 450 (1:03.4
+  contra 1:04.2) y en `plaza_tierra` se acostaba 54° doblando a 0.71 g, cruzada. Con 0.42 y `lean_surface_grip` 1 (pide la
+  curva que dan las cubiertas en ese suelo, ver [FISICA.md](FISICA.md), "Velocidad de giro") dobla a 0.57 g acostada 32°
+  sin cruzarse, y los bots: pista de motocross 1:05.5-1:06.2, favela 1:34.4-1:34.9, parque 0:51.9-0:52.8, todos sin
+  caídas. En la Carrera esa clave subía las caídas de la favela; en la naked no (900 s, 0 caídas).
+- **Bots en el asfalto**: autódromo 2:12.1 (la Carrera 2:09.2), autopista 6:50.4 / 6:37.2 y `prueba/autopista_denso`
+  7:52.4, todos sin caídas. En la autopista el bot del mapa va limitado (~160 km/h): la Carrera da lo mismo; la diferencia
+  entre las dos se siente manejando (cambiar de carril, frenar entre los autos).
+- **Sonido**: `engine_cylinders` 3 alcanza (ver [SONIDO.md](SONIDO.md), "Tricilíndrico").
+- **Estilo** (sección NAKED): trellis de acero pintado del color 1 (dos vigas con diagonales en zigzag de la pipa al pivote
+  y el subchasis), motor negro con la tapa de válvulas bronce y los tres colectores al frente, caja bajo el motor y
+  silenciador corto con dos bocas a la derecha, tanque musculoso (secciones casi cuadradas) con aletas sobre el radiador y
+  el "950", colín corto y alto con el asiento del acompañante escalonado y luz de led, doble faro redondo con anillo de luz
+  diurna y cejas "enojadas" (la punta de adentro más baja), cupulita, tablero TFT, manubrio cónico ancho sobre torretas,
+  espejos, horquilla invertida con barras doradas, pinzas rojas, llantas negras de tres rayos en Y con el filo mecanizado,
+  cubiertas con surcos pintados en la banda y **basculante monobrazo a la izquierda** (del lado del escape la rueda trasera
+  se ve entera, con la tuerca del eje), con el porta patente y los guiños colgados de él.
+- **Pose**: más erguida que la Carrera: manubrio 9 cm arriba y 10 atrás de la pipa, puños a ±0.355 (`gripX`), cadera
+  (0, 0.30, -0.30), hombros (0, 0.71, -0.08), estriberas a media altura (0.17, -0.30, -0.18), `tuck` 0.3 (se agacha un
+  poco a velocidad) y `hangOff` 0.5. Medido con `tools/holgura` (1209 poses, cm, máximo / percentil 90; la Carrera entre
+  paréntesis): casco 0/0 (0/0), torso 0/0 (0.4/0), cadera 4.7/3.4 (4.5/3.2), brazo 0/0 (1.0/0), antebrazo 3.5/0.8 (1.4/0:
+  sólo con la dirección a fondo y la pata afuera, que esta moto no saca), mano 0/0, muslo 6.3/5.2 (5.6/4.4), canilla
+  5.3/0.4 (5.3/3.9), bota 3.3/1.5 (3.4/2.1). Con la cadera a 0.29 y el asiento ancho adelante daba 1 cm más de cadera y de
+  muslo; con el asiento del acompañante empezando en z -0.43, la cola del piloto tirado atrás quedaba adentro de él.
+- **Cuerpo de costado** (`Game::SideBody`, flechas): no se le activó. Para cambiar de carril alcanza con la dirección (y
+  se tira a la curva más rápido que la Carrera); activarlo cambia también el stick derecho por defecto. Si se quiere,
+  sería `style == "race" || style == "naked"` en `SideBody` y `rider_side_shift` en `naked.ini`.
+- **Cómo se midió**: arrancada con `teclas:1,W+100,W+200`, final con `frenada999` y frenadas / maniobras con
+  `tools/maniobras.py` en `prueba/plaza_asfalto_ancha`; `tools/alreves.py` (asfalto 100-240 y tierra 60-120); slalom con un
+  guion de teclado (`W+V,D0.5,A1,D1,A1,D1,A0.5,3`, la inclinación cada 0.02 s); `giroN`; bots de 600-900 s. Las variantes,
+  en una carpeta aparte con su propio `mods/var/bikes/` (copias del `.ini` con una clave cambiada) para no tocar `pruebas/`.
+
 ## Las motos contra las de verdad
 
 Revisión de la física de las cinco contra una moto real genérica de su tipo (después de la v0.2.7). Los valores reales
@@ -400,6 +475,25 @@ de 235 kg con el piloto casi no se puede girar. `air_pitch_rate` 1.2, `air_pitch
 15 (en `carrera.ini`). El bot del autódromo no vuela (0.2 s en 300 s, al aparecer): 2:11.65 / 2:09.83 sin caídas,
 igual que antes.
 
+### Naked 950 (contra una Speed Triple 1200 RS, Street Triple 765 RS, MT-09 o 990 Duke)
+
+| Qué | Real | En el juego | |
+|---|---|---|---|
+| Potencia | 119-180 hp (MT-09 119, Street Triple RS 130, Speed Triple RS 180) | 145 hp a ~10 800, 102 Nm a ~8400 | ok |
+| Peso | 188-199 kg en orden de marcha | 185 kg | ok |
+| Peso/potencia | 1.1-1.6 kg/hp | 1.28 kg/hp | ok |
+| 0-100 / 0-200 | 2.9-3.3 s / 7-9 s | 2.8 / 7.8 s (la ficha: 3.8 s, por el tope de 0.8 g) | ok |
+| Final | 240-260 km/h | 248.6 km/h | ok |
+| Frenada | 1.0-1.1 g; 100 → 0 en 38-41 m | 1.07 g de 100 (37.0 m), 1.11 de 150 (77 m), 1.15 de 200 (128 m), derecha, la cola en el aire 1-4% | ok |
+| Lateral e inclinación | 1.1-1.2 g con cubiertas deportivas de calle, 48-52° | 1.16-1.21 g a 40 y 120 km/h, 50° | ok |
+| Cambio de dirección | más ágil que una superbike (manubrio ancho) | se tira a la curva en 0.16 s (la Carrera 0.26); slalom +20° → -20° en 0.23-0.25 s (0.27-0.28) | **es la gracia** |
+| Línea recta a 200+ | aplomada | 5 s a fondo desde 200 y 235 km/h: rolido y guiñada 0 | ok |
+| Giro mínimo | 2.8-3.1 m | 2.4 m (31°) | algo cerrado, arcade |
+| Suspensión | 120-130 / 120-140 mm | 130 / 140 mm | ok |
+| Tierra | mala: ~0.4-0.6 g | 0.57 g acostada 32°, sin cruzarse; bots sin caídas en la pista de motocross, la favela y el parque | ok |
+| Freno motor | con antirrebote, ~0.1-0.15 g en total | 0.15 g soltando todo a 85 km/h en 1ª (~0.07 del motor) | ok |
+| Caja | 6 marchas, 1ª ~110-130 km/h | 5: 115 / 140 / 170 / 206 / 250 km/h, cambia a 11 280 | ok |
+
 ### Lecciones de la revisión
 - **Medir con la moto apoyada**: en `frenadaN` y `accel` la moto aparece en el aire con el gas a fondo; la rueda se
   pasa de vueltas y al tocar el piso la caja automática sube a 2ª a 4-5 km/h (la 2T y la Trilheira "arrancaban en
@@ -419,6 +513,14 @@ igual que antes.
   1-6°): la trasera se acerca a su límite por el aire y el freno motor. Con `rear_tire_lat_grip` 1.75 baja a 2-6°, pero el
   bot de la favela se cae más (ver [FISICA.md](FISICA.md), "La de carreras: rework de la frenada").
 - **La de carreras pesa 160 kg** (una 1000 de verdad, 190-205 lleno): se dejó, porque acá más masa sólo acelera menos.
+
+- **La naked: el rake de faros, tablero, cejas y guardabarros es fijo** (`kNakedRakeDeg` 24.5, como el `kRaceRake` de la
+  Carrera): con otra geometría en el `.ini` esas piezas quedan torcidas.
+- **La naked tiene `"colors"` de fábrica en el `.json`** (a pedido de quien hizo el menú Colores): todos los jugadores la ven
+  con ésos salvo que la pinten; sus otros tres esquemas (blanca y roja, azul y dorada, negra y verde ácido) sólo se ven
+  borrando la clave.
+- **`tools/holgura/tabla.py` no conoce la naked** (`BIKES`): se resumió con `tabla.BIKES = ['naked']` desde Python. Sumarla a
+  la lista (área del piloto).
 
 - **Velocidad de giro** (revisada en la v0.3.4 con `giroN` en cuatro suelos; tabla en [FISICA.md](FISICA.md), "Velocidad de
   giro"): todas en rango contra las de verdad, salvo:

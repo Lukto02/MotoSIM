@@ -40,3 +40,4 @@ const BikeStyleDef& GetBikeStyle(int id);   // id fuera de rango = motocross
 // Cada estilo nuevo define su tabla en su sección de BikeMeshes.cpp.
 const BikeStyleDef& RaceStyleDef();
 const BikeStyleDef& TrialStyleDef();
+const BikeStyleDef& NakedStyleDef();

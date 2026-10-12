@@ -25,7 +25,8 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
   `kMaxExtraPitch`) y después adelanta la cadera: nunca suelta el manubrio. La pelvis toma el 75% de la inclinación y cada vértebra un poco,
   para que la espalda quede recta (girando sólo la columna se inflaba la panza). Con el manubrio
   girado, los hombros giran con él (60%, hasta 0.5 rad).
-- **No se mete en la moto** (ver "El piloto se metía en la moto"): con la forma del chasis de cada moto
+- **No se mete en la moto** (ver "El piloto se metía en la moto"; se había perdido en la v0.3.4 y volvió en la v0.3.10:
+  ver "Los pendientes de la v0.3.9"): con la forma del chasis de cada moto
   (`BikeShape`, armada en `Draw`) y vértices de prueba del modelo, `PoseOnBike` sube la cadera hasta el
   asiento, endereza el torso si atraviesa el manubrio, corre los tobillos sobre las estriberas y abre las
   rodillas hasta que quedan afuera del tanque, los plásticos, el escape y el manubrio.
@@ -42,6 +43,10 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
 - **Cuerpo con masa** (`RiderMotion`): la pose de arriba no se dibuja tal cual: la siguen resortes con la inercia
   de la moto (aterrizajes, acelerar y frenar, curva, whip, derrape) y la cabeza mira hacia donde va. Ver "Cuerpo con
   masa".
+- **La de carreras** (`RacePose`): colgado, el cuerpo más adentro y la rodilla al piso; agachado, los codos cerrados; frenando,
+  sale de atrás de la cúpula. Ver "La Carrera 1000".
+- **Sin saltos**: el ajuste a la moto (`Fit`) se busca cada cuadro y lo que se dibuja lo sigue con un resorte; muslo y canilla
+  con el giro fijado por el frente de la rodilla. `MOTOSIM_SALTOS=1` mide los saltos por cuadro. Ver "Saltos de la pose".
 
 ### En el aire, tirado atrás, el torso atravesaba el manubrio
 - **Pasaba**: tirándose adelante o atrás con las flechas en un salto, a veces el torso se iba para
@@ -281,6 +286,7 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
   dirección también vale); después queda fijo hasta soltar. Para otro truco, soltar y volver a apretar: el cuerpo vuelve
   primero y después arranca el nuevo. Se eligió la dirección del stick izquierdo (no otro botón) porque es el mismo
   pulgar que hace el whip y el mortal, y el botón cambia lo que significa.
+  Desde la v0.3.10, en diagonal: ↘ nac-nac a la derecha y ↖ can-can a la izquierda (ver "Los pendientes de la v0.3.9").
 - **Sin disparos accidentales** (`Game::TrickButton`, y en la física `PrePhysics`): con el botón apretado en el aire el
   stick no tira whip ni mortal (dirección, cuerpo y costado en 0). Al soltar, el stick sigue sin contar en el aire hasta
   que pasa por el centro (o se toca el piso): el que suelta con el stick tirado no se encuentra un whip que no pidió. En
@@ -335,9 +341,128 @@ ve el jugador) se mide con ventana; ver "Cómo se mide".
   - Regresión (`tools/regresion.sh`) idéntica contra la v0.3.9-beta y contra el árbol sin trucos en 16 pruebas (las de
     la lista, `airlean`, `airrot`, `crashloop`, `colazo`, `circle3x`, `frenada280`, bots en la favela y con la 600); bots
     450 1:04.41 / 1:04.24, 600 1:04.52 / 1:04.34. Sin el botón no corre nada nuevo (todo detrás de `trickAmt > 0`).
-- **Queda**: el piloto en superman cayendo sobre la moto queda un rato colgado de ella (el ragdoll no choca con la moto
-  en las partes que aparecen encimadas); la cabeza no mira atrás en el nac-nac; sin variantes espejadas (nac-nac a la
-  derecha, can-can a la izquierda); en la Trial y la de carreras se vio sólo la pose neutra del estilo (no capturas).
+- **Quedaba** (resuelto en la v0.3.10, ver "Los pendientes de la v0.3.9"): el piloto en superman cayendo sobre la moto
+  quedaba un rato acostado sobre ella; la cabeza no miraba atrás en el nac-nac; sin variantes espejadas.
+
+### Los pendientes de la v0.3.9 (v0.3.10, octubre de 2026)
+Cinco cosas que habían quedado de "Cuerpo con masa", "Trucos en el aire", "Brazos más largos" y "Medir la holgura". Todo
+con el modelo 2 reducido de brazos largos; capturas con la cámara rígida en `compilaciones/capturas-piloto-pendientes/`
+(`antes/` = v0.3.9, `d3/`, `d2/`, `trucos/` = ahora; grillas `g_*.png`; holgura en `holgura/`, tabla en `holgura/tabla.md`).
+
+**1. Cola y muslos adentro del asiento (el ajuste a la moto volvió)**
+- **Pasaba**: en todas las motos la cola y los muslos 7-10 cm adentro del asiento (la carreras, hasta 12), parado y sentado.
+- **Por qué**: al portar la pose de la primera 0.3.1 (v0.3.4) se perdió todo `BikeShape` / `Fit` de "El piloto se metía en
+  la moto" y quedó `kHipsDrop` (la cadera 5 cm más abajo, que el ajuste después subía). Con los brazos largos, encima, la
+  IK ya no corría la cadera adelante y arriba tirado atrás: 0.5-1.5 cm más adentro.
+- **Qué se hizo**: se trajo el ajuste del historial (`git show c115c4d:src/RiderModel.cpp`) a la IK de ahora (clavícula,
+  trucos, cabeza libre, codos de la de carreras): `BikeShape` (se arma en `Draw`, una por `RiderModel`: cada jugador remoto
+  tiene el suyo), los vértices de prueba (`BuildProbes`), la cadera que sube hasta el asiento, el pecho que no atraviesa el
+  manubrio (no en un truco: su pose ya lo evita), rodillas y tobillos afuera del tanque (no la pierna suelta de un truco) y
+  los hombros que giran con el manubrio (`kShoulderTurn`; con las manos sueltas, no). Todo en `Fit` (con `pitch`, `shift`,
+  `sideIn` y `backIn` de la IK). Cuesta 0.25-0.5 ms por piloto y cuadro (`us=` del log).
+- **Se comprobó** con `tools/holgura` (barrido de ~900 poses por moto, cm, lo peor / percentil 90; antes = v0.3.9):
+
+  | moto | cadera | muslo | canilla | bota | torso |
+  |---|---|---|---|---|---|
+  | Motocross 450 y 600 | 9.9/7.3 → 4.6/1.1 | 9.8/7.5 → 4.6/3.5 | 5.9/5.6 → 3.2/0.9 | 3.0/2.9 → 1.3/1.1 | 0 → 0 |
+  | Carrera 1000 | 12.8/10.7 → 5.2/3.5 | 12.4/10.1 → 5.5/3.8 | 11.8/6.0 → 5.3/0.0 | 5.4/4.4 → 4.1/1.5 | 12.9/10.6 → 1.2/0.0 |
+  | Trial 300 | 6.7/4.7 → 2.9/0.6 | 7.6/6.9 → 6.7/6.1 | 6.0/5.7 → 2.5/0.9 | 4.5/4.4 → 1.9/1.6 | 0.6 → 0.2 |
+  | Trilheira 450 | 10.6/9.0 → 2.9/1.2 | 10.6/9.1 → 5.6/4.9 | 6.7/5.7 → 3.8/1.1 | 4.5/4.3 → 2.4/1.3 | 4.9 → 0 |
+  | Dos tiempos 250 | 10.1/8.3 → 4.6/1.1 | 10.3/8.4 → 5.2/3.6 | 6.7/5.7 → 3.2/0.7 | 3.6/3.5 → 4.8/1.1 | 0 → 0 |
+
+  Y en las pruebas de manejo, con el cuerpo con masa (`MOTOSIM_HOLGURA=1`, lo peor desde 0.1 s; cadera / muslo):
+  motocross `pose` 8.4/8.5 → 1.3/3.2, bot 25 s 7.5/7.6 → 2.2/3.6, `whip` 7.2/7.5 → 1.6/3.9; carreras bot 12.7/12.8 → 3.5/3.7
+  (y torso, brazos, casco 11-12 → 0); Trilheira `pose` 9.4/9.4 → menos de 1/3.4; Trial bot 1.2/6.5 → 1.2/3.4. Capturas de costado y
+  3/4 de las seis motos (neutro, tirado atrás, adelante): sentado sobre el asiento.
+- **Queda**: el muslo, 3-4 cm (percentil 90) contra el costado del asiento (la entrepierna: los muslos del modelo van juntos,
+  como antes de la v0.3.4); en la Trial 6 cm, pero con el cuerpo de costado (`S±1`), que en la Trial no se usa (sentado
+  neutro, 2 cm); lo peor (4.5-5.5 cm) con la pata afuera, tirado atrás y el manubrio a fondo, donde la cadera no sube del
+  todo para que las manos lleguen (`kLiftReach`). La pierna suelta del nac-nac y del can-can roza la cola al pasar (bota
+  y canilla 4-5 cm en la de carreras): no se ajusta, va por su curva.
+
+**2. Whip con las manos en el manubrio**
+- **Pasaba**: con el whip a fondo el cuerpo se iba al costado (cadera del modelo a 22.6 cm del centro de la moto, cuello a
+  36.8) y para llegar a los puños la IK inclinaba el torso al tope (+26°) y adelantaba la cadera al tope (30 cm); aun así
+  una mano quedaba a 1 cm de su puño (`--flat --drop 3 --test whip`, log con una copia de la v0.3.9 que imprime la mano).
+- **Por qué**: la pose del whip (`RiderPoseLocal031`: cadera 0.40·sen(inclinación), hombros 0.62) es la del piloto
+  generado, de brazos elásticos; y la IK sólo sabía inclinar adelante y correr la cadera adelante, no volver de costado.
+- **Qué se hizo** (sólo dibujo del modelo: la pose compartida no se tocó, porque de ella sale el ragdoll y `accel` y
+  `crashloop`, que se caen con algo de whip, daban distintos):
+  - `RiderModel::WhipPose`: la cadera se corre 0.14·sen (no 0.40), los hombros 0.40 (no 0.62) y las rodillas quedan cerca
+    del tanque: aprieta la moto con las piernas, la deja acostarse debajo y el torso queda más derecho en el mundo.
+  - En la IK, antes de inclinar el torso, un paso nuevo (`Fit::sideIn`): el cuerpo corrido de costado vuelve hacia el medio
+    lo justo (cadera y hombros juntos: el torso no cambia de inclinación) hasta que las manos llegan.
+- **Se comprobó**: el mismo whip, cadera 6.9 cm del centro (antes 22.6), cuello 19.9 (36.8), sin torso ni cadera extra (antes
+  +26° y 30 cm), mano 0 cm (1); `--drop 1`, igual (7.8 / 19.9 cm). Capturas de frente, atrás y costado (`g_whip3.png`):
+  antes colgado al costado con una mano lejos; ahora sobre la moto, con las dos en los puños.
+
+**3. Tirado atrás, para el modelo de brazos largos**
+- **Pasaba**: tirado atrás la IK inclinaba el torso 26° (el tope) en la motocross, la 600 y la 2T (18° en la Trilheira):
+  la pose (cadera 22 cm atrás) es la del generado y con el asiento ajustado (la cadera 16 cm más arriba) peor.
+- **Qué se hizo**: otro paso de la IK, antes de inclinar el torso (`Fit::backIn`, 0..1, lo mínimo que haga falta): la
+  cadera va hasta `kBackHipsForward` (12 cm) menos atrás y el torso hasta `kBackLean` (0.35 rad) más adelante, con los
+  brazos estirados. Donde los brazos llegan (Trial, carreras) no hace nada.
+- **Se comprobó** (`--flat --test pose`, a los 3.9 s): motocross, 600 y 2T `atras=0.92`, sin torso extra (antes +0.45 rad),
+  la cadera 11 cm detrás de la neutra y el torso 40° de la vertical (neutro 35°); Trilheira `atras=0.69` (antes +0.31 rad);
+  carreras 0.08; Trial nada. Capturas de costado de las seis motos (`g_pose_*.png`).
+
+**4. Nac-nac y can-can para los dos lados**
+- **Control**: con el botón, el costado del stick es **el lado para donde sale la pierna**, y la diagonal elige el truco:
+  **hacia atrás (↙ ↘) nac-nac**, porque la pierna pasa por arriba de la cola, y **hacia adelante (↖ ↗) can-can**, porque
+  cruza por delante. Derecho al costado sigue como en la v0.3.9 (← nac-nac, → can-can): lo nuevo es **↘ nac-nac a la
+  derecha** (en el teclado ↓ + D) y **↖ can-can a la izquierda** (↑ + A). Ocho sectores de 45°: arriba / abajo pasados los
+  67.5° (heel clicker / no-hander), al costado hasta 22.5°, en el medio la diagonal. Superman (nada), heel clicker (↑) y
+  no-hander (↓) no cambian. Cambia ↑+A / ↑+D en el teclado (antes heel clicker, ahora can-can) y ↓+A / ↓+D (antes no-hander).
+- **Elegir sin trabarse**: en el teclado las dos teclas de la diagonal no llegan juntas y el stick pasa por un costado
+  antes de llegar a la diagonal. En los primeros 0.2 s (`kTrickChoose`) vale la última dirección (no volver a nada), y la
+  física (`Bike::UpdateTrick`) cambia de truco si el cuerpo se movió menos de 15% (`kTrickSwitch`; antes 2%: había que
+  volver del todo). Con `teclas:`: → y ↓ 40 ms después, nac-nac a la derecha (el can-can se corta al 8%); 100 ms después
+  ya no (sigue el can-can). Para pruebas, `--test trucoNOMBRE` y `--trucos NOMBRE` aceptan `nacnacder` y `cancanizq`.
+- **Pose y física**: `Trick::NacNacRight` y `CanCanLeft` usan la pose de siempre espejada (`ApplyTrickPose`) y por ella
+  la reacción: con `--flat --drop 3`, el nac-nac rola +0.9° y el espejado -0.9°, el can-can -0.7° / +0.7°, el mismo
+  cabeceo. Los de siempre dan idéntico a la v0.3.9.
+- **La cabeza en el nac-nac**: mira atrás, por arriba del hombro del lado de la pierna (`RiderPose::lookYaw` 1.35 rad y
+  `lookDown` 0.30, con el peso del cuerpo del truco), y los hombros giran 0.25 rad con ella (`twist`). Sólo el modelo:
+  `RiderMotion` lo suma al objetivo de la cabeza (reemplaza a la pista) y el cuello toma la mitad, como siempre.
+- **Red**: ver [RED.md](RED.md): el espejado viaja como el original más un tercer byte; la v0.3.9 lo ve sin espejar.
+- **Textos**: ayuda del HUD ("trucos en el aire (+ dirección o diagonal)"), Controles (dos entradas más, con dos flechas:
+  la fuente no trae ↖ ↘), LEEME y README.
+- **Se comprobó**: líneas `TRUCO` de los cuatro (`--test truconacnacder`...), capturas de atrás, 3/4 y frente de los cuatro
+  (`g_trucos.png`, `g_nac_head.png`: la pierna sale para el lado pedido, la cabeza girada hacia ella, sin codos ni rodillas
+  al revés), red en los tres sentidos.
+
+**5. Caída en superman: se suelta**
+- **Pasaba**: tocando el piso en superman, el ragdoll quedaba acostado sobre la moto ~2.5 s mientras ella seguía andando
+  derecha a 40 km/h, hasta que se caía.
+- **Por qué** (medido con la línea nueva `RAGDOLL ... partes que chocan con la moto` de `--telemetry`): no era el filtro de
+  las partes encimadas (las 11 chocan con la moto desde el primer paso: el superman va arriba de ella). El cuerpo aparece
+  con la velocidad de la moto, apoyado encima, y la moto, sola y derecha en el plano, es estable: nada lo hace caer.
+- **Qué se hizo**: al caerse por tocar en medio de un truco (`trickAmt` > `trick_crash`), el piloto aparece con 0.8 m/s
+  de costado (`kTrickCrashSlide`, Game.cpp), para donde ya se iba la moto (su rolido, si no su giro, si no el manubrio):
+  sin los pies en las estriberas ni las manos firmes no puede sostener el golpe. Con 1.5 m/s se desprendía igual pero
+  más brusco.
+- **Se comprobó**: `--flat --drop 3 --test trucosupermanx`: a los 0.34 s de tocar la moto ya está a 21° y a 0.84 s el piloto
+  está en el piso, separado (antes, a 2.5 s seguía encima); capturas `g_caida_sup_antes.png` y `g_caida_sup_d2.png`. Cambia
+  sólo lo que se cae en un truco (`trucosupermanx`, `--trucos` con caídas); lo demás, idéntico.
+
+**Regresión** (contra la v0.3.9): idéntico en `brakeslide`, `cuerpo`, `flip`, `whip`, `wheelie`, `--bot --time 40`, `accel`,
+`airlean`, `airrot`, `crashloop` (30 s), `colazo`, `circle3x`, `frenada280`, el bot de la 600 y de la favela con la 450 y los
+cinco trucos de siempre (`trucoX`); bots 450 1:04.41 / 1:04.24 y 600 1:04.52 / 1:04.34; `crashloop` con ventana (el ragdoll
+con el modelo) da la misma telemetría. Distinto, a propósito: lo que termina en caída en un truco.
+
+**Lecciones**:
+- Al portar código viejo, buscar en el historial lo que se pierde (`git log -S BikeShape`): el ajuste a la moto estaba
+  entero en la v0.3.3 y nadie lo extrañó en los números porque la herramienta de medir se "adaptó" a no tenerlo.
+- La pose compartida (`RiderPoseLocal`) arma el ragdoll: cambiarla para el dibujo cambia las caídas aunque la física de la
+  moto no se toque (el whip quedaba distinto de cero al caerse en `accel` y `crashloop`). Lo que es del modelo, en el modelo
+  (`WhipPose`, los pasos de la IK).
+- Los pasos de la IK "lo mínimo que haga falta" (búsqueda binaria de un parámetro 0..1) se adaptan solos a cada moto: el
+  tirado atrás no toca la Trial ni la de carreras.
+- "Queda colgado" puede no ser colisión: medir qué chocaba (la telemetría `RAGDOLL`) mostró que el problema era la
+  estabilidad de la moto sola, no el filtro de grupos.
+- Para que un truco nuevo sea compatible en red, mandar además "el más parecido que conoce la versión anterior": ve algo
+  razonable en vez de nada.
+- `sed -i` en el bash de Git pasa los CRLF a LF: normalizar después (o editar con Python en binario).
 
 **Cámara rígida para comparar poses** (no está en el juego): en una copia del repo, al final de `ChaseCamera::Update`,
 si existe `MOTOSIM_CAM="yaw pitch dist [sigue] [alto]"` la cámara queda pegada a la moto (sin resorte ni sacudón),
@@ -350,6 +475,217 @@ pitch dist alto"` usa el rumbo inicial (no `sigue`): -90 = costado izquierdo, 90
 **El ragdoll de hoy** (el de la v0.3.1, desde la v0.3.4) arma cada articulación centrada en la pose con que aparece y
 no imprime las articulaciones (lo de "Cómo se mide" es del ragdoll anterior): cualquier pose (un truco) aparece adentro
 de sus rangos.
+
+### La Carrera 1000 (v0.3.10, octubre de 2026)
+Pedido: "revisá las animaciones en la moto de carreras". Revisada en movimiento con el modelo 2 (cámara rígida a la moto,
+`MOTOSIM_CAM` con un quinto número `sigue` = 1 que toma el rumbo actual, y la de persecución): parado y arrancando, a fondo
+agachado, frenada fuerte, curvas, chicanas (el bot en el circuito y `teclas:` en `prueba/plaza_asfalto_ancha`), wheelie,
+aire, trucos, caída y el piloto remoto. Capturas en `compilaciones/capturas-carrera/` (`antes/` = el árbol de antes, `d3`..`d8`
+= los pasos; `ab_*.png` antes arriba y después abajo; holgura en `holgura/`).
+
+**Qué estaba mal y qué se hizo** (todo dibujo del modelo: `RiderPoseLocal`, la pose compartida que arma el ragdoll, no se
+tocó):
+- **Agachado, codos en ala**: con la pose agachada (los hombros 20 cm más abajo) y los brazos largos, el polo de los codos de
+  la de carreras (`elbowsIn`, afuera y apenas abajo) dejaba los codos abiertos como alas, a la altura de los hombros (se ve
+  de frente y de atrás a más de 90 km/h). Ahora el polo va hacia abajo y adentro con lo agachado (`tuckAmt`, `kTuckElbowOut`):
+  los codos cerrados contra el tanque, los antebrazos sobre él (`d4/ab_accel.png`).
+- **Colgado rígido y "sentado en una moto inclinada"**: la pose (la del generado) corre la cadera 14 cm y los hombros 20 hacia
+  adentro: con la moto a 55° el cuerpo quedaba casi en el eje de la moto. Y lo poco que pedía lo deshacía el ajuste:
+  `Fit::center` devolvía la cadera al medio del asiento (medido: `centro` 1.00 en `colgado roll+60`) porque el muslo de afuera
+  cruza el asiento, y `Fit::sideIn` (el paso del whip) traía el cuerpo al medio si las manos no llegaban. Y **la rodilla al
+  piso de la pose nunca llegaba al modelo**: el polo de la rodilla era siempre "adelante" (`SolveBody` no miraba `p.knee` salvo
+  con la pierna suelta de un truco). Qué se hizo (`RiderModel::RacePose`, entre `WhipPose` y `RiderMotion`, y `SolveBody`):
+  - colgado (`hang`, la misma cuenta que la pose: 12°-45° de inclinación, 6-12 m/s), la cadera 6 cm más adentro y 2 más abajo y
+    los hombros 12 más adentro y 3 más abajo (`kHangHips`, `kHangShoulders`, `kHangDrop`): media cola afuera del asiento, el
+    pecho sobre el costado de adentro del tanque, el casco hacia el espejo de adentro;
+  - la rodilla de adentro con el polo afuera, adelante y apenas abajo (`kHangKneeOut`): sale hacia el piso; la de afuera, arriba
+    contra el tanque;
+  - el codo de adentro baja hacia el piso y el de afuera apoya sobre el tanque (antes cruzaba por arriba de la cúpula);
+  - `Fit::center` vuelve como mucho el 15% de lo colgado (`kHangKeep`) y lo demás lo resuelve subir la cadera; colgado no se usa
+    `sideIn` (si las manos no llegan, el torso se inclina).
+- **Los brazos se metían en el tanque** (con los codos cerrados el de afuera lo cruzaba 4 cm, y para sacarlo el ajuste del
+  pecho enderezaba el torso 0.36 rad: colgado se veía sentado derecho). Paso nuevo del ajuste (`Fit::elbowOpen`, como las
+  rodillas): cada codo se abre girando alrededor de la recta hombro-muñeca lo justo para que el brazo y la mitad del antebrazo
+  del lado del codo (`ProbeArm`) queden afuera de la moto, con un margen de 1.5 cm hacia adentro del brazo (`kArmMargin`: la
+  malla es de pocos triángulos y el borde del tanque se metía entre vértices). Vale para todas las motos; en las otras no
+  cambia nada (barrido idéntico en la motocross y la Trial).
+- **Frenada fuerte agachado**: seguía acostado sobre el tanque y la inercia lo tiraba más adelante, el casco contra la cúpula.
+  Ahora (`RiderMotion`, grado de libertad `SitUp`, resorte crítico w 6) con la frenada (de 2 a 7 m/s² de desaceleración, sólo
+  agachado y apoyado) sale de atrás de la cúpula: el pecho sube 13 cm y va 5 atrás, la cola 3 cm adelante contra el tanque y los
+  brazos sostienen (`d5/ab_frenada.png`).
+- **El piloto de otro jugador nunca se colgaba ni se agachaba**: la moto remota (`Multiplayer::UpdateVisuals`) no tenía `roll`,
+  `pitch`, `speed` ni `forwardSpeed` (quedaban en 0) y la pose los usa (colgado, agachado y también de pie sobre la cola). Ahora
+  salen de la rotación y la velocidad que llegan, como en `PrePhysics`. Medido con `red.sh` (anfitrión sin ventana con el bot en
+  el circuito, invitado con ventana y `MOTOSIM_PILOTO_LOG`): hombros al costado del remoto como mucho 5 cm antes (el propio, 21)
+  y 31 cm ahora, igual que el propio (`colgado` 1.00). Sólo dibujo; el protocolo no cambia.
+- **Visto y bien**: cabeza hacia el vértice (la de `RiderMotion`), transiciones de la chicana sin tirones (el bot 60 s en el
+  circuito: lo más que se mueve la cadera, el cuello o el torso en un cuadro, ≤ 1.2 cm / 1.2°, igual que antes), aire, wheelie
+  (casi no levanta: anti-wheelie), trucos (idénticos: `RacePose` no hace nada en un truco) y la caída (idéntica).
+
+**Holgura** (`tools/holgura`, grupo nuevo `colgado`: colgado y agachado a la vez a 30 m/s, que es lo de las curvas rápidas;
+`rapido` sólo cuelga a 10 m/s), cm, lo peor / percentil 90, antes → después:
+
+| grupo | torso | cadera | brazo | antebrazo | muslo | canilla |
+|---|---|---|---|---|---|---|
+| colgado (108 poses) | 0.8/0.4 → 0.0/0.0 | 2.8/2.7 → 1.4/1.3 | 0.0/0.0 → 1.1/0.8 | 0.0/0.0 → 0.9/0.7 | 3.5/3.5 → 3.2/3.2 | 0.1/0.1 → 3.0/0.7 |
+| rapido (189) | 1.2/0.0 → 1.2/0.0 | 4.1/3.5 → 4.7/3.7 | 0.0/0.0 → 1.3/0.0 | 0.0/0.0 → 1.4/0.0 | 4.1/3.7 → 4.8/3.8 | 2.3/0.0 → 2.3/0.0 |
+
+Antes "0" en los brazos porque iban abiertos en ala; ahora apoyan (1 cm). La canilla de 3 cm es la de afuera contra el
+asiento colgado y tirado atrás a la vez (`roll-60 L-1`, raro). En el juego (`MOTOSIM_HOLGURA=1`): la curva a fondo de
+`teclas:W+100,WD4,W2` sin brazos adentro y sin enderezar el torso (antes de `elbowOpen`: brazo 4.3 cm y el torso -0.33 rad); el
+bot 60 s en el circuito, igual que antes salvo el codo de afuera apoyado en el borde del tanque (2.3 cm, puntos del tanque
+adentro del codo; la vista `holgura/f587.png`).
+
+**Queda**: el brazo de adentro colgado va casi estirado hacia el puño (el hombro queda lejos del semimanillar); el pecho no
+llega a apoyar en el tanque como un piloto de MotoGP (la IK no deja que las manos dejen de llegar). En el circuito el bot frena
+suave (0.5 g): la frenada fuerte se vio con `teclas:_1,W+200,S-3,_2` en la plaza de asfalto.
+
+**Trampas de esta prueba**:
+- En el bash de Git, `--test teclas:W+100,...` llega cambiado (lo convierte como una lista de rutas): `MSYS_NO_PATHCONV=1`. Y
+  con eso las rutas `/c/...` de `--screenshot` ya no se convierten: pasar `pwd -W` (`C:/...`).
+- Las lisas en la tierra de `--flat` patinan (`loose_grip` 0.35): para la de carreras, `--map prueba/plaza_asfalto_ancha` desde
+  `pruebas/`.
+- `RacePose` corre antes de `RiderMotion` (lo suaviza), pero los polos usan `hang` / `tuckAmt` sin suavizar: son continuos
+  porque la inclinación y la velocidad lo son.
+
+
+### Saltos de la pose (v0.3.10, octubre de 2026)
+- **Pedido**: "por momentos se ven las piernas y a veces otras animaciones como que 'saltan' de una posición a otra de forma
+  instantánea, pasa con prácticamente todas las motos al hacer ciertos movimientos".
+- **Cómo se mide** (`MOTOSIM_SALTOS=1`, con ventana: `RiderModel::CheckJumps`): cada cuadro sobre la moto, cada hueso del modelo
+  en espacio de la moto (lo que se mueve la moto no cuenta) contra los dos cuadros anteriores: el **cambio de velocidad** en un
+  cuadro (la diferencia segunda), llevado a 60 fps. Un movimiento rápido pero continuo (el pie de un truco a 6 m/s) da poco; un
+  salto de una solución a otra da lo que saltó. Avisa si pasa de 2.5 cm o 6° (`kJumpDist`, `kJumpAngle`) con una línea `SALTO`
+  que trae los huesos, el ajuste de la IK buscado en el cuadro anterior y en éste (`fit ... antes>ahora`), la pose (truco, pie y
+  mano sueltos, colgado...), la moto (y el manubrio `steer antes>ahora`) y `[pose N cm]`: el mismo cambio en los tobillos y puños
+  que pide la pose compartida (si es grande, el salto viene de la pose y no del modelo). Al salir, un resumen por hueso.
+  `compilaciones/capturas-saltos/correr.sh EXE CARPETA` corre 21 pruebas en las 6 motos (pose, cuerpo, accel, wheelie, brake,
+  sharpturn, slide, circle3, reverse, whip, airlean, airrot, colazo, freno de mano y frenar, superman, nac-nac, heel clicker, el
+  bot 45 s en la pista de motocross, la favela y el circuito, y una chicana y frenada en la plaza de asfalto).
+- **Qué saltaba** (5568 avisos en las 126 corridas; lo peor 42 cm):
+  1. **La rodilla que se abre** (`Fit::open`, ~70% de los avisos, en todas las motos): el ajuste busca "la primera apertura, de a
+     0.1 rad, con la que el muslo y la canilla quedan afuera del tanque". Con la pose cambiando apenas, la primera que alcanza
+     pasa de 0.76 a 0.31 rad de un cuadro al otro: la canilla salta 7-17 cm. Parado (`pose` de la Trilheira, t = 0.7-0.95 s)
+     **titilaba**: 8.8 / 17.8 / 8.9 cm, ida y vuelta. Lo mismo, menos seguido, el tobillo (`ankleOut`), la cadera que sube
+     (`lift`), la que vuelve al medio (`center`: de 1 a 0 en un cuadro, la cadera 17 cm, en el nac-nac) y los pasos de "que las
+     manos lleguen" (`backIn` de 0.33 a 0, el torso 3 cm), porque cada cuadro elige de nuevo y por un orden de pasos fijo.
+  2. **El ajuste de la pierna se cortaba** al soltar el pie en un truco (`legFree` > 0.5: rodilla y tobillo volvían a 0).
+  3. **El muslo daba la vuelta sobre sí mismo**: `aim` gira cada hueso por el arco más corto desde el giro heredado; con el muslo
+     casi al revés que en reposo (las piernas arriba del heel clicker) eso no está definido y el muslo giraba 70-150° por cuadro (el
+     pie, que lo hereda, hasta 160°). Al arreglarlo con el frente de la rodilla, en el nac-nac el muslo titilaba 180°: el frente
+     tomado del polo se da vuelta cuando la cadera pasa los 90°.
+  4. **El pie del truco**: mezclar el vector de siempre con el de la punta del truco pasa cerca de cero si son casi opuestos (el
+     pie daba media vuelta en un cuadro).
+  5. **Reaparecer cerca** (el bot trabado contra una pared reaparece a menos de 1 m): `RiderMotion` sólo arrancaba de nuevo con
+     más de 1 m o 0.6 rad; si no, sentía el salto como un golpe (el torso 27 cm).
+- **Qué se hizo** (sólo el modelo):
+  - **Lo que se dibuja del ajuste sigue a lo buscado con un resorte** (crítico, `kFitW` 15 rad/s, ~0.15 s): cada cuadro el ajuste
+    busca lo de siempre (`lastFit`) y se dibuja `fitShown`, que lo sigue (`PoseOnBike` con `RiderMotion`; el barrido y el ragdoll
+    usan lo buscado). Un instante puede rozar la moto, pero no salta. Con 30 rad/s, un cambio grande del buscado (0.77 rad de
+    rodilla) todavía daba un tirón de velocidad de 7 cm por cuadro; con 15, 2 cm.
+  - El ajuste de la pierna se va suave mientras el pie se suelta (`legFit` = 1 - smoothstep(0.2, 0.6, `legFree`)).
+  - **Muslo y canilla con el giro fijado** (`aimFront`): el frente del hueso en reposo (+Z, la rodilla) va hacia el frente de la
+    rodilla: doblada, el del plano de la pierna (del lado contrario a donde se pliega la canilla); casi estirada, el del polo;
+    mezclados con smoothstep según cuánto dobla. Sentado se ve igual (`capturas-saltos/sentado/g_sentado.png`).
+  - El polo de la rodilla suelta pesa según cuánto está doblada en la pose (con la pierna estirada no está definido); el pie gira
+    de una dirección a la otra (`DirSlerp`) en vez de mezclar vectores.
+  - `RiderMotion` arranca de nuevo también si lo que se corrió la moto en un cuadro no sale de su velocidad (más de 25 cm + 60·dt²).
+- **Resultado** (avisos / lo peor en cm, las 6 motos; `compilaciones/capturas-saltos/antes` = sin los arreglos, compilado aparte
+  de una copia con el mismo detector; `d3` = ahora):
+
+  | prueba | antes | ahora |
+  |---|---|---|
+  | bot favela | 1312 / 42 | 88 / 42 |
+  | bot motocross | 1295 / 20 | 26 / 12 |
+  | bot circuito | 628 / 20 | 0 |
+  | heel clicker | 251 / 29 | 102 / 16 |
+  | freno de mano y frenar | 243 / 25 | 62 / 5 |
+  | chicana y frenada (asfalto) | 233 / 16 | 23 / 5 |
+  | nac-nac | 186 / 47 | 91 / 24 |
+  | superman | 171 / 17 | 82 / 11 |
+  | brake | 164 / 16 | 0 |
+  | cuerpo | 152 / 20 | 6 / 4 |
+  | slide, accel, sharpturn, wheelie, circle3 | 140, 136, 113, 105, 103 / 14-20 | 4, 20, 14, 4, 21 / ≤ 5 |
+  | whip, pose, airlean, colazo, airrot, reverse | 87, 71, 67, 63, 40, 8 / 8-13 | 21, 4, 12, 13, 6, 0 / ≤ 9 |
+  | **total** | **5568** | **599** |
+
+- **Lo que queda** (no es del modelo; resuelto en la v0.3.10, ver "Saltos de la pose: lo que no era del modelo", abajo):
+  - lo peor de la favela (41 cm) es reaparecer: la moto entera vuelve a la pista con el manubrio de 40° a 0 (`steer 39.9>0.0`);
+  - los trucos: la pose del truco (`Bike::ApplyTrickPose`, compartida: la usa la física, `TrickBody`) pide al empezar y al volver
+    cambios de velocidad de 4-7 cm por cuadro en tobillos y puños (`[pose N cm]`) y el modelo los sigue; suavizarla cambia la
+    física de los trucos;
+  - manos y antebrazos 4-12 cm cuando el manubrio mismo salta 10-15° en un cuadro (`steer -5.6>-15.2>-24.7>-10.3`, la Trial
+    derrapando en el bot): las manos siguen al manubrio. Es de la física de la dirección (para revisar en FISICA).
+- **Trampas**:
+  - **Ninja y los headers**: después de cambiar `RiderModel.h` hay que tocar *todos* los `.cpp` que lo incluyen, también por otro
+    header (`Assists.cpp`, `main.cpp` por `Game.h`); con objetos viejos el exe se colgaba al segundo cuadro (0xC0000409 o
+    acceso inválido) y una compilación desde cero andaba.
+  - Las capturas en serie alargan los cuadros (0.05-0.1 s): el titileo de la rodilla depende del cuadro y no se reproduce
+    capturando; se midió sin capturas.
+  - En los heredoc de bash de esta PC (los de las herramientas del agente) una barra doble se vuelve simple: un `\\n` en un script de
+    Python llega como `\n` y se escribe un salto de línea de verdad adentro de un string de C++. Los `printf` con `\n` se
+    editan con la herramienta de archivos (o con `chr(92)`).
+
+### Saltos de la pose: lo que no era del modelo (v0.3.10, física y pose compartida)
+Los tres pendientes de arriba. Medido con `compilaciones/capturas-saltos/correr.sh` (126 corridas con ventana) con el exe de
+antes de esto (`capturas-saltos/fisica-antes`) y el de después (`fisica-despues`), y una medición sin ventana de la pose
+compartida (un `printf` de prueba, sacado: cada dos pasos, la diferencia segunda de tobillos, puños, rodillas, codos, pies,
+cadera, hombros y cabeza de `RiderPoseLocal`, en espacio de la moto).
+1. **Trucos** (`Bike::ApplyTrickPose`, la usan el dibujo y `TrickBody`):
+   - **qué pasaba**: lo peor no era el arranque ni la vuelta del resorte del truco (`trickAmt` es continuo en posición y
+     velocidad: se probó pasarlo por un filtro de primer orden antes del resorte, a la misma velocidad de conjunto, y los
+     tirones fueron iguales o mayores: es la aceleración del movimiento, no un corte), sino dos cosas de la pose:
+     - **el tope del alcance** (`MidJoint`): el tobillo o la mano que pasaba de largo se frenaba de golpe en el 99.5% del largo
+       de la pierna, y la rodilla, que cerca de estirada se mueve muy rápido, pegaba un tirón: en el heel clicker, al volver,
+       10 cm por cuadro;
+     - **el pie del nac-nac pasaba a 17 cm de la cadera** (la curva iba por arriba del asiento, `ctrl` a 0.42 m atrás): el muslo
+       giraba 130° en cuatro cuadros y la rodilla saltaba 22 cm por cuadro (la 450; la Carrera 12, la Trial 9). Mezclar los polos
+       con slerp o hacerlos pasar por arriba no cambia nada (o empeora: 70 cm): manda la dirección cadera-tobillo;
+   - **qué se hizo**: el tope suave (desde el 90% del alcance la punta se acerca con `tanh`, sin quiebre) y el pie del nac-nac
+     sale para atrás por su lado y cruza por arriba del guardabarros (`ctrl` (−0.30·s, +0.40, −0.80) desde la cadera del
+     estilo: pasa a 33 cm de la cadera y cruza 0.31 m arriba y 0.8 m atrás del centro de masa). Capturas antes y después de costado, iguales a la vista
+     (`compilaciones/capturas-fisica/nac_zoom.png`);
+   - **se comprobó** (la pose compartida, la 450): rodilla del nac-nac 21.8 → 8.1 cm por cuadro (la Carrera 12.4 → 6.0, la
+     Trial 9.4 → 5.3); heel clicker al volver 10.1 → 6.2 (la rodilla) y tobillos 4.8 → 4.5; tobillos y puños al arrancar, 3-4 cm,
+     igual (el pie que sale rápido: no es un corte). En el detector, el nac-nac: lo peor 18 → 7 cm (más avisos chicos: 85 → 109),
+     el superman y el no-hander 86 → 82 avisos y 8 → 5 cm; el heel clicker igual (97 → 108 / 14 cm): lo que queda son las
+     canillas del modelo con las piernas casi estiradas a mitad del movimiento (la pose pide 0.2-1 cm en tobillos y puños): la
+     IK del modelo, para revisar acá. La física de los trucos cambia poco (FISICA.md, "Trucos: el cuerpo mueve la moto"): los
+     tiempos de volver iguales y tocar el piso con el truco sigue siendo caída;
+2. **Reaparecer** (la favela, lo peor 41-42 cm): la moto vuelve a la pista con el manubrio derecho desde el primer paso
+   (`Bike::Reset` ya ponía la dirección en 0: no quedaba nada guardado); lo que saltaba era el dibujo: el piloto entero
+   (cadera 14 cm, hombros 32 cm) porque la moto, trabada contra una pared, reaparecía a menos de 1 m y con la velocidad casi en
+   0, y ni `RiderMotion` ni el detector lo veían como un salto de la moto. **Qué se hizo**: `Bike::resetCount` (sube en cada
+   `Reset`); `RiderModel::PoseOnBike` arranca de nuevo (el cuerpo con masa y el ajuste) y el detector no compara ese cuadro
+   cuando cambia (por modelo y moto: el mismo modelo dibuja la vitrina). **Se comprobó**: al reaparecer 4 → 0 avisos; la favela
+   120 / 42 cm → 35 / 6 cm.
+3. **El manubrio que saltaba 10-15°** (la Trial derrapando): la física no se tocó; lo que se dibuja (manubrio, rueda delantera y
+   manos) sigue a la dirección con un resorte (FISICA.md, "El manubrio dibujado saltaba 10-15° por cuadro"). **Se comprobó**:
+   avisos con el manubrio moviéndose más de 6° en el cuadro 77 → 5 (lo peor 41 → 5 cm); manos y antebrazos 323 → 58 avisos, lo
+   peor 23 → 6.8 cm; la chicana del asfalto 19 → 0, freno de mano y frenar 56 → 11, el bot de motocross 69 → 18.
+
+| prueba (las 6 motos) | antes | después |
+|---|---|---|
+| bot favela | 120 / 42 | 35 / 6 |
+| heel clicker | 97 / 14 | 108 / 14 |
+| superman | 86 / 8 | 82 / 5 |
+| nac-nac | 85 / 18 | 109 / 7 |
+| bot motocross | 69 / 10 | 18 / 5 |
+| freno de mano y frenar | 56 / 5 | 11 / 5 |
+| whip, circle3, chicana del asfalto, sharpturn, accel | 27, 20, 19, 15, 14 / ≤ 11 | 5, 6, 0, 4, 0 / ≤ 6 |
+| colazo, airlean, cuerpo, bot circuito, pose, slide, wheelie, airrot | 13, 9, 7, 6, 4, 4, 4, 2 / ≤ 6 | 6, 12, 6, 5, 4, 0, 4, 4 / ≤ 7 |
+| **total** | **657** | **419** |
+
+(Con ventana los cuadros duran distinto en cada corrida: la misma prueba da ±20-40% de avisos de una vez a la otra; lo que
+se mueve de verdad es lo peor y los avisos de cada causa.)
+- **Lecciones**:
+  - **Un tirón en la pose puede ser geometría, no tiempo**: antes de suavizar en el tiempo, medir la pose como función del truco
+    (cada paso, sin ventana) y ver qué punto salta: la rodilla del nac-nac saltaba porque el tobillo pasaba al lado de la cadera,
+    y ningún filtro del tiempo lo arregla sin hacer lento el truco.
+  - **Un tope duro es un quiebre en la velocidad**: `clamp` de un largo frena de golpe lo que viene; un tope suave (`tanh` desde
+    un poco antes) lo frena de a poco y el resultado es el mismo lejos del tope.
+  - **"Reaparece" tiene que ser un evento, no una adivinanza**: medir saltos de posición no sirve cuando la moto reaparece casi
+    donde estaba y parada; un contador en `Reset` lo dice siempre.
 
 ## Riggear un modelo nuevo (tools/riggear_piloto.py)
 
@@ -541,10 +877,17 @@ del proyecto (ahí están el modelo y `mods/`). Si `Game.cpp` cambia y el enganc
   brazo y cuánto le falta a la mano para su puño (`mano_lejos`).
 - **En una prueba**: `MOTOSIM_HOLGURA=1 <exe> --flat --test cuerpo ...`: cada 0.05 s imprime lo que pasa de
   1 cm y al salir lo peor de toda la prueba (el primer cuadro sale sin ajustar: descartarlo).
-- **Desde la v0.3.4** (la pose de la primera 0.3.1) `RiderModel` no tiene el ajuste a la moto (`BikeShape`, `Fit`):
-  `RiderClearance` no compilaba. Se adaptó (octubre de 2026): sólo mide; en el CSV, `sube` es lo que la IK corrió la
-  cadera y `centro` lo que inclinó el torso (rad), y las columnas de las pruebas del ajuste van en 0. Se sumó el grupo
-  `trucos` (los cinco, a medias y del todo, con el manubrio derecho o girado). `RiderModel` lo declara amigo.
+- **De la v0.3.4 a la v0.3.9** (la pose de la primera 0.3.1) `RiderModel` no tuvo el ajuste a la moto (`BikeShape`, `Fit`)
+  y `RiderClearance` sólo medía. En la v0.3.10 el ajuste volvió: el barrido arma la forma (`BuildShape`), pasa la pose por
+  `WhipPose` (como el juego) y el CSV trae otra vez `sube`, `centro`, `abre`, `tob` y las pruebas del ajuste (`pAsiento`...),
+  más al final `medio`, `mas_torso` y `mas_cadera` (lo que hizo la IK para que las manos lleguen). El grupo `trucos` recorre
+  todos (`Trick::Count`, con los espejados). `tabla.py` suma la 600 (`motocross600`).
+- **Desde la v0.3.10** (ver "La Carrera 1000"): el barrido pasa la pose por `RacePose` (como el juego) y tiene el grupo
+  `colgado` (colgado y agachado a la vez, 30 m/s; `tabla.py` lo suma); en una prueba, `MOTOSIM_HOLGURA_VOLCAR=prefijo` con
+  `MOTOSIM_HOLGURA_VOLCAR_T="desde hasta"` vuelca las poses de esos segundos para `vista.py`.
+- **Lo peor de una prueba sin el primer cuadro**: el resumen de `MOTOSIM_HOLGURA=1` cuenta el primer cuadro (sin la forma de
+  la moto, sin ajustar: 6-7 cm de cola "adentro" en todas); para comparar, tomar el máximo de las líneas `holgura t=` desde
+  0.1 s.
 - **Para mirarlo**: `MOTOSIM_HOLGURA_FILTRO="suelo L+0.0 S+0 st+0.0 g0"` (alternativas con `|`) y
   `MOTOSIM_HOLGURA_VOLCAR=prefijo` vuelcan cada pose; `python tools/holgura/vista.py prefijo_000.bin salida.png
   [--zoom x y z tam] [--vistas izq,der,frente,atras,arriba]` dibuja la moto y el piloto de costado, de frente
@@ -776,10 +1119,8 @@ Verificado desde atrás y de costado con el glTF principal: `build/soil-checks/r
     manubrio girado: por eso `-0.51`). Codos de la de carreras: con el polo `(0.6, -0.45, -0.3)` el antebrazo tocaba el
     tanque (percentil 90 0 → 2.1 cm); con `(0.75, -0.25, -0.3)`, igual que antes (0 y el brazo 7.1).
     Tabla entera en `compilaciones/capturas-brazos-largos/holgura_antes_despues.md`.
-- **Queda**: el whip a fondo sigue sin dar con las manos (el cuerpo va 30 cm al costado; la cadera se corre); tirado
-  atrás en la motocross la IK inclina el torso 26° (los brazos no alcanzan para el "tirado atrás" de la pose, que es la
-  del piloto generado, de brazos elásticos); la cola y los muslos se hunden 7-10 cm en el asiento en todas las motos
-  (desde la v0.3.4 no está el ajuste de "El piloto se metía en la moto": ver "Medir la holgura").
+- **Quedaba** (resuelto en la v0.3.10, ver "Los pendientes de la v0.3.9"): el whip a fondo con el cuerpo 30 cm al costado
+  y la cadera corrida; tirado atrás, la IK inclinando el torso 26°; la cola y los muslos 7-10 cm adentro del asiento.
 - **Lecciones**:
   - Medir las proporciones contra el cuerpo y no contra el alto: con un casco grande, los hombros están bajos y unos
     brazos "normales" para el alto quedan cortos para el manubrio. Lo que importa es lo que pide la pose (el alcance).
@@ -787,3 +1128,23 @@ Verificado desde atrás y de costado con el glTF principal: `build/soil-checks/r
     de sus huesos (un estiramiento a lo largo del eje, con transición suave): el resultado es tan suave como los pesos y
     no hace falta Blender. Comparar UV, índices y pesos byte a byte después.
   - Con brazos largos, el polo del codo pasa a decidir la silueta: el exceso de largo se va al codo. Revisarlo por estilo.
+
+## Colores del traje (octubre de 2026)
+
+- La textura del modelo 2 es un atlas pintado con dos colores de equipo: el **rojo** (principal, ~199,55,50) y el **azul
+  marino** con sus tonos más claros (secundario, ~37,50,90); además blanco/gris, negro, piel y el **visor violeta** (~53,37,73,
+  tono 266°). El casco lleva los mismos colores: cambia con el traje.
+- `RiderModel::BuildSuitMask` (al cargar; detalle del shader en RENDER.md, "Esquemas a gusto y traje recoloreado"):
+  1. por texel, tono, saturación y valor con bordes suaves: rojo 355-15° (para el color medio) y, para la máscara, también
+     sus sombras pintadas que se van a magenta (318-355°); marino 205-245° y sus sombras violáceas hasta 258°. El visor (266°)
+     queda afuera. Saturación y brillo mínimos dejan afuera los grises y el negro.
+  2. el color medio de cada zona (`SuitBase`, "los de fábrica"), y por texel su brillo relativo a ese medio;
+  3. los texels de borde de la propia textura son mezclas de dos colores: si un texel cae a menos de 0.05 del segmento entre
+     dos de {rojo, marino, blanco, negro, visor}, se toma esa mezcla (cuánto tiene de cada uno). Sin esto quedaba una línea
+     magenta entre el rojo y el marino en un traje blanco.
+- **Qué pasaba en las primeras pruebas**: sólo con el tono, un traje blanco tenía líneas magenta entre paneles (los texels
+  de mezcla y las sombras magenta del rojo); sumando las sombras al rango y las mezclas de a dos se fueron. Queda apenas un
+  filo lavanda en algunos bordes negro-blanco vistos muy de cerca (`rider_zoom3.png`).
+- Se comprobó con capturas a la misma cámara (`--test idle --view 140 8 0.35 --nohud`, `--colores "piloto=..."`): rojo y
+  azul originales, verde y negro, blanco y negro, amarillo y azul, rosa y blanco (`compilaciones/build-msvc-interfaz/cap/col/
+  rider_grilla.png`): sólo cambia el color; los blancos, los guantes, la piel y el visor quedan.
