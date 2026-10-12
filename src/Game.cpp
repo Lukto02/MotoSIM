@@ -1958,6 +1958,44 @@ BikeInput Game::TestInput()
             testSteer = keyboard ? mu::MoveTowards(testSteer, steer, 3.5f * kDt) : steer;
             in.steer = testSteer;
         }
+    } else if (opt.test.rfind("slalom", 0) == 0 && opt.test.size() > 6 && std::isdigit((unsigned char)opt.test[6])) {
+        // slalomN[fF][xS][cC][k]: llega a N km/h (caja automática, piloto neutro), la sostiene 1.5 s y tira la dirección de
+        // lado a lado (+S, -S, +S...; sin xS, a fondo) F veces por segundo de ida y vuelta (sin fF, 1), C ciclos (sin cC, 3),
+        // y después la suelta; mantiene N con el gas. Sin k, de golpe (el stick); con k, por las rampas del teclado (la D y la
+        // A). Imprime "slalom: inicio" y "slalom: cambio t= dir=" en cada cambio, para tools/slalom.py (rolido máximo en °/s,
+        // aceleración de rolido, tiempo de un lado al otro, pasada). f0.25 = un cambio cada 2 s (de un lado al otro entero).
+        bike.engine.autoShift = true;
+        const char* arg = opt.test.c_str() + 6;
+        const float vt = (float)std::atof(arg) / 3.6f;
+        const char* fp = std::strchr(arg, 'f');
+        const char* xp = std::strchr(arg, 'x');
+        const char* cp = std::strchr(arg, 'c');
+        const float freq = fp ? (float)std::atof(fp + 1) : 1.0f;
+        const float amount = xp ? (float)std::atof(xp + 1) : 1.0f;
+        const int cycles = cp ? std::atoi(cp + 1) : 3;
+        const bool keyboard = std::strchr(arg, 'k') != nullptr;
+        const float v = bike.forwardSpeed;
+        if (!testBraking && t > 1.0f && v >= vt - 0.3f) {
+            testBraking = true;
+            testT0 = simTime + 1.5f;
+            std::printf("slalom: inicio t=%.3f v=%.2f\n", testT0, v * 3.6f);
+        }
+        in.throttle = t > 1.0f ? mu::Clamp((vt - v) * 0.4f + 0.25f, 0.0f, 1.0f) : 0.0f;
+        int dir = 0;
+        if (testBraking && simTime >= testT0) {
+            const int half = (int)std::floor((simTime - testT0) * 2.0f * freq);
+            if (half < 2 * cycles) dir = (half % 2 == 0) ? 1 : -1;
+        }
+        if ((float)dir != testSteer) std::printf("slalom: cambio t=%.3f dir=%d\n", simTime, dir);
+        testSteer = (float)dir;
+        if (keyboard) {
+            KeysDown k;
+            k.d = dir > 0;
+            k.a = dir < 0;
+            in.steer = KeyboardInput(k, kDt).steer * amount;
+        } else {
+            in.steer = dir * amount;
+        }
     } else if (opt.test == "grau" || opt.test == "graucurva" || opt.test == "grau2") {
         // Grau (wheelie largo, estilo calle): a 12 km/h, tirado atrás y gas de golpe (embrague); el
         // gas queda a fondo y el piloto atrás 8 s; después se suelta la flecha y baja. graucurva: a

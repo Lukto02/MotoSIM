@@ -240,9 +240,15 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
     const float kCmd = in.steer * kMax;
     const float maxLean = mu::Rad(P->maxLeanDeg);
     leanTarget = loadLean ? std::atan(v2 * kCmd / kG) : mu::Clamp(std::atan(v2 * kCmd / kG), -maxLean, maxLean);
+    // lean_rate (BikePhysics.cpp): lo que pide el manubrio llega con la inercia de la moto; los recortes de abajo, al instante.
+    if (P->leanRate > 0.0f) leanTarget = ShapeLean(leanTarget, v, kMax * v2, !wasInAir && !crashed, dt);
     // Frenar fuerte inclinado endereza la moto (geometría de dirección): se abre de la curva en
     // vez de pivotar sobre la delantera por el contacto desplazado del centro de masa.
     leanTarget *= 1.0f - P->brakeStandUp * in.frontBrake * mu::Smoothstep(3.0f, 8.0f, v);
+    // stoppie_upright: apoyada sólo adelante y de trompa (aterrizando de nariz, un stoppie) la moto no dobla inclinándose:
+    // sin la trasera, acostarla sólo la hace girar sobre la delantera. El piloto la lleva derecha hasta apoyar atrás.
+    if (P->stoppieUpright > 0.0f && wheels[FRONT].grounded && !wheels[REAR].grounded)
+        leanTarget *= 1.0f - P->stoppieUpright * mu::Smoothstep(mu::Rad(8.0f), mu::Rad(20.0f), -pitch);
     // Freno de mano: con la trasera derrapando el piloto lleva la moto más derecha (como slide_upright en BikePhysics.cpp).
     // Con handbrake_lean, en cambio, la sostiene inclinada hacia la curva mientras colea (BikePhysics.cpp).
     if (handbrake > 0.0f) leanTarget *= 1.0f - P->slideUpright * handbrake;
@@ -645,7 +651,9 @@ void Bike::PrePhysics031(const BikeInput& rawInput, float dt, PhysicsWorld& worl
                 D *= mu::Lerp(1.0f, P->balanceFastD, fast);
                 dampRate = rollRate - leanTargetRate * fast;
             }
-            const float t = (loadLean ? leanErr : leanTarget - roll) * K - dampRate * D;
+            if (P->leanRate > 0.0f && leanRefValid) dampRate = rollRate - leanRefRate;   // lean_rate: respecto de la referencia
+            float t = (loadLean ? leanErr : leanTarget - roll) * K - dampRate * D;
+            if (P->leanRate > 0.0f && leanRefValid) t += P->inertiaRoll * leanRefAcc;    // y el torque de acelerar el rolido como ella
             if (wheelieTurning > 0.0f)                   // en una rueda, alrededor de la línea del piso (tire_track_exact)
                 totalTorque += (fwd + (fwdFlat - fwd) * wheelieTurning).Normalized() * mu::Clamp(t, -P->balanceMaxTorque, P->balanceMaxTorque);
             else

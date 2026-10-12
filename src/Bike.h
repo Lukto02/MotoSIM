@@ -257,6 +257,18 @@ struct BikeParams {
     // ... y amortigua el rolido respecto de una inclinación de referencia que sigue a la pedida a lo sumo a estos rad/s (lo
     // que el piloto acuesta la moto), no todo el rolido: acompaña cuando el piloto la acuesta. 0 = todo el rolido.
     float balanceFastLead = 0.0f;
+    // Cambiar de inclinación con peso (ver FISICA.md, "Cambiar de lado: la moto no tenía peso"). La inclinación que pide el
+    // manubrio no llega de golpe: la que busca el balance la sigue con una dinámica de 2º orden (acelera, cruza y frena el
+    // rolido sin pasarse), con el rolido máximo lean_rate (rad/s) a baja velocidad, que baja con la velocidad por el
+    // giroscópico (/ √(1 + (v / lean_rate_speed)²)), y la aceleración máxima lean_accel (rad/s²) con todo el agarre para
+    // contravirar (proporcional a la curva que puede hacer el manubrio a esa velocidad y en ese suelo). Y el balance
+    // amortigua el rolido respecto de esa referencia. lean_rate 0 = de golpe, como antes.
+    float leanRate = 0.0f;
+    float leanAccel = 16.0f;
+    float leanRateSpeed = 25.0f;
+    // Apoyada sólo adelante y de trompa (más de 8-20° de nariz abajo: aterrizando de nariz, un stoppie), cuánto menos se
+    // inclina lo que pide el manubrio (1 = derecha: sin la trasera, acostarla sólo la hace girar sobre la delantera). 0 = como antes.
+    float stoppieUpright = 0.0f;
     // Whip de verdad (ver FISICA.md, "Un whip de verdad"). 0 = como antes.
     // whip_takeoff: en la cara del salto, con el stick al costado, el piloto patea la cola: la cubierta trasera empuja de
     // costado (fracción de su carga, a ~43 km/h; crece con la velocidad), la moto sale del labio girando de costado y de
@@ -379,6 +391,7 @@ public:
     };
     LoadFrame UpdateLoadFrame(JPH::Vec3 fwd, JPH::Vec3 up, float mass, JPH::Vec3 fallbackNormal, float dt);
     void TrackLeanTarget(bool valid, float dt);   // balance_fast_k/d
+    float ShapeLean(float target, float v, float turnAccel, bool valid, float dt);   // lean_rate
     // Whip (BikePhysics.cpp): la intención en la cara del salto, la patada de la trasera, cuánto está cruzada en el aire y
     // el estado (pico, despegue, aterrizaje cruzado).
     void UpdateWhipIntent(float steer, JPH::Vec3 linVel, float v, float mass, bool wasInAir, float dt);
@@ -442,6 +455,11 @@ public:
     float leanSurface = 0.0f;                     // lean_load: inclinación respecto de ese suelo (rad, telemetría)
     float leanTargetPrev = 0.0f, leanTargetRate = 0.0f;   // balance_fast_k/d: cómo cambia la inclinación buscada (rad/s)
     bool leanTargetValid = false;
+    float leanRef = 0.0f, leanRefRate = 0.0f;     // lean_rate: la inclinación pedida con peso (rad) y cómo cambia (rad/s)
+    float leanRefIn = 0.0f;                       // lean_rate: la pedida, suavizada 0.05 s
+    float leanRefAcc = 0.0f;                      // lean_rate: aceleración de la referencia (rad/s²)
+    float leanRefLoose = 0.0f;                    // lean_rate: s sin las dos ruedas en el piso
+    bool leanRefValid = false;
     float balanceSettle = 0.0f;                   // balance_fast_k/d: 0..1, asentada sobre las dos ruedas
     // Whip (para el piloto animado y los trucos): se leen en cualquier moto; con whip_takeoff / whip_air en 0 igual se calculan.
     float whipIntent = 0.0f;                 // -1..1: el piloto tira la moto de costado en la cara del salto (+ a la derecha)

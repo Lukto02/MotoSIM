@@ -196,6 +196,10 @@ void BikeParams::Register(Tuning& t)
     t.Add("balance_fast_d", &balanceFastD);
     t.Add("balance_fast_speed", &balanceFastSpeed);
     t.Add("balance_fast_lead", &balanceFastLead);
+    t.Add("lean_rate", &leanRate);
+    t.Add("stoppie_upright", &stoppieUpright);
+    t.Add("lean_accel", &leanAccel);
+    t.Add("lean_rate_speed", &leanRateSpeed);
     t.Add("whip_takeoff", &whipTakeoff);
     t.Add("whip_air", &whipAir);
     t.Add("whip_air_rate", &whipAirRate);
@@ -360,6 +364,8 @@ void Bike::Reset(PhysicsWorld& world, Vec3 position, float yaw)
     leanSurface = leanTargetPrev = leanTargetRate = 0.0f;
     leanTargetValid = false;
     balanceSettle = 0.0f;
+    leanRef = leanRefRate = leanRefIn = leanRefAcc = leanRefLoose = 0.0f;
+    leanRefValid = false;
     whipIntent = whipPushTime = whipYaw = whipPeakYaw = whipPeakRoll = whipLaunch = 0.0f;
     whipCrossedLanding = false;
     whipArmed = true;

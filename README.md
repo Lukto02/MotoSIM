@@ -60,7 +60,7 @@ que `motocross` reciba conexiones: hay que permitirlo. Las teclas F de la ayuda,
 > dentro de OneDrive, conviene excluirla de la sincronización o compilar en otra ruta
 > (`cmake -S . -B C:\dev\motocross-build`).
 
-**Versión para compartir** (la v0.4.0, `dist/v0.4.0/MotoSim-v0.4.0.zip`, que se publica en
+**Versión para compartir** (la v0.4.1, `dist/v0.4.1/MotoSim-v0.4.1.zip`, que se publica en
 [GitHub Releases](https://github.com/Lukto02/MotoSIM/releases); el workflow `.github/workflows/release.yml` la arma y la sube
 cuando `src/Version.h` cambia en `main`; la de Mac, `MotoSim-vX-mac.zip` para Apple Silicon, la arma y la agrega a la misma
 release `.github/workflows/release-mac.yml`): con MSVC, compilar con el runtime
@@ -577,6 +577,9 @@ Otras opciones: `--spawn <metros de pista>`, `--telemetry-dt <s>`, `--ruts`, `--
 (`circle3x`: además se cae a los 8 s, para ver el ragdoll que sale con la pata afuera). `giroN` (N en
 km/h; `giroNk`, la dirección sube como con la D del teclado; `xS`, sólo hasta S) dobla a velocidad
 constante y `python tools/giro.py` resume radio, guiñada, g lateral, inclinación y cuánto tarda en tirarse.
+`slalomN` (N en km/h; `fF` cambios de ida y vuelta por segundo, `cC` ciclos, `xS` cuánta dirección, `k` con el teclado)
+tira la dirección de lado a lado y `python tools/slalom.py` resume el rolido (°/s y °/s²) y lo que tarda en cambiar de lado;
+`python tools/rolido.py <exe>` barre todas las motos y velocidades.
 `teclas:GUION` maneja como con el teclado (las mismas rampas que W A S D, Espacio y las flechas): pasos separados por
 comas, cada uno con las teclas apretadas y hasta cuándo (`N` segundos, `+N` hasta llegar a N km/h, `-N` hasta bajar a N);
 p. ej. `--test "teclas:W+150,D1.5,S-1"` acelera a 150, dobla 1.5 s con la D y la suelta para clavar los frenos. Imprime una

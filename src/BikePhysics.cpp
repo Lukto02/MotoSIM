@@ -240,6 +240,43 @@ void Bike::TrackLeanTarget(bool valid, float dt)
     leanTargetValid = valid;
 }
 
+// lean_rate / lean_accel (ver FISICA.md, "Cambiar de lado: la moto no tenía peso"): la inclinación que pide el manubrio
+// (target) no llega de golpe. Una moto cambia de inclinación contravirando: la cubierta corre el contacto de costado y el
+// peso hace el resto, así que el rolido acelera como mucho lo que da el agarre que se usa para eso (turnAccel: la curva que
+// puede hacer el manubrio a esta velocidad y en este suelo, en m/s²; a paso de hombre casi nada) y llega a una velocidad
+// máxima que baja con la velocidad (el giroscópico de las ruedas pide más fuerza en el manubrio para el mismo rolido).
+// La referencia es un sistema de 2º orden críticamente amortiguado (arranca, acelera y frena el rolido sin pasarse) cuya
+// frecuencia baja cuando falta mucho, lo justo para que la aceleración al arrancar sea la máxima: un cambio chico es rápido
+// y uno grande tarda más, y como es casi lineal, con el stick de lado a lado más rápido de lo que la moto puede seguir oscila
+// centrada (con un tope duro de la aceleración, o un "frenar justo para llegar", se iba corriendo para un lado). Antes, un
+// filtro de 0.05 s suaviza el escalón del stick (la aceleración del rolido también crece de a poco). Sólo con las dos ruedas
+// en el piso (o fuera hace menos de 0.15 s: un bache): el contraviraje es eso. En el aire, en una rueda (wheelie, stoppie, un
+// aterrizaje de trompa) o caída sigue a la pedida tal cual y el balance es el de antes; sin esto, la Trial que aterrizaba
+// del doble de la pista de motocross apoyada sólo adelante seguía rolando a la par de la referencia y se caía.
+float Bike::ShapeLean(float target, float v, float turnAccel, bool valid, float dt)
+{
+    const bool both = wheels[FRONT].grounded && wheels[REAR].grounded;
+    leanRefLoose = both ? 0.0f : leanRefLoose + dt;
+    valid = valid && leanRefLoose < 0.15f;
+    if (!valid || !leanRefValid) {
+        leanRef = leanRefIn = target;
+        leanRefRate = leanRefAcc = 0.0f;
+        leanRefValid = valid;
+        return target;
+    }
+    leanRefIn += (target - leanRefIn) * std::min(1.0f, dt / 0.05f);
+    const float rateMax = P->leanRate / std::sqrt(1.0f + (v / P->leanRateSpeed) * (v / P->leanRateSpeed));
+    const float accMax = P->leanAccel * mu::Clamp(turnAccel / P->maxLateralAccel, 0.25f, 1.5f);
+    const float err = leanRefIn - leanRef;
+    const float wn = std::min(12.0f, std::sqrt(accMax / std::max(std::fabs(err), 1e-4f)));
+    const float acc = mu::Clamp(wn * wn * err - 2.0f * wn * leanRefRate, -accMax, accMax);
+    const float rate = mu::Clamp(leanRefRate + acc * dt, -rateMax, rateMax);
+    leanRefAcc = (rate - leanRefRate) / dt;
+    leanRefRate = rate;
+    leanRef += leanRefRate * dt;
+    return leanRef;
+}
+
 // Whip (ver FISICA.md, "Un whip de verdad"). En la cara de un salto (apoyada atrás, la trompa arriba y subiendo, a más de
 // ~22 km/h, y el labio empujando) el stick al costado (más de 0.2) es la intención de whip: sube en 0.15 s (lo que cuenta es
 // lo de los últimos instantes antes del labio) y en el piso baja en 0.1 s. En el aire queda (es con cuánto despegó). Se
@@ -819,9 +856,17 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
     // acostada. Derecho y con el cuerpo de un lado, la moto se inclina un poco para el otro (equilibrio).
     const float sideLean = std::atan(P->riderSideShift / 0.65f);  // cuánto inclina el conjunto el cuerpo de costado
     leanTarget -= riderSide * sideLean;
+    // lean_rate: lo que pide el manubrio llega con la inercia de la moto, no de golpe con el stick. Los recortes de abajo
+    // (frenando, derrapando, el freno de mano) siguen al instante, como antes: con el filtro después de ellos, frenando
+    // doblando la moto quedaba inclinada más tiempo y el bot de la Trilheira en la favela se caía 3-10 veces cada 15 min (0-1).
+    if (P->leanRate > 0.0f) leanTarget = ShapeLean(leanTarget, v, kMax * v2, !wasInAir && !crashed, dt);
     // Frenar fuerte inclinado endereza la moto (geometría de dirección): se abre de la curva en
     // vez de pivotar sobre la delantera por el contacto desplazado del centro de masa.
     leanTarget *= 1.0f - P->brakeStandUp * in.frontBrake * mu::Smoothstep(3.0f, 8.0f, v);
+    // stoppie_upright: apoyada sólo adelante y de trompa (aterrizando de nariz, un stoppie) la moto no dobla inclinándose:
+    // sin la trasera, acostarla sólo la hace girar sobre la delantera. El piloto la lleva derecha hasta apoyar atrás.
+    if (P->stoppieUpright > 0.0f && wheels[FRONT].grounded && !wheels[REAR].grounded)
+        leanTarget *= 1.0f - P->stoppieUpright * mu::Smoothstep(mu::Rad(8.0f), mu::Rad(20.0f), -pitch);
     // Con la trasera derrapando (trabada o patinando) la cubierta empuja menos de costado: el piloto
     // lleva la moto más derecha y la hace girar con el derrape, no inclinándola.
     const Wheel& rearPrev = wheels[REAR];
@@ -1464,7 +1509,12 @@ void Bike::PrePhysics(const BikeInput& rawInput, float dt, PhysicsWorld& world, 
                 // acuesta (con menos K, si no, se tiraba a la curva el doble de lento).
                 dampRate = rollRate - leanTargetRate * fast;
             }
-            const float t = (loadLean ? leanErr : leanTarget - roll) * K - dampRate * D;
+            // lean_rate: amortigua lo que la moto se aparta de la referencia que se mueve, no el rolido que se le pide, y le da
+            // el torque que pide acelerar el rolido como la referencia (inercia de rolido × aceleración): sin él, la moto iba
+            // ~0.1 s atrás de lo pedido.
+            if (P->leanRate > 0.0f && leanRefValid) dampRate = rollRate - leanRefRate;
+            float t = (loadLean ? leanErr : leanTarget - roll) * K - dampRate * D;
+            if (P->leanRate > 0.0f && leanRefValid) t += P->inertiaRoll * leanRefAcc;
             // En una rueda (grau) la moto se inclina alrededor de la línea del piso por donde va, no de su
             // eje levantado: si no, sostener la inclinación mete guiñada y la deja apuntando para afuera.
             const bool oneWheelGrau = P->grauTurn > 0.0f && wheels[REAR].grounded && !wheels[FRONT].grounded;
