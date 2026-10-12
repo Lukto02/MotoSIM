@@ -1,5 +1,11 @@
-﻿MotoSim v0.4.0 - motos para jugar solo o con amigos en la red local
+﻿MotoSim v0.4.1 - motos para jugar solo o con amigos en la red local
 ===================================================================
+
+NOVEDADES DE LA v0.4.1
+- CAMBIAR DE LADO CON PESO: la moto ya no salta de un lado al otro al cambiar de dirección rápido (sobre todo con
+  el joystick). Se inclina con inercia, como una moto de verdad: arranca, acelera y frena el rolido, y cuesta
+  más cuanto más rápido vas. Ahora el joystick y el teclado se sienten igual. En todas las motos.
+- NAKED 950: ya no se cae al tirarla de lado a lado con el stick.
 
 NOVEDADES DE LA v0.4.0
 - AUTOPISTA DEL ATLÁNTICO (mapa nuevo): 11.8 km de autopista de 3 carriles por mano con tráfico: autos, camionetas
@@ -296,7 +302,7 @@ JUGAR CON UN AMIGO (tienen que estar en la misma red: mismo wifi o mismo router)
    todos van al mapa nuevo (si alguno no tiene ese mapa en su carpeta "mods", le avisa).
 
 SI NO CONECTA
-- Los dos tienen que tener la v0.4.0, la v0.3.9, la v0.3.9-beta, la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
+- Los dos tienen que tener la v0.4.1, la v0.4.0, la v0.3.9, la v0.3.9-beta, la v0.3.8, la v0.3.7, la v0.3.6, la v0.3.5, la v0.3.4, la v0.2.8, la v0.2.7, la v0.2.6 o la v0.2.5 (juegan entre sí, pero
   conviene la última: las reglas nuevas de los choques las usa cada uno en su PC); con otra avisa
   "otra versión". Las anteriores (v0.2.4, v0.2.3, v0.2.2, v0.2.1, la v0.3.1 vieja, la de antes de la
   v0.2.1, v0.2 y v0.1) no juegan con esta.

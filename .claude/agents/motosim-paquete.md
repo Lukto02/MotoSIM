@@ -12,7 +12,7 @@ MotoSim: simulador de motos en C++17 con raylib 5.5 y Jolt 5.6, en Windows. El u
 ## Reglas de todos los agentes
 - **La física de la Motocross 450 no cambia**. En la verificación, con el exe nuevo:
   - `bash tools/regresion.sh <exe> dist/vX/MotoSim-vX/MotoSim.exe (la última versión) <lista de docs/PRUEBAS.md>` da "idéntico" salvo lo que se cambió a propósito (tiene que estar en `docs/FISICA.md`);
-  - el bot de motocross da 1:04.41 / 1:04.24 (la 600: 1:04.52 / 1:04.34) desde el equilibrio por la carga y el whip en la 450; hasta la v0.3.8, 1:04.26 / 1:04.10. Contra la v0.3.8 la 450 da distinta a propósito hasta el próximo paquete: ver `docs/PRUEBAS.md`, "Regresiones".
+  - el bot de motocross da 1:04.51 / 1:04.33 (la 600: 1:04.64 / 1:04.45) desde el cambio de lado con peso (`lean_rate`, después de la v0.4.0); en la v0.4.0, 1:04.41 / 1:04.24 (la 600: 1:04.23 / 1:04.34). Contra la v0.4.0 todas las motos dan distintas a propósito hasta el próximo paquete (con los `.ini` de la v0.4.0, idéntico): ver `docs/PRUEBAS.md`, "Regresiones".
 - **Antes de empezar** leé `docs/PRUEBAS.md` (sección "Paquete para compartir"; tu área) y `docs/RED.md` (protocolo).
 - **Al terminar**, anotá en `docs/PRUEBAS.md` lo que aprendiste armando el paquete.
 - **Editar con scripts**: Python con la herramienta de archivos, en binario para conservar el fin de línea; nada de heredocs de bash con `\n` en strings.

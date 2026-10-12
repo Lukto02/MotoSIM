@@ -107,6 +107,13 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
   con la S" y "En wheelie doblando la moto iba de costado"): la 450 sigue en **1:04.41 / 1:04.24**; la 600 pasa a **1:04.23 /
   1:04.34**. Contra la v0.3.9 dan distintas a propósito `accel` (la frenada recta del final ya no se cruza), `whip` de la 450
   (aterriza en la trasera cruzada e inclinada) y el bot de la 600; las otras de siempre, idénticas.
+- **Desde el cambio de lado con peso** (a pedido, después de la v0.4.0; `lean_rate` en todas las motos, ver [FISICA.md](FISICA.md),
+  "Cambiar de lado: la moto no tenía peso"): el bot en la pista de motocross da **1:04.51 / 1:04.33** con la 450 y **1:04.64 /
+  1:04.45** con la 600; la favela con la 450 **1:36.98**, el circuito con la Carrera **2:11.28 / 2:09.60**, el park **0:50.91 /
+  0:50.98**, el valle 0:41.09; la autopista con tráfico, igual (6:50.40 / 6:50.48). Contra la v0.4.0 dan **distintas a propósito**
+  todas las motos en las pruebas que doblan (en las derechas, `wheelie`, `brakestraight` y `airrot`, sólo en los centésimos;
+  `whip` idéntica) hasta el próximo paquete. Lo que no tiene que cambiar se comprueba con el exe nuevo y los `.ini` de la
+  v0.4.0 (`tuning.ini` y `mods/` de `dist/v0.4.0/MotoSim-v0.4.0/` en su carpeta): idéntico.
 - **Trampa: `--map favela --bot` sin `--bike` no es la 450**: el mapa trae la Trilheira (`"bike"` en `favela.json`). Para
   la 450, `--bike base/motocross`.
 - Vueltas del bot en la pista de motocross (`--headless --bot --time 150`): **1:04.92 y 1:04.77** con la 450 y
@@ -168,6 +175,7 @@ tools/regresion.sh <nuevo> <viejo> "--flat --test brakeslide --time 8" "--flat -
 | arrancada (0-50, 0-100) | `--test arranquea` (parado, W en rampa a 1 s, piloto adelante, caja automática). No con `frenadaN`/`accel`: arrancan con la moto en el aire (ver abajo) |
 | freno motor | `--test frenacurvaNx0n`: llega a N km/h y suelta todo (sin freno ni dirección); restar el aire (0.6 · `drag_area` · v² / m) y la rodadura |
 | giro a velocidad constante | desde `pruebas/`: `--map prueba/plaza_tierra --bike M --test giroN --time 22 --telemetry --telemetry-dt 0.02 \| python ../tools/giro.py` (N km/h; `giroNk`: la dirección sube con la rampa de la D; `giroNxS`: sólo hasta S): radio, guiñada del mundo, g lateral, inclinación, deriva, uso de agarre, cuánto tarda en tirarse (63% y 90% de la inclinación final) y en girar el camino 90°. Superficies: `plaza_tierra` (pista), `plaza_pasto` (0.82), `plaza_calle` (calle de tierra) y `plaza_asfalto_ancha` |
+| cambiar de lado (stick y teclado) | desde `pruebas/`: `--map prueba/plaza_tierra --bike M --test slalomN[fF][xS][cC][k] --time 20 --telemetry --telemetry-dt 0.008 \| python ../tools/slalom.py` (llega a N km/h, la sostiene 1.5 s y tira la dirección de lado a lado, +S, -S..., F veces por segundo de ida y vuelta, C ciclos; sin `k` de golpe como el stick, con `k` por las rampas de la D y la A; `f0.25c2`: un cambio entero cada 2 s): por cambio, rolido máximo (°/s), aceleración de rolido (°/s², hace falta una fila por paso: `--telemetry-dt` menor que 1/120), cuánto tarda en cruzar el 0 y en llegar al 90% del recorrido, cuánto se pasa, y la oscilación (± y centro). Todas las motos a 30-200 km/h y los modos `cambio`, `cambiok`, `s1`, `s1k`, `s2`, `medio`: `python ../tools/rolido.py <exe> [--motos ...] [--vel ...] [--modos ...]` (una fila por corrida). Ver [FISICA.md](FISICA.md), "Cambiar de lado: la moto no tenía peso" |
 | curvas y agarre lateral | desde `pruebas/`: `--map prueba/plaza_tierra` o `prueba/plaza_asfalto_ancha --test circleN` (N m/s, dirección a fondo desde los 4 s). La guiñada del mundo es `wy` / cos(`roll`): `wy` es la del eje de la moto |
 | el resto | la lista de `--test` está en el README ("Pruebas automáticas") |
 
@@ -319,6 +327,15 @@ una rama sin mergear. Para que no vuelva a pasar:
 - El PR se mergea desde git (`git merge --no-ff` + push con el login de Lukto02: GitHub lo da por mergeado) si el
   navegador tiene abierta otra cuenta sin permiso (pasó con la v0.3.4). Nunca sacar el token del gestor de
   credenciales para usar la API (lo hacía `crear-pr034.ps1`, archivado).
+
+### v0.4.1 (12/10/2026): cambiar de lado con peso
+
+`dist/v0.4.1/MotoSim-v0.4.1.zip` (30 archivos, 10.2 MB). Protocolo 7: juega con la v0.3.4 a la v0.4.0 y la v0.2.5 a la v0.2.8.
+MSVC con runtime estático. Verificado desde la carpeta del paquete: `bikestats` (7 mapas, 7 motos) sin errores, `soilcheck` 0
+fallos en los tres del workflow, bots con las referencias nuevas de `lean_rate` (450 1:04.51 / 1:04.33, 600 1:04.64 / 1:04.45,
+favela con la 450 1:36.98, circuito 2:11.28, park 0:50.91 / 0:50.98, autopista con la Naked 6:50.40), en red contra la v0.4.0 en
+los dos sentidos (en `tools/red.py` el bot de la Naked en la pista de motocross a veces sale `CAIDO`: no es su mapa, ver FISICA.md).
+La física de la 450 cambia a propósito (pedido del usuario: FISICA.md, "Cambiar de lado: la moto no tenía peso").
 
 ### v0.4.0 (12/10/2026): autopista con tráfico, Naked 950, colores, frenar doblando y el piloto pulido
 

@@ -298,6 +298,11 @@ A pedido: "una moto deportiva de calle ideal para el mapa nuevo de autopista, co
   0.27-0.28), rolido máximo 200°/s (175) y se tira a la curva (63% de la inclinación) en 0.16 s a 120 km/h (la Carrera 0.26).
   `balance_fast_lead` (1.5 o 3) no cambió nada: en el slalom la inclinación se aparta más de 5-12° de la pedida y la ayuda
   "rápida" no actúa.
+  **Después (v0.4.1, a pedido: "la moto no tiene peso y salta de un lado al otro")**: con el stick eso la hacía saltar del piso
+  y caerse en casi cada cambio de lado (rolaba 450-550°/s). Lo rápido que cambia de lado ahora lo dan `lean_rate` /
+  `lean_accel` / `lean_rate_speed` (2.3 / 18 / 30, un poco más viva que la Carrera: ±50° en 0.95 s a 30-60 km/h, 1.2 s a 150,
+  120-128°/s de pico) y el balance volvió al de la Carrera (6000 / 1600 / 6000: con la referencia con peso el slalom da lo
+  mismo). Ver [FISICA.md](FISICA.md), "Cambiar de lado: la moto no tenía peso".
 - **El freno motor y el trasero solo**: con `engine_brake` 24 (un freno motor "de calle", más que los 10 de la Carrera),
   `tools/alreves.py` daba 10 de 172 casos cruzados: soltando la curva con el trasero clavado (Espacio) la trasera, frenada
   por el freno y por el motor, no agarraba de costado y la moto quedaba 1-2.5 s inclinada 8-13° para un lado y doblando
@@ -486,7 +491,7 @@ igual que antes.
 | Final | 240-260 km/h | 248.6 km/h | ok |
 | Frenada | 1.0-1.1 g; 100 → 0 en 38-41 m | 1.07 g de 100 (37.0 m), 1.11 de 150 (77 m), 1.15 de 200 (128 m), derecha, la cola en el aire 1-4% | ok |
 | Lateral e inclinación | 1.1-1.2 g con cubiertas deportivas de calle, 48-52° | 1.16-1.21 g a 40 y 120 km/h, 50° | ok |
-| Cambio de dirección | más ágil que una superbike (manubrio ancho) | se tira a la curva en 0.16 s (la Carrera 0.26); slalom +20° → -20° en 0.23-0.25 s (0.27-0.28) | **es la gracia** |
+| Cambio de dirección | más ágil que una superbike (manubrio ancho) | se tira a la curva (90%) en 0.62 s (la Carrera 0.67-0.69); de un lado al otro (±50°) en 0.94 s a 60 km/h, 120-128°/s de pico (v0.4.1, con peso; antes 0.3 s y 500°/s, saltaba) | **es la gracia** |
 | Línea recta a 200+ | aplomada | 5 s a fondo desde 200 y 235 km/h: rolido y guiñada 0 | ok |
 | Giro mínimo | 2.8-3.1 m | 2.4 m (31°) | algo cerrado, arcade |
 | Suspensión | 120-130 / 120-140 mm | 130 / 140 mm | ok |

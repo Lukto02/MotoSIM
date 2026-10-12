@@ -17,6 +17,150 @@ su propio documento: [PILOTO.md](PILOTO.md).
 
 ## Bitácora
 
+### Cambiar de lado: la moto no tenía peso (a pedido, v0.4.1; todas las motos, también la 450)
+- **Pedido**: "con joystick, al cambiar de dirección repetidamente con alguna moto, es como que la moto no tiene peso y salta de
+  un lado al otro. Revisá las motos y fijate que cambien de dirección realísticamente tanto con joystick como con teclado, es
+  como si se inclinaran demasiado rápido". Autorizado a cambiar todas las motos, también la 450.
+- **Cómo se midió**: prueba nueva `slalomN[fF][xS][cC][k]` (Game.cpp: llega a N km/h, la sostiene 1.5 s y tira la dirección de
+  lado a lado F veces por segundo, C ciclos; sin `k` de golpe como el stick, con `k` por las rampas de la D y la A) y
+  `tools/slalom.py` (por cada cambio: rolido máximo, aceleración de rolido de la derivada de `wr` con una fila por paso,
+  cuánto tarda en cruzar el 0 y en llegar al 90% del recorrido, cuánto se pasa, y la oscilación: ± y centro);
+  `tools/rolido.py` barre motos × velocidades × modos (`cambio`: un cambio entero cada 2 s con el stick; `cambiok`: con el
+  teclado; `s1`/`s2`: slalom a 1 y 2 Hz; `s1k`; `medio`: el stick a medias). Las de tierra en `prueba/plaza_tierra`, las de
+  calle en `prueba/plaza_asfalto_ancha`, de 30 a 200 km/h. El joystick no se puede enchufar acá: el stick es la dirección
+  de golpe (`ReadPlayerInput` la pasa sin rampa), que es lo que hace `slalomN` sin `k`.
+- **Qué pasaba** (v0.4.0, cambio entero de lado a lado, ±46-55°):
+  - con el stick las de tierra rolaban **190-220°/s** con **3000-7600°/s²** de aceleración de rolido y la Carrera
+    **300-430°/s** con **10 000-19 000°/s²**; la Naked **450-550°/s** con **16 000-23 000°/s²** y **se caía en casi cada
+    cambio** (a 30, 60, 100 y 150 km/h): al cambiar de lado la moto **se levantaba del piso** (delantera y trasera a
+    10 000 N un paso y a 0 el siguiente), volaba rolando a 9 rad/s y caía acostada a 90°: "salta de un lado al otro";
+  - con el teclado (la rampa de la D, 0.45 s de un lado al otro) la mitad: 140-150°/s y ~900°/s² las de tierra, 180°/s la
+    Carrera, 230°/s la Naked. O sea que el stick y el teclado daban motos distintas;
+  - con el stick a medias (`medio`), las de tierra se pasaban de la inclinación 8-10°.
+- **Por qué**: el balance es un PD que lleva el rolido a la inclinación pedida (`leanTarget`), y esa inclinación sale del
+  manubrio tal cual: con el stick salta de +50° a −50° en un cuadro. El PD mete enseguida su torque máximo
+  (`balance_max_torque`): 2600 Nm sobre 26 kg·m² son 100 rad/s² (5700°/s²) en la 450; la Naked, con el balance subido para
+  tirarse rápido (K 12 000, tope 10 000 Nm sobre 24 kg·m²), 417 rad/s². Y el torque rota el cuerpo alrededor de su centro de
+  masa, no de la línea de las ruedas: a esa aceleración las ruedas barren de costado y se clavan en el piso (por eso la
+  Naked salía despedida). Una moto de verdad no puede: cambia de inclinación **contravirando** (el manubrio corre el contacto
+  de costado y el peso hace el resto), así que el rolido acelera como mucho lo que da el agarre usado para eso, y el
+  giroscópico de las ruedas pide cada vez más fuerza en el manubrio para el mismo rolido a más velocidad.
+- **Contra las de verdad** (órdenes de magnitud de memoria, no buscados; como en "Velocidad de giro"): en la calle se rola
+  20-40°/s, manejando rápido 40-70°/s, y en la pista, en una chicana, 80-120°/s de pico (de 45-55° de un lado al otro en
+  ~0.8-1.2 s); la aceleración de rolido de un contraviraje con todo el agarre es a lo sumo ~a/h (aceleración lateral sobre la
+  altura del centro de masa): 9.5-12 m/s² / 0.6 m ≈ 15-20 rad/s² (900-1100°/s²), y un piloto usa menos. A más velocidad cuesta
+  más (el par en el manubrio para un rolido dado crece con la velocidad: el máximo cae ~1/v arriba de ~100 km/h). Tirarse a la
+  curva (de derecho a acostada): 0.5-1 s.
+- **Qué se hizo** (claves nuevas; en `tuning.ini` valen lo de antes, guardadas con `if`; en las dos físicas):
+  - **`lean_rate` / `lean_accel` / `lean_rate_speed`** (`Bike::ShapeLean`, BikePhysics.cpp): la inclinación que pide el
+    manubrio pasa por una referencia con peso. Es un sistema de 2º orden **críticamente amortiguado** (arranca, acelera y frena
+    el rolido sin pasarse) cuya frecuencia baja cuando falta mucho, lo justo para que la aceleración al arrancar sea
+    `lean_accel` (× la curva que puede hacer el manubrio a esa velocidad y en ese suelo sobre `max_lateral_accel`: a paso de
+    hombre o con poco agarre, menos; entre 0.25 y 1.5), con frecuencia máxima 12 rad/s para los cambios chicos, el rolido
+    hasta `lean_rate / √(1 + (v / lean_rate_speed)²)` y antes un filtro de 0.05 s para el escalón del stick. Un cambio chico
+    tarda poco y uno grande más, igual con el stick que con el teclado;
+  - el balance **amortigua el rolido respecto de la referencia** (`rollRate − leanRefRate`, en vez de todo el rolido) y le
+    suma el torque de acelerar el rolido como ella (`inertia_roll × leanRefAcc`): sin eso la moto iba ~0.1 s atrás de lo
+    pedido y la amortiguación frenaba justo lo que se pedía. Los recortes de la inclinación pedida (frenar enderezando,
+    derrapar, el freno de mano) siguen al instante como antes, después del filtro (ver "Probado y descartado");
+  - sólo con **las dos ruedas en el piso** (o fuera hace menos de 0.15 s: un bache). En el aire, en una rueda o caída, la
+    pedida tal cual y el balance de antes;
+  - **`stoppie_upright`**: apoyada sólo adelante y de trompa (8-20° de nariz abajo), lo que pide el manubrio no la acuesta
+    (sin la trasera, acostarla sólo la hace girar sobre la delantera). Sólo en la Trial (abajo);
+  - valores: las de tierra (450, 600, 2T, Trilheira) 2.2 rad/s, 16 rad/s², 25 m/s; la Trial 2.4 / 16 / 20 (liviana y lenta) y
+    `stoppie_upright` 1; la Carrera 2.2 / 16 / 32; la Naked 2.3 / 18 / 30 (un poco más viva que la Carrera, por el manubrio
+    ancho) y **el balance de la Carrera** (6000 / 1600 / 6000 en vez de 12 000 / 1800 / 10 000: lo que la hace cambiar de lado
+    ahora es `lean_rate`, y con su balance de antes el slalom daba casi lo mismo: 112 contra 104°/s y 1.03 s a 100 km/h).
+- **Probado y descartado**:
+  - **"frenar justo para llegar"** (acelerar al máximo y frenar con la curva de frenado, tiempo óptimo): de un lado al otro
+    perfecto, pero con el stick de lado a lado más rápido de lo que la moto puede seguir **se iba corriendo para un lado**
+    (a 1 Hz, oscilando alrededor de +30°): el primer medio ciclo arranca de derecha y como nunca llega, nunca se compensa. Lo
+    mismo con un tope duro de la aceleración sobre un 2º orden fijo, y con la frecuencia programada a 1.4 o 2 veces la justa
+    (+13 a +25° de centro en 3 ciclos). Con la justa (la que quedó) se centra sola en ~2 ciclos;
+  - **un 2º orden lineal solo** (sin topes, siempre centrado): todos los cambios tardan lo mismo, chicos o grandes (0.86 s
+    para 9° o para 92°), y las correcciones chicas se sienten lentas; para un cambio grande en ~1 s pasa los 150°/s de pico;
+  - **el filtro después de los recortes** (frenar enderezando y derrapar también con peso, más consistente): el bot de la
+    Trilheira en la favela se caía 3-10 veces cada 15 min (0-1 con el filtro antes) y la 450 daba 1:05.08 en la pista;
+    **la amortiguación respecto de la referencia recortada** (con el filtro antes): `alreves.py` de la 450 vuelve a 1 de
+    129, pero la Trilheira en la favela se cae en 22 de 64 vueltas (con lo que quedó, 9; antes del cambio, 1 de 48);
+  - **la ayuda en una rueda**: con la referencia también apoyada sólo adelante, la Trial que aterrizaba del doble de la pista
+    de motocross en stoppie seguía rolando a la par de la referencia (9-12 caídas cada 15 min); sólo con las dos ruedas no
+    alcanzó: el bot pedía 17-50° con la moto apoyada en la delantera de trompa (de ahí `stoppie_upright`). `stoppie_upright`
+    en todas: la 450 en la favela pasaba de 0 a 1-4 caídas (en la curva de s≈258-266 no podía doblar de trompa); quedó en la
+    Trial;
+  - **para la 2T en la S de la largada de la favela** (abajo): rolido más rápido (2.6-6 rad/s, 20-100 rad/s²), sin el filtro
+    de 0.05 s, sin el torque de anticipación, sin la amortiguación respecto de la referencia, `lean_load_flat`, sin
+    `balance_fast`, y un bot que anticipa (apunta desde donde va a estar en 0.1-0.3 s): nada la deja como antes. Hasta con la
+    referencia casi instantánea (6 rad/s, 100 rad/s², sin el filtro de 0.05 s) se cae 24 de 40 veces.
+- **Se comprobó** (antes = v0.4.0; con el stick, un cambio entero de lado a lado, ±46-55°; entre paréntesis, con el teclado):
+
+  | moto | km/h | rolido máx. (°/s) antes → después | aceleración de rolido máx. (°/s²) antes → después | 90% del cambio (s) antes → después |
+  |---|---|---|---|---|
+  | 450 | 30 / 60 / 100 | 222 / 198 / 204 (152 / 146 / 148) → **120 / 121 / 104** (105 / 113 / 101) | 3800 / 5000 / 5000 (840-990) → **620 / 1210 / 1120** (520-810) | 0.77 / 0.77 / 0.88 (1.11 / 1.06 / 1.11) → **1.00 / 0.96 / 1.10** (1.20 / 1.13 / 1.21) |
+  | 600 | 30 / 60 / 100 | 221 / 197 / 203 → **120 / 121 / 105** | 3300 / 2900 / 3500 → **620 / 810 / 960** | 0.78 / 0.77 / 0.94 → **1.01 / 0.96 / 1.10** |
+  | 2T | 30 / 60 / 100 | 205 / 186 / 189 → **115 / 119 / 105** | 3200 / 3000 / 3100 → **650 / 830 / 940** | 0.79 / 0.79 / 0.90 → **0.99 / 0.94 / 1.09** |
+  | Trilheira | 30 / 60 / 100 | 205 / 190 / 194 → **117 / 122 / 109** | 3700 / 3200 / 3300 → **690 / 1020 / 990** | 0.81 / 0.78 / 0.88 → **1.03 / 0.95 / 1.11** |
+  | Trial | 30 / 60 / 70 | 214 / 193 / 195 → **117 / 117 / 111** | 6500 / 7600 / 5500 → **610 / 1250 / 870** | 0.61 / 0.71 / 0.73 → **0.99 / 0.96 / 0.99** |
+  | Carrera | 30 / 60 / 100 / 150 / 200 | 299 / 318 / 326 / 335 / 431 (178-180) → **117 / 118 / 103 / 86 / 76** (105 / 108 / 97 / 85 / 74) | 10 700-18 900 (1400-2100) → **980-1530** (760-1400) | 0.47 / 0.48 / 0.51 / 0.82 / 0.73 (1.01-1.07) → **1.03 / 1.02 / 1.10 / 1.29 / 1.54** (1.17-1.62) |
+  | Naked | 30 / 60 / 100 / 150 | 451 / 523 / 535 / 547, **se caía en cada uno** (215-232) → **121 / 122 / 104 / 86** (107 / 112 / 100 / 86) | 16 000-23 000 (2000-3500) → **1180-1460** (840-1440) | 0.57-0.60 (0.72-0.76) → **0.95 / 0.94 / 1.03 / 1.22** (1.10-1.32) |
+
+  - **ya no salta**: la Naked a 100 km/h, cambiando de lado dos veces, estuvo 546 pasos sin las dos ruedas en el piso y con
+    11 000 N en cada una; ahora ninguno y 2350 N como máximo;
+  - el stick y el teclado ahora dan casi lo mismo (el teclado 0.1-0.2 s más, por su rampa); se pasa de la inclinación 1-4°
+    (la 450 con el stick a medias, 8-10° → 2-5°; la Carrera y la Naked 0.5-2°); con el stick de lado a lado a 1 Hz, ±22-28°
+    alrededor de ~+11° los primeros 2 ciclos y después centrado; a 2 Hz, ±5-10°. La aceleración de rolido medida (hasta
+    ~1500°/s²) pasa la de la referencia (16-18 rad/s², 920-1030°/s²) en los picos de las cubiertas, no en la tendencia;
+  - tirarse a la curva (`giroN`, 90% de la inclinación, stick / teclado): 450 0.66 / 0.79 → 0.74 / 0.81 s, Trial 0.66 / 0.81
+    → 0.69 / 0.76, Carrera 0.50 / 0.64 → 0.69 / 0.76, Naked 0.31 / 0.46 → 0.63 / 0.71 (de verdad: 0.5-1 s); la curva sostenida,
+    igual (la misma inclinación, radio y g); `circle12` 55° máx. → 50° (no se pasa), los mismos 50.1° sostenidos;
+  - bots, 900 s (vueltas / caídas; antes → después): 450 en la pista 13/0 → 13/0, **1:04.41 / 1:04.24 → 1:04.51 / 1:04.33**;
+    600 13/0 → 13/0, **1:04.23 / 1:04.34 → 1:04.64 / 1:04.45**; Trial 13/0 → 13/0 (1:04.94 → 1:04.89); 2T 13/0 → 13/0 (1:04.28
+    → 1:04.33); Trilheira 13/0 → 13/0 (1:05.07 → 1:04.77); la 450 en la favela 9/0 → 9/0 en 4 muestras (**1:36.71 → 1:36.98**);
+    la Carrera en el circuito 6/0 → 6/0 (**2:10.86 / 2:09.19 → 2:11.28 / 2:09.60**); la Naked en el circuito 6/0 → 6/0 (2:14.46
+    → 2:15.21); park 17/0 (0:50.87 / 0:50.90 → 0:50.91 / 0:50.98); valle 21/0 (0:41.01 → 0:41.09); autopista con tráfico
+    idéntica (6:50.40 la Naked, 6:50.48 la Carrera); Los Médanos sin caídas; la Carrera en la favela 1-5 → 0-3 caídas cada
+    15 min, la Trial en la favela 4 → 5 (las de siempre, s≈253-267);
+  - `alreves.py`: la Carrera 1 de 215 → 0, la Naked 1 de 129 → 0, la Trilheira en tierra 61 → 60 de 129 (los de siempre), la
+    450 en tierra 1 → 4 de 129 (soltar la D y clavar a 60-90 km/h: 0.3 s, justo el umbral, inclinada 9-15° con el camino
+    girando 6-9°/s para el otro lado; el camino total queda en ±2°);
+  - el whip (`whipkick50`: la 2T despega a 38° con −1.67 rad/s de guiñada, igual; la 450 a 40° en vez de 45°), el wheelie, el
+    grau de la Trial y la Trilheira (`graucurva`), el mortal (`flip`), `airrot`, el freno de mano (`derrape.py`: la misma cola,
+    2-5° menos de inclinación máxima) y los trucos del bot (`--trucos`: las mismas caídas en los saltos chicos), iguales;
+  - `tools/regresion.sh` contra la v0.4.0: con los `.ini` de la v0.4.0 (las claves en 0) **idéntico** en 17 pruebas (las 9 de
+    siempre, `accel`, la Naked en la autopista, la Carrera en el circuito, la Trial, la 450 en la favela, la 600, el park y la
+    Trilheira en la favela). Con los nuevos, distinta a propósito en las que doblan (`brakeslide`, `cuerpo`, `circle12`, el bot,
+    `flip`); en las derechas (`wheelie`, `brakestraight`, `airrot`) sólo en los centésimos; `whip` idéntica.
+- **Pendientes**:
+  - **la 2T en la favela** (no es su mapa): 0 → 8-13 caídas cada 15 min (4 muestras), casi todas en la S de la largada
+    (s≈1215 → 25): el bot llega a un lomo acostado ~50° y al aterrizar tiene que pasar a −40°; con el rolido con peso no llega y
+    pega en una casa en s≈18-24. Con distintas velocidades del bot (`--bot-lat` 5-7), antes 3 de 21 y ahora 7-12 de 21: el
+    lugar ya estaba al límite. Es el plan del bot en la favela (MAPAS) o su ley (persecución pura, sin anticipar:
+    `Game::BotInput`); en la pista, el park y el valle la 2T no se cae;
+  - **la Naked en la pista de motocross** (no es su mapa): sin caídas, pero 9-11 vueltas en 15 min (1:10-1:44) contra 13
+    (1:05.6-1:06.2): a veces cae corta del doble de s≈425 y sale despacio del pozo;
+  - la Trilheira en la favela: 0 → 0-1 caídas cada 15 min (9 en 64 vueltas con la masa corrida; antes 1 de 48), en la pared
+    de s≈253 (la de siempre);
+  - la 450 en `alreves.py` (arriba): 3 casos más, en el umbral.
+- **Lecciones**:
+  - **Una inclinación pedida que salta es un torque que salta**: el balance no tenía la culpa, sino lo que se le pedía: con el
+    stick, de un lado al otro en un cuadro. Y el torque del balance gira la moto alrededor de su centro de masa: a cientos de
+    rad/s² las ruedas barren de costado y la levantan del piso. Lo físico es limitar lo pedido (el contraviraje), no ablandar
+    el balance (con menos K la moto sostiene menos y se pasa).
+  - **Medir con una fila por paso**: la aceleración de rolido sale de la derivada de `wr`; con la telemetría cada 0.05 s se ve
+    el rolido máximo pero no el golpe.
+  - **Un limitador "óptimo" no se centra**: acelerar al tope y frenar justo, o cualquier sistema saturado, con un pedido que va
+    y viene más rápido de lo que puede seguir, se corre para el lado del primer medio ciclo y no vuelve. Un 2º orden casi
+    lineal (la frecuencia programada para no pasar la aceleración máxima) sí: probar siempre el slalom rápido, no sólo el
+    cambio entero.
+  - **La amortiguación tiene que ser respecto de lo que se mueve**: con una referencia que se mueve, amortiguar todo el rolido
+    frena lo que se pide; respecto de la referencia, la moto la sigue. Si después se recorta la inclinación (frenando), la
+    referencia ya no es la que se busca: hay que decidir qué ve cada término (acá, la del manubrio: la que menos cambió al bot).
+  - **Lo que vale con las dos ruedas no vale en una**: el contraviraje es con las dos en el piso; en una (stoppie, wheelie,
+    aterrizaje de trompa) la ayuda tiene que ser la de antes. Y apoyada sólo adelante, acostarla no dobla: la hace girar.
+  - **Para comparar caídas de bot, muestras independientes de verdad**: arrancar el bot desde 40 `s` distintos no sirve (en
+    100 m todos convergen a la misma línea y el resultado es uno solo repetido); barrer `--bot-lat` (otra velocidad, otra
+    línea) y correr la masa ±0.01-0.04 kg sí.
+
 ### La 450 y la 600: el trompo frenando con la S (a pedido, v0.3.10; cambia la física de la 450)
 - **Pedido**: "arreglá el trompo de la 450 y la 600": frenando fuerte con la S y un poco de dirección hacían un trompo (igual en
   la v0.3.8). Que frenar fuerte doblando abra la curva o haga un derrape controlable, y que la frenada recta y la sensación de
